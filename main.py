@@ -1,34 +1,37 @@
-# main.py - Bot BacBo com 8 Estratégias e Banco Neon
+# main.py - Bot BacBo com 8 Estratégias e Banco Neon - VERSÃO CORRIGIDA
 
 import os
 import time
-import json
 import requests
 import psycopg2
-from psycopg2 import sql
 from datetime import datetime, timedelta
-from collections import Counter
+import json
 import sys
+from collections import Counter
 
 # =============================================================================
 # CONFIGURAÇÕES
 # =============================================================================
-# Banco de Dados Neon (substitua pela sua string de conexão)
-DATABASE_URL = "postgresql://neondb_owner:npg_OgR74skiylmJ@ep-long-pond-ai793l7o-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require"
+# Banco de Dados Neon (pegando da variável de ambiente do Railway)
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
-# API do Casino.org (fonte dos dados)
+if not DATABASE_URL:
+    print("❌ ERRO: DATABASE_URL não configurada!")
+    print("👉 Vá em Variables no Railway e adicione DATABASE_URL")
+    sys.exit(1)
+
+# API do Casino.org
 API_URL = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo"
 PARAMS = {
     "page": 0,
-    "size": 20,  # Pega um lote maior para análise
+    "size": 20,
     "sort": "data.settledAt,desc",
     "duration": 30,
     "wheelResults": "PlayerWon,BankerWon,Tie"
 }
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
 
-# Intervalo de coleta (segundos) - 10s é bom para tempo real
-INTERVALO COLETA = 10
+INTERVALO_COLETA = 10  # segundos
 
 # =============================================================================
 # FUNÇÕES DO BANCO DE DADOS (Neon)
@@ -37,6 +40,7 @@ def conectar_banco():
     """Conecta ao banco PostgreSQL no Neon."""
     try:
         conn = psycopg2.connect(DATABASE_URL)
+        print("✅ Conectado ao banco Neon com sucesso!")
         return conn
     except Exception as e:
         print(f"❌ Erro ao conectar no banco: {e}")
@@ -61,7 +65,6 @@ def criar_tabela(conn):
                     dados_completos JSONB
                 );
             """)
-            # Índice para buscas rápidas por data/hora
             cur.execute("CREATE INDEX IF NOT EXISTS idx_data_hora ON rodadas_bacbo(data_hora DESC);")
             conn.commit()
             print("✅ Tabela 'rodadas_bacbo' verificada/criada com sucesso.")
@@ -70,7 +73,7 @@ def criar_tabela(conn):
         conn.rollback()
 
 def inserir_rodada(conn, rodada):
-    """Insere uma nova rodada no banco, ignorando conflitos (duplicatas)."""
+    """Insere uma nova rodada no banco, ignorando conflitos."""
     try:
         with conn.cursor() as cur:
             cur.execute("""
@@ -92,7 +95,7 @@ def inserir_rodada(conn, rodada):
                 json.dumps(rodada['dados_completos'])
             ))
             conn.commit()
-            return cur.rowcount > 0  # Retorna True se inseriu (nova rodada)
+            return cur.rowcount > 0
     except Exception as e:
         print(f"❌ Erro ao inserir rodada {rodada['id']}: {e}")
         conn.rollback()
@@ -169,7 +172,7 @@ def processar_item_api(item):
         soma = player_score + banker_score
         resultado_api = result.get('outcome', 'Desconhecido')
 
-        # Mapear resultado para o formato que usamos
+        # Mapear resultado
         if resultado_api == 'PlayerWon':
             resultado = 'PLAYER'
         elif resultado_api == 'BankerWon':
@@ -199,109 +202,94 @@ def processar_item_api(item):
         return None
 
 # =============================================================================
-# MÓDULO DE ESTRATÉGIA E PREDIÇÃO (Baseado no seu manual)
+# MÓDULO DE ESTRATÉGIA E PREDIÇÃO
 # =============================================================================
 def identificar_modo(estats):
-    """Passo 1: Identifica o modo do algoritmo com base nas estatísticas."""
+    """Identifica o modo do algoritmo com base nas estatísticas."""
     diff = abs(estats['banker_pct'] - estats['player_pct'])
     if diff > 4:
-        return "🔥 AGRESSIVO"
+        return "AGRESSIVO"
     elif 44 < estats['player_pct'] < 46 and 44 < estats['banker_pct'] < 46:
-        return "⚖️ EQUILIBRADO"
+        return "EQUILIBRADO"
     else:
-        # Lógica para detectar modo Predatório (pode ser refinada com análise de extremos)
-        return "🎯 PREDATÓRIO"
+        return "PREDATORIO"
 
 def analisar_historico(historico):
     """
-    Passo 5: Roda as 8 estratégias no histórico recente.
-    Retorna um dicionário com a contagem de votos para PLAYER, BANKER e os pesos aplicados.
+    Analisa o histórico e retorna votos para PLAYER e BANKER.
     """
     if len(historico) < 5:
-        return {'PLAYER': 0, 'BANKER': 0, 'detalhes': {}}  # Precisa de histórico mínimo
+        return {'PLAYER': 0, 'BANKER': 0, 'detalhes': {}}
 
-    # Mapear sequência de resultados
     sequencia = [h['resultado'] for h in historico]
-    ultimo_resultado = sequencia[0] if sequencia else None
-    penultimo = sequencia[1] if len(sequencia) > 1 else None
-
-    # Contadores para estratégias
+    
     votos = {'PLAYER': 0, 'BANKER': 0}
     detalhes = {}
 
-    # --- Estratégia #2: PAREDÃO (Detecta 4+ iguais) ---
+    # Estratégia #2: PAREDÃO (4+ iguais)
     if len(sequencia) >= 4 and all(r == sequencia[0] for r in sequencia[:4]):
         votos[sequencia[0]] += 90
-        detalhes['Paredão'] = f"+90 para {sequencia[0]}"
+        detalhes['Paredao'] = f"+90 para {sequencia[0]}"
     elif len(sequencia) >= 3 and all(r == sequencia[0] for r in sequencia[:3]):
-        votos[sequencia[0]] += 50 # Peso menor para 3 iguais
-        detalhes['Paredão (3)'] = f"+50 para {sequencia[0]}"
+        votos[sequencia[0]] += 50
+        detalhes['Paredao_3'] = f"+50 para {sequencia[0]}"
 
-    # --- Estratégia #4: XADREZ (Alternância B-P-B-P) ---
+    # Estratégia #4: XADREZ (Alternância)
     if len(sequencia) >= 4:
         if sequencia[0] != sequencia[1] and sequencia[1] != sequencia[2] and sequencia[2] != sequencia[3]:
-            # Alternância pura, a próxima seria o oposto do último
-            proxima_alternancia = 'PLAYER' if sequencia[0] == 'BANKER' else 'BANKER'
-            votos[proxima_alternancia] += 90
-            detalhes['Xadrez'] = f"+90 para {proxima_alternancia}"
+            proxima = 'PLAYER' if sequencia[0] == 'BANKER' else 'BANKER'
+            votos[proxima] += 90
+            detalhes['Xadrez'] = f"+90 para {proxima}"
 
-    # --- Estratégia #5: CONTRAGOLPE (3+ iguais -> 1 diferente) ---
+    # Estratégia #5: CONTRAGOLPE
     if len(sequencia) >= 4 and sequencia[0] != sequencia[1] and sequencia[1] == sequencia[2] == sequencia[3]:
-        # Padrão: Diferente, Igual, Igual, Igual (ex: P, B, B, B) -> a tendência é voltar para B
         votos[sequencia[1]] += 70
-        detalhes['Contragolpe'] = f"+70 para {sequencia[1]} (volta à dominante)"
+        detalhes['Contragolpe'] = f"+70 para {sequencia[1]}"
 
-    # --- Estratégia #7: FALSA ALTERNÂNCIA (Números extremos) ---
-    # Simplificação: Se o último resultado foi com um número extremo (>=10) de um lado e o oponente baixo
+    # Estratégia #7: FALSA ALTERNÂNCIA (números extremos)
     ultimo = historico[0]
     if ultimo['player_score'] >= 10 or ultimo['banker_score'] >= 10:
-        # Se houve extremo, a tendência é manter a força (ou seja, repetir o mesmo lado)
         votos[ultimo['resultado']] += 80
-        detalhes['Falsa Alternância'] = f"+80 para {ultimo['resultado']} (extremo)"
-
-    # --- Outras estratégias podem ser implementadas aqui (Compensação, Moedor, etc.) ---
+        detalhes['Falsa_Alternancia'] = f"+80 para {ultimo['resultado']}"
 
     return {'PLAYER': votos['PLAYER'], 'BANKER': votos['BANKER'], 'detalhes': detalhes}
 
 def prever_proxima_cor(conn):
     """Função principal que coordena a predição."""
     print("\n" + "="*60)
-    print("🧠 INICIANDO ANÁLISE PARA PREDIÇÃO")
+    print("🧠 INICIANDO ANALISE PARA PREDICAO")
     print("="*60)
 
-    # 1. Buscar estatísticas gerais do período
     estats = calcular_estatisticas_gerais(conn, periodo_minutos=30)
-    print(f📊 "Estatísticas (últimos 30 min): Player {estats['player_pct']:.1f}%, Banker {estats['banker_pct']:.1f}%, Tie {estats['tie_pct']:.1f}%")
+    print(f"📊 Estatisticas (ultimos 30 min): Player {estats['player_pct']:.1f}%, Banker {estats['banker_pct']:.1f}%, Tie {estats['tie_pct']:.1f}%")
 
-    # 2. Identificar o modo
     modo = identificar_modo(estats)
     print(f"🎯 Modo detectado: {modo}")
 
-    # 3. Buscar histórico recente (últimas 20 rodadas) para análise fina
     historico = buscar_ultimas_rodadas(conn, limite=20)
     if not historico:
-        print("⚠️ Histórico insuficiente para predição.")
+        print("⚠️ Historico insuficiente para predicao.")
         return None
 
-    print(f"📜 Histórico (últimas {len(historico)}): {[h['resultado'] for h in historico]}")
+    print(f"📜 Historico: {[h['resultado'] for h in historico][:10]}...")
 
-    # 4. Aplicar as estratégias no histórico
     votos = analisar_historico(historico)
 
-    # 5. Aplicar pesos do modo (Meta-Algoritmo - Estratégia #8)
+    # Aplicar pesos do modo
     if "AGRESSIVO" in modo:
-        # No modo agressivo, dobra o peso da cor dominante (se houver)
         if estats['banker_pct'] > estats['player_pct'] + 2:
-            votos['BANKER'] = votos['BANKER'] * 1.5
-            print("⚡ Meta-Algoritmo: Modo AGRESSIVO, BANKER dominante -> peso dobrado para BANKER")
+            votos['BANKER'] = int(votos['BANKER'] * 1.5)
+            print("⚡ Modo AGRESSIVO: BANKER dominante")
         elif estats['player_pct'] > estats['banker_pct'] + 2:
-            votos['PLAYER'] = votos['PLAYER'] * 1.5
-            print("⚡ Meta-Algoritmo: Modo AGRESSIVO, PLAYER dominante -> peso dobrado para PLAYER")
+            votos['PLAYER'] = int(votos['PLAYER'] * 1.5)
+            print("⚡ Modo AGRESSIVO: PLAYER dominante")
 
-    print(f"🗳️ Votos finais (ponderados): PLAYER={votos['PLAYER']:.0f}, BANKER={votos['BANKER']:.0f}")
-    print(f"📋 Detalhes: {votos['detalhes']}")
+    print(f"🗳️ Votos: PLAYER={votos['PLAYER']}, BANKER={votos['BANKER']}")
+    
+    if votos['detalhes']:
+        print(f"📋 Estrategias: {votos['detalhes']}")
 
-    # 6. Decidir a previsão
+    # Decidir previsão
     if votos['BANKER'] > votos['PLAYER']:
         previsao = 'BANKER'
         confianca = (votos['BANKER'] / (votos['BANKER'] + votos['PLAYER'] + 0.01)) * 100
@@ -309,42 +297,44 @@ def prever_proxima_cor(conn):
         previsao = 'PLAYER'
         confianca = (votos['PLAYER'] / (votos['BANKER'] + votos['PLAYER'] + 0.01)) * 100
     else:
-        previsao = 'INDEFINIDO (possível TIE)'
+        previsao = 'INDEFINIDO'
         confianca = 0
 
-    # 7. Aplicar regra de delay pós-empate (Estratégia #3 e #6)
+    # Delay pós-empate
     delay_ativo = False
     if historico and historico[0]['resultado'] == 'TIE':
         delay_ativo = True
-        print("⏸️ DELAY PÓS-EMPATE ATIVO: Não apostar na próxima rodada.")
+        print("⏸️ DELAY POS-EMPATE ATIVO")
 
-    # 8. Exibir resultado final
     print("\n" + "="*60)
-    print("🎯 RESULTADO DA PREDIÇÃO")
+    print("🎯 RESULTADO DA PREDICAO")
     print("="*60)
+    
     if delay_ativo:
-        print("⚠️ AGUARDE: Delay pós-empate. Próxima rodada deve ser ignorada.")
+        print("⚠️ AGUARDE: Delay pos-empate")
     else:
-        cor_simbolo = '🔴' if previsao == 'PLAYER' else '⚫' if previsao == 'BANKER' else '⚪'
-        print(f"{cor_simbolo} PRÓXIMA COR: {previsao}")
-        print(f"📈 CONFIANÇA: {confianca:.1f}%")
-        print(f"🧠 ESTRATÉGIAS ATIVAS: {', '.join(votos['detalhes'].keys()) if votos['detalhes'] else 'Análise básica'}")
-        print(f"🛡️ PROTEÇÃO TIE: {estats['tie_pct']:.1f}% (nos últimos 30min)")
+        simbolo = "🔴" if previsao == "PLAYER" else "⚫" if previsao == "BANKER" else "⚪"
+        print(f"{simbolo} PROXIMA COR: {previsao}")
+        print(f"📈 CONFIANCA: {confianca:.1f}%")
+        print(f"🛡️ PROTECAO TIE: {estats['tie_pct']:.1f}%")
 
     return previsao
 
 # =============================================================================
-# LOOP PRINCIPAL 24/7
+# LOOP PRINCIPAL
 # =============================================================================
 def main():
-    print("🚀 Iniciando Bot BacBo com Banco Neon e Estratégias Avançadas...")
+    print("="*60)
+    print("🚀 BOT BACBO COM BANCO NEON - INICIANDO")
+    print("="*60)
+    
     conn = conectar_banco()
     if not conn:
-        print("❌ Falha crítica na conexão com o banco. Encerrando.")
+        print("❌ Falha na conexao com o banco. Encerrando.")
         sys.exit(1)
 
     criar_tabela(conn)
-
+    
     print(f"⏱️  Coletando dados a cada {INTERVALO_COLETA} segundos. Modo 24/7 ativo.")
     print("="*60)
 
@@ -363,26 +353,23 @@ def main():
                             novas_rodadas += 1
 
                 if novas_rodadas > 0:
-                    print(f"✅ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {novas_rodadas} novas rodadas inseridas.")
+                    print(f"✅ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {novas_rodadas} novas rodadas")
                 else:
-                    print(f"⏳ {datetime.now().strftime('%H:%M:%S')} - Nenhuma rodada nova.")
+                    print(f"⏳ {datetime.now().strftime('%H:%M:%S')} - Nenhuma rodada nova")
 
-                # A cada 6 ciclos (aprox 1 minuto), fazer uma predição
+                # A cada 6 ciclos (aprox 1 minuto), fazer predição
                 if ciclo_coleta % 6 == 0:
                     prever_proxima_cor(conn)
-
-            else:
-                print(f"⚠️ {datetime.now().strftime('%H:%M:%S')} - Falha ao obter dados da API.")
 
             time.sleep(INTERVALO_COLETA)
 
         except KeyboardInterrupt:
-            print("\n🛑 Bot interrompido pelo usuário.")
+            print("\n🛑 Bot interrompido")
             if conn:
                 conn.close()
             sys.exit(0)
         except Exception as e:
-            print(f"❌ Erro inesperado no loop principal: {e}")
+            print(f"❌ Erro: {e}")
             time.sleep(INTERVALO_COLETA)
 
 if __name__ == "__main__":
