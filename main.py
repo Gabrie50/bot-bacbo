@@ -1,26 +1,16 @@
-# main.py - Bot BacBo com Web Interface Integrada
+# main.py - Bot BacBo SEM Banco de Dados (usa JSON local)
 
 import os
 import time
 import requests
-import psycopg2
-from datetime import datetime, timedelta
 import json
+from datetime import datetime, timedelta
 import sys
-import threading
 from collections import Counter
 
 # =============================================================================
 # CONFIGURAÇÕES
 # =============================================================================
-DATABASE_URL = os.environ.get("DATABASE_URL")
-
-if not DATABASE_URL:
-    print("❌ ERRO: DATABASE_URL não configurada!")
-    print("👉 Vá em Variables no Railway e adicione DATABASE_URL")
-    sys.exit(1)
-
-# API do Casino.org
 API_URL = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo"
 PARAMS = {
     "page": 0,
@@ -33,182 +23,85 @@ HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 
 INTERVALO_COLETA = 10  # segundos
 
-# Cache para estatísticas (para a interface web)
-cache_estatisticas = {
-    'ultima_atualizacao': None,
-    'ultimas_72h': {},
-    'ultimas_100': [],
-    'resumo': {}
-}
+# Arquivo para salvar os dados
+ARQUIVO_DADOS = "dados_bacbo.json"
 
 # =============================================================================
-# FUNÇÕES DO BANCO DE DADOS (Neon)
+# FUNÇÕES DE ARQUIVO (substituem o banco de dados)
 # =============================================================================
-def conectar_banco():
-    """Conecta ao banco PostgreSQL no Neon."""
+def carregar_dados():
+    """Carrega os dados salvos do arquivo JSON."""
     try:
-        conn = psycopg2.connect(DATABASE_URL)
-        print("✅ Conectado ao banco Neon com sucesso!")
-        return conn
+        if os.path.exists(ARQUIVO_DADOS):
+            with open(ARQUIVO_DADOS, 'r', encoding='utf-8') as f:
+                dados = json.load(f)
+                print(f"✅ Carregados {len(dados)} rodadas do arquivo")
+                return dados
+        else:
+            print("📁 Arquivo de dados não encontrado, iniciando novo")
+            return []
     except Exception as e:
-        print(f"❌ Erro ao conectar no banco: {e}")
-        return None
+        print(f"⚠️ Erro ao carregar dados: {e}")
+        return []
 
-def criar_tabela(conn):
-    """Cria a tabela para armazenar as rodadas, se não existir."""
+def salvar_dados(rodadas):
+    """Salva os dados no arquivo JSON."""
     try:
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS rodadas_bacbo (
-                    id TEXT PRIMARY KEY,
-                    data_hora TIMESTAMP,
-                    player_score INTEGER,
-                    banker_score INTEGER,
-                    soma INTEGER,
-                    resultado TEXT,
-                    par_impar TEXT,
-                    multiplicador FLOAT,
-                    total_winners INTEGER,
-                    total_amount FLOAT,
-                    dados_completos JSONB
-                );
-            """)
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_data_hora ON rodadas_bacbo(data_hora DESC);")
-            conn.commit()
-            print("✅ Tabela 'rodadas_bacbo' verificada/criada com sucesso.")
+        # Manter apenas últimas 5000 rodadas para não ficar muito grande
+        if len(rodadas) > 5000:
+            rodadas = rodadas[-5000:]
+        
+        with open(ARQUIVO_DADOS, 'w', encoding='utf-8') as f:
+            json.dump(rodadas, f, indent=2, ensure_ascii=False, default=str)
+        print(f"💾 Dados salvos: {len(rodadas)} rodadas")
+        return True
     except Exception as e:
-        print(f"❌ Erro ao criar tabela: {e}")
-        conn.rollback()
-
-def inserir_rodada(conn, rodada):
-    """Insere uma nova rodada no banco, ignorando conflitos."""
-    try:
-        with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO rodadas_bacbo 
-                (id, data_hora, player_score, banker_score, soma, resultado, par_impar, multiplicador, total_winners, total_amount, dados_completos)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (id) DO NOTHING;
-            """, (
-                rodada['id'],
-                rodada['data_hora'],
-                rodada['player_score'],
-                rodada['banker_score'],
-                rodada['soma'],
-                rodada['resultado'],
-                rodada['par_impar'],
-                rodada['multiplicador'],
-                rodada['total_winners'],
-                rodada['total_amount'],
-                json.dumps(rodada['dados_completos'])
-            ))
-            conn.commit()
-            return cur.rowcount > 0
-    except Exception as e:
-        print(f"❌ Erro ao inserir rodada {rodada['id']}: {e}")
-        conn.rollback()
+        print(f"❌ Erro ao salvar dados: {e}")
         return False
 
-def buscar_ultimas_rodadas(conn, limite=100):
-    """Busca as últimas N rodadas do banco para análise."""
-    try:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT id, data_hora, player_score, banker_score, soma, resultado, par_impar
-                FROM rodadas_bacbo
-                ORDER BY data_hora DESC
-                LIMIT %s;
-            """, (limite,))
-            colunas = [desc[0] for desc in cur.description]
-            resultados = [dict(zip(colunas, row)) for row in cur.fetchall()]
-            return resultados
-    except Exception as e:
-        print(f"❌ Erro ao buscar últimas rodadas: {e}")
+def buscar_rodadas_periodo(rodadas, horas=72):
+    """Filtra rodadas das últimas N horas."""
+    if not rodadas:
         return []
+    
+    limite = datetime.now() - timedelta(hours=horas)
+    filtradas = []
+    
+    for r in rodadas:
+        try:
+            # Converter string para datetime
+            data_hora = datetime.fromisoformat(r['data_hora'].replace('Z', '+00:00')) if isinstance(r['data_hora'], str) else r['data_hora']
+            if data_hora >= limite:
+                filtradas.append(r)
+        except:
+            continue
+    
+    return filtradas
 
-def buscar_rodadas_periodo(conn, horas=72):
-    """Busca rodadas das últimas N horas para a interface web."""
-    try:
-        since = datetime.now() - timedelta(hours=horas)
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT 
-                    id,
-                    TO_CHAR(data_hora, 'DD/MM HH24:MI') as data_formatada,
-                    player_score,
-                    banker_score,
-                    soma,
-                    resultado,
-                    par_impar,
-                    multiplicador,
-                    total_winners,
-                    total_amount
-                FROM rodadas_bacbo
-                WHERE data_hora >= %s
-                ORDER BY data_hora DESC;
-            """, (since,))
-            colunas = [desc[0] for desc in cur.description]
-            resultados = [dict(zip(colunas, row)) for row in cur.fetchall()]
-            return resultados
-    except Exception as e:
-        print(f"❌ Erro ao buscar rodadas do período: {e}")
-        return []
-
-def calcular_estatisticas_detalhadas(conn):
-    """Calcula estatísticas detalhadas para a interface web."""
-    try:
-        stats = {}
-        periodos = [1, 6, 12, 24, 48, 72]  # horas
-        
-        for horas in periodos:
-            since = datetime.now() - timedelta(hours=horas)
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT 
-                        COUNT(*) FILTER (WHERE resultado = 'PlayerWon') as player,
-                        COUNT(*) FILTER (WHERE resultado = 'BankerWon') as banker,
-                        COUNT(*) FILTER (WHERE resultado = 'Tie') as tie,
-                        COUNT(*) as total,
-                        AVG(player_score) as media_player,
-                        AVG(banker_score) as media_banker,
-                        SUM(total_amount) as premios_total,
-                        AVG(multiplicador) as media_mult
-                    FROM rodadas_bacbo
-                    WHERE data_hora >= %s;
-                """, (since,))
-                row = cur.fetchone()
-                if row and row[3] > 0:
-                    total = row[3]
-                    stats[f"{horas}h"] = {
-                        'total': total,
-                        'player': row[0],
-                        'player_pct': (row[0]/total*100) if total > 0 else 0,
-                        'banker': row[1],
-                        'banker_pct': (row[1]/total*100) if total > 0 else 0,
-                        'tie': row[2],
-                        'tie_pct': (row[2]/total*100) if total > 0 else 0,
-                        'media_player': float(row[4]) if row[4] else 0,
-                        'media_banker': float(row[5]) if row[5] else 0,
-                        'premios_total': float(row[6]) if row[6] else 0,
-                        'media_mult': float(row[7]) if row[7] else 0
-                    }
-        
-        return stats
-    except Exception as e:
-        print(f"❌ Erro ao calcular estatísticas detalhadas: {e}")
-        return {}
-
-def atualizar_cache(conn):
-    """Atualiza o cache de estatísticas para a interface web."""
-    global cache_estatisticas
-    try:
-        cache_estatisticas['ultimas_72h'] = buscar_rodadas_periodo(conn, 72)
-        cache_estatisticas['ultimas_100'] = buscar_ultimas_rodadas(conn, 100)
-        cache_estatisticas['resumo'] = calcular_estatisticas_detalhadas(conn)
-        cache_estatisticas['ultima_atualizacao'] = datetime.now()
-        print(f"🔄 Cache atualizado: {len(cache_estatisticas['ultimas_72h'])} rodadas")
-    except Exception as e:
-        print(f"❌ Erro ao atualizar cache: {e}")
+def calcular_estatisticas(rodadas, horas=72):
+    """Calcula estatísticas para um período."""
+    periodo = buscar_rodadas_periodo(rodadas, horas)
+    
+    if not periodo:
+        return {
+            'total': 0, 'player': 0, 'player_pct': 0,
+            'banker': 0, 'banker_pct': 0, 'tie': 0, 'tie_pct': 0
+        }
+    
+    total = len(periodo)
+    player = sum(1 for r in periodo if r['resultado'] == 'PLAYER')
+    banker = sum(1 for r in periodo if r['resultado'] == 'BANKER')
+    tie = sum(1 for r in periodo if r['resultado'] == 'TIE')
+    
+    return {
+        'total': total,
+        'player': player,
+        'player_pct': (player / total * 100) if total > 0 else 0,
+        'banker': banker,
+        'banker_pct': (banker / total * 100) if total > 0 else 0,
+        'tie': tie,
+        'tie_pct': (tie / total * 100) if total > 0 else 0
+    }
 
 # =============================================================================
 # FUNÇÕES DE COLETA DA API
@@ -224,7 +117,7 @@ def buscar_dados_api():
         return None
 
 def processar_item_api(item):
-    """Converte um item da API para o formato da nossa base."""
+    """Converte um item da API para o formato que usamos."""
     try:
         data = item.get('data', {})
         result = data.get('result', {})
@@ -248,7 +141,7 @@ def processar_item_api(item):
 
         return {
             'id': data.get('id'),
-            'data_hora': datetime.fromisoformat(data.get('settledAt', '').replace('Z', '+00:00')),
+            'data_hora': datetime.fromisoformat(data.get('settledAt', '').replace('Z', '+00:00')).isoformat(),
             'player_score': player_score,
             'banker_score': banker_score,
             'soma': soma,
@@ -256,8 +149,7 @@ def processar_item_api(item):
             'par_impar': par_impar,
             'multiplicador': result.get('multiplier', 1),
             'total_winners': item.get('totalWinners', 0),
-            'total_amount': item.get('totalAmount', 0),
-            'dados_completos': item
+            'total_amount': item.get('totalAmount', 0)
         }
     except Exception as e:
         print(f"⚠️ Erro ao processar item da API: {e}")
@@ -314,31 +206,44 @@ def analisar_historico(historico):
 
     return {'PLAYER': votos['PLAYER'], 'BANKER': votos['BANKER'], 'detalhes': detalhes}
 
-def prever_proxima_cor(conn):
-    """Função principal que coordena a predição."""
+def prever_proxima_cor(rodadas):
+    """Faz a previsão da próxima cor."""
     print("\n" + "="*60)
     print("🧠 INICIANDO ANALISE PARA PREDICAO")
     print("="*60)
 
-    estats = calcular_estatisticas_gerais(conn, periodo_minutos=30)
+    # Estatísticas dos últimos 30 min
+    recentes = [r for r in rodadas if datetime.fromisoformat(r['data_hora']) > datetime.now() - timedelta(minutes=30)]
+    
+    if not recentes:
+        print("⚠️ Dados insuficientes para análise")
+        return None
+    
+    estats = calcular_estatisticas(rodadas, 0.5)  # 30 min
+    
     print(f"📊 Estatisticas (ultimos 30 min): Player {estats['player_pct']:.1f}%, Banker {estats['banker_pct']:.1f}%, Tie {estats['tie_pct']:.1f}%")
 
     modo = identificar_modo(estats)
     print(f"🎯 Modo detectado: {modo}")
 
-    historico = buscar_ultimas_rodadas(conn, limite=20)
-    if not historico:
-        print("⚠️ Historico insuficiente para predicao.")
-        return None
-
+    # Últimas 20 rodadas para análise
+    historico = sorted(rodadas[-20:], key=lambda x: x['data_hora'], reverse=True)
+    
     votos = analisar_historico(historico)
 
+    # Aplicar pesos do modo
     if "AGRESSIVO" in modo:
         if estats['banker_pct'] > estats['player_pct'] + 2:
             votos['BANKER'] = int(votos['BANKER'] * 1.5)
         elif estats['player_pct'] > estats['banker_pct'] + 2:
             votos['PLAYER'] = int(votos['PLAYER'] * 1.5)
 
+    print(f"🗳️ Votos: PLAYER={votos['PLAYER']}, BANKER={votos['BANKER']}")
+    
+    if votos['detalhes']:
+        print(f"📋 Estrategias: {votos['detalhes']}")
+
+    # Decidir previsão
     if votos['BANKER'] > votos['PLAYER']:
         previsao = 'BANKER'
         confianca = (votos['BANKER'] / (votos['BANKER'] + votos['PLAYER'] + 0.01)) * 100
@@ -351,22 +256,33 @@ def prever_proxima_cor(conn):
 
     delay_ativo = bool(historico and historico[0]['resultado'] == 'TIE')
 
-    return {
-        'previsao': previsao,
-        'confianca': confianca,
-        'modo': modo,
-        'delay_ativo': delay_ativo,
-        'player_pct': estats['player_pct'],
-        'banker_pct': estats['banker_pct'],
-        'tie_pct': estats['tie_pct'],
-        'votos': votos
-    }
+    print("\n" + "="*60)
+    print("🎯 RESULTADO DA PREDICAO")
+    print("="*60)
+    
+    if delay_ativo:
+        print("⚠️ DELAY POS-EMPATE ATIVO - Aguardar")
+    else:
+        simbolo = "🔴" if previsao == "PLAYER" else "⚫" if previsao == "BANKER" else "⚪"
+        print(f"{simbolo} PROXIMA COR: {previsao}")
+        print(f"📈 CONFIANCA: {confianca:.1f}%")
+
+    return previsao
 
 # =============================================================================
-# LOOP PRINCIPAL DE COLETA
+# LOOP PRINCIPAL
 # =============================================================================
-def loop_coleta(conn):
-    """Loop principal de coleta de dados."""
+def main():
+    print("="*60)
+    print("🚀 BOT BACBO - VERSÃO SEM BANCO DE DADOS")
+    print("="*60)
+    
+    # Carregar dados existentes
+    rodadas = carregar_dados()
+    
+    print(f"⏱️  Coletando dados a cada {INTERVALO_COLETA} segundos.")
+    print("="*60)
+
     ciclo_coleta = 0
     while True:
         try:
@@ -375,73 +291,36 @@ def loop_coleta(conn):
 
             if dados_brutos:
                 novas_rodadas = 0
+                ids_existentes = {r['id'] for r in rodadas}
+                
                 for item in dados_brutos:
                     rodada = processar_item_api(item)
-                    if rodada:
-                        if inserir_rodada(conn, rodada):
-                            novas_rodadas += 1
+                    if rodada and rodada['id'] not in ids_existentes:
+                        rodadas.append(rodada)
+                        novas_rodadas += 1
 
                 if novas_rodadas > 0:
-                    print(f"✅ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {novas_rodadas} novas rodadas")
-                    # Atualizar cache a cada nova rodada
-                    atualizar_cache(conn)
+                    print(f"✅ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - +{novas_rodadas} novas rodadas (total: {len(rodadas)})")
+                    
+                    # Salvar a cada 10 novas rodadas
+                    if novas_rodadas >= 10:
+                        salvar_dados(rodadas)
+                    
+                    # A cada 6 ciclos (1 minuto), fazer predição
+                    if ciclo_coleta % 6 == 0:
+                        prever_proxima_cor(rodadas)
                 else:
                     print(f"⏳ {datetime.now().strftime('%H:%M:%S')} - Nenhuma rodada nova")
 
-                # A cada 6 ciclos (1 minuto), fazer predição
-                if ciclo_coleta % 6 == 0:
-                    previsao = prever_proxima_cor(conn)
-                    if previsao:
-                        print(f"🎯 Previsão: {previsao['previsao']} com {previsao['confianca']:.1f}%")
-
             time.sleep(INTERVALO_COLETA)
 
+        except KeyboardInterrupt:
+            print("\n🛑 Bot interrompido")
+            salvar_dados(rodadas)
+            sys.exit(0)
         except Exception as e:
-            print(f"❌ Erro no loop de coleta: {e}")
+            print(f"❌ Erro: {e}")
             time.sleep(INTERVALO_COLETA)
-
-# =============================================================================
-# INICIALIZAÇÃO
-# =============================================================================
-def main():
-    print("="*60)
-    print("🚀 BOT BACBO COM WEB INTERFACE - INICIANDO")
-    print("="*60)
-    
-    conn = conectar_banco()
-    if not conn:
-        print("❌ Falha na conexao com o banco. Encerrando.")
-        sys.exit(1)
-
-    criar_tabela(conn)
-    
-    # Atualizar cache inicial
-    atualizar_cache(conn)
-    
-    print(f"⏱️  Coletando dados a cada {INTERVALO_COLETA} segundos.")
-    print("🌐 Interface web disponível na porta 5000")
-    print("="*60)
-
-    # Iniciar thread da interface web
-    try:
-        from web_interface import app
-        import threading
-        web_thread = threading.Thread(target=lambda: app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False))
-        web_thread.daemon = True
-        web_thread.start()
-        print("✅ Interface web iniciada na porta 5000")
-    except Exception as e:
-        print(f"⚠️ Erro ao iniciar interface web: {e}")
-        print("📝 Certifique-se que web_interface.py está no mesmo diretório")
-
-    # Iniciar loop de coleta (bloqueante)
-    try:
-        loop_coleta(conn)
-    except KeyboardInterrupt:
-        print("\n🛑 Bot interrompido")
-        if conn:
-            conn.close()
-        sys.exit(0)
 
 if __name__ == "__main__":
     main()
