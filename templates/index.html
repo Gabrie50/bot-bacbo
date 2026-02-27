@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🎲 BacBo Analytics - Dashboard 24/7</title>
+    <title>🎲 BacBo Analytics - Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -34,7 +34,6 @@
         .stat-value {
             font-size: 2em;
             font-weight: bold;
-            color: #00ff00;
         }
         .stat-label {
             color: #aaa;
@@ -92,7 +91,6 @@
         .update-time {
             color: #aaa;
             font-size: 0.8em;
-            text-align: right;
         }
         .btn-period {
             background: #16213e;
@@ -107,15 +105,6 @@
         .btn-period:hover {
             background: #0f3460;
         }
-        .loading {
-            color: #00ff00;
-            animation: blink 1s infinite;
-        }
-        @keyframes blink {
-            0% { opacity: 1; }
-            50% { opacity: 0.3; }
-            100% { opacity: 1; }
-        }
     </style>
 </head>
 <body>
@@ -125,19 +114,19 @@
             <span class="navbar-brand mb-0 h1">
                 <i class="bi bi-dice-6"></i> BacBo Analytics - Monitor 24/7
             </span>
-            <span class="text-light" id="updateTime">
+            <span class="text-light update-time" id="updateTime">
                 <i class="bi bi-clock-history"></i> Atualizando...
             </span>
         </div>
     </nav>
 
     <div class="container-fluid mt-4">
-        <!-- Cards de Resumo -->
+        <!-- Cards de Resumo (72h) -->
         <div class="row" id="resumoCards">
             <div class="col-md-3">
                 <div class="card">
                     <div class="card-body">
-                        <div class="stat-label">Total Rodadas (72h)</div>
+                        <div class="stat-label">Total (72h)</div>
                         <div class="stat-value" id="totalRodadas">-</div>
                     </div>
                 </div>
@@ -171,7 +160,7 @@
             </div>
         </div>
 
-        <!-- Previsão em Tempo Real -->
+        <!-- Previsão -->
         <div class="row">
             <div class="col-md-12">
                 <div class="card">
@@ -182,7 +171,7 @@
                         <div class="row">
                             <div class="col-md-4">
                                 <div class="prediction-box">
-                                    <div class="stat-label">MODO DO ALGORITMO</div>
+                                    <div class="stat-label">MODO</div>
                                     <div style="font-size: 2em;" id="modoAlgoritmo">-</div>
                                 </div>
                             </div>
@@ -209,12 +198,12 @@
             </div>
         </div>
 
-        <!-- Gráfico de Tendência -->
+        <!-- Gráfico -->
         <div class="row">
             <div class="col-md-12">
                 <div class="card">
                     <div class="card-header">
-                        <i class="bi bi-bar-chart"></i> TENDÊNCIA (Últimas 20 Rodadas)
+                        <i class="bi bi-bar-chart"></i> TENDÊNCIA (Últimas 20)
                     </div>
                     <div class="card-body">
                         <canvas id="tendenciaChart" height="100"></canvas>
@@ -223,12 +212,12 @@
             </div>
         </div>
 
-        <!-- Tabela de Dados -->
+        <!-- Tabela -->
         <div class="row">
             <div class="col-md-12">
                 <div class="card">
                     <div class="card-header">
-                        <i class="bi bi-table"></i> HISTÓRICO COMPLETO
+                        <i class="bi bi-table"></i> HISTÓRICO
                         <div class="btn-group float-end" role="group">
                             <button type="button" class="btn btn-period btn-sm active" onclick="carregarTabela(1)">1h</button>
                             <button type="button" class="btn btn-period btn-sm" onclick="carregarTabela(6)">6h</button>
@@ -239,7 +228,7 @@
                         </div>
                     </div>
                     <div class="card-body">
-                        <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                        <div class="table-responsive" style="max-height: 400px;">
                             <table class="table table-dark table-hover">
                                 <thead>
                                     <tr>
@@ -247,15 +236,13 @@
                                         <th>Player</th>
                                         <th>Banker</th>
                                         <th>Resultado</th>
-                                        <th>Multiplicador</th>
+                                        <th>Mult.</th>
                                         <th>Ganhadores</th>
-                                        <th>Prêmio Total</th>
+                                        <th>Prêmio</th>
                                     </tr>
                                 </thead>
                                 <tbody id="tabelaBody">
-                                    <tr>
-                                        <td colspan="7" class="text-center loading">Carregando dados...</td>
-                                    </tr>
+                                    <tr><td colspan="7" class="text-center">Carregando...</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -269,21 +256,16 @@
         let tendenciaChart = null;
         let periodoAtual = 72;
 
-        // Atualizar dados a cada 10 segundos
         function atualizarDados() {
             fetch('/api/stats')
-                .then(response => response.json())
+                .then(res => res.json())
                 .then(data => {
-                    if (data.erro) {
-                        console.error(data.erro);
-                        return;
+                    if (data.ultima_atualizacao) {
+                        document.getElementById('updateTime').innerHTML = 
+                            `<i class="bi bi-clock-history"></i> ${data.ultima_atualizacao}`;
                     }
 
-                    // Atualizar timestamp
-                    document.getElementById('updateTime').innerHTML = 
-                        `<i class="bi bi-clock-history"></i> Última atualização: ${data.ultima_atualizacao}`;
-
-                    // Atualizar cards de resumo (usando dados de 72h)
+                    // Atualizar cards com dados de 72h
                     if (data.resumo && data.resumo['72h']) {
                         const r = data.resumo['72h'];
                         document.getElementById('totalRodadas').innerText = r.total;
@@ -300,116 +282,67 @@
                         const p = data.previsao;
                         document.getElementById('modoAlgoritmo').innerText = p.modo;
                         
-                        let corSimbolo = '⚪';
-                        let corTexto = 'INDEFINIDO';
-                        if (p.cor === 'PLAYER') {
-                            corSimbolo = '🔴';
-                            corTexto = 'PLAYER';
-                        } else if (p.cor === 'BANKER') {
-                            corSimbolo = '⚫';
-                            corTexto = 'BANKER';
-                        }
+                        let simbolo = '⚪', texto = 'INDEFINIDO';
+                        if (p.previsao === 'PLAYER') { simbolo = '🔴'; texto = 'PLAYER'; }
+                        else if (p.previsao === 'BANKER') { simbolo = '⚫'; texto = 'BANKER'; }
                         
-                        document.getElementById('proximaCor').innerHTML = corSimbolo;
-                        document.getElementById('proximaCorTexto').innerHTML = corTexto;
-                        document.getElementById('confianca').innerHTML = p.confianca;
-                        document.getElementById('confiancaBar').style.width = p.confianca;
+                        document.getElementById('proximaCor').innerHTML = simbolo;
+                        document.getElementById('proximaCorTexto').innerHTML = texto;
+                        document.getElementById('confianca').innerHTML = p.confianca + '%';
+                        document.getElementById('confiancaBar').style.width = p.confianca + '%';
                         
-                        if (p.delay) {
+                        if (p.delay_ativo) {
                             document.getElementById('delayWarning').innerHTML = 
-                                '<span class="badge bg-warning text-dark">⚠️ DELAY PÓS-EMPATE ATIVO</span>';
+                                '<span class="badge bg-warning text-dark">⚠️ DELAY PÓS-EMPATE</span>';
                         } else {
                             document.getElementById('delayWarning').innerHTML = '';
                         }
                     }
 
-                    // Atualizar gráfico de tendência
+                    // Gráfico
                     if (data.ultimas_20 && data.ultimas_20.length > 0) {
                         const ctx = document.getElementById('tendenciaChart').getContext('2d');
                         
-                        const labels = data.ultimas_20.map(r => r.hora).reverse();
-                        const playerData = data.ultimas_20.map(r => r.resultado === 'PLAYER' ? 1 : 0).reverse();
-                        const bankerData = data.ultimas_20.map(r => r.resultado === 'BANKER' ? 1 : 0).reverse();
+                        const labels = data.ultimas_20.map(r => r.hora);
+                        const playerData = data.ultimas_20.map(r => r.resultado === 'PLAYER' ? 1 : 0);
+                        const bankerData = data.ultimas_20.map(r => r.resultado === 'BANKER' ? 1 : 0);
                         
-                        if (tendenciaChart) {
-                            tendenciaChart.destroy();
-                        }
+                        if (tendenciaChart) tendenciaChart.destroy();
                         
                         tendenciaChart = new Chart(ctx, {
                             type: 'line',
                             data: {
                                 labels: labels,
                                 datasets: [
-                                    {
-                                        label: 'PLAYER',
-                                        data: playerData,
-                                        borderColor: '#ff4444',
-                                        backgroundColor: 'rgba(255, 68, 68, 0.1)',
-                                        tension: 0.4,
-                                        pointRadius: 3
-                                    },
-                                    {
-                                        label: 'BANKER',
-                                        data: bankerData,
-                                        borderColor: '#4444ff',
-                                        backgroundColor: 'rgba(68, 68, 255, 0.1)',
-                                        tension: 0.4,
-                                        pointRadius: 3
-                                    }
+                                    { label: 'PLAYER', data: playerData, borderColor: '#ff4444', tension: 0.3 },
+                                    { label: 'BANKER', data: bankerData, borderColor: '#4444ff', tension: 0.3 }
                                 ]
                             },
                             options: {
                                 responsive: true,
-                                maintainAspectRatio: false,
-                                plugins: {
-                                    legend: {
-                                        labels: { color: '#fff' }
-                                    }
-                                },
+                                plugins: { legend: { labels: { color: '#fff' } } },
                                 scales: {
-                                    y: {
-                                        beginAtZero: true,
-                                        max: 1,
-                                        ticks: { color: '#aaa' },
-                                        grid: { color: '#0f3460' }
-                                    },
-                                    x: {
-                                        ticks: { color: '#aaa', maxRotation: 45 },
-                                        grid: { color: '#0f3460' }
-                                    }
+                                    y: { beginAtZero: true, max: 1, ticks: { color: '#aaa' } },
+                                    x: { ticks: { color: '#aaa' } }
                                 }
                             }
                         });
                     }
-                })
-                .catch(error => {
-                    console.error('Erro ao buscar dados:', error);
                 });
         }
 
-        // Carregar tabela para período específico
         function carregarTabela(horas) {
             periodoAtual = horas;
             
-            // Atualizar botões ativos
-            document.querySelectorAll('.btn-period').forEach(btn => {
-                btn.classList.remove('active');
-            });
+            document.querySelectorAll('.btn-period').forEach(btn => btn.classList.remove('active'));
             event.target.classList.add('active');
             
-            // Mostrar loading
             document.getElementById('tabelaBody').innerHTML = 
-                '<tr><td colspan="7" class="text-center loading">Carregando dados...</td></tr>';
+                '<tr><td colspan="7" class="text-center">Carregando...</td></tr>';
             
             fetch(`/api/tabela/${horas}`)
-                .then(response => response.json())
+                .then(res => res.json())
                 .then(data => {
-                    if (data.erro) {
-                        document.getElementById('tabelaBody').innerHTML = 
-                            `<tr><td colspan="7" class="text-center text-danger">${data.erro}</td></tr>`;
-                        return;
-                    }
-                    
                     let html = '';
                     data.forEach(r => {
                         html += `<tr>
@@ -424,24 +357,17 @@
                     });
                     
                     if (data.length === 0) {
-                        html = '<tr><td colspan="7" class="text-center">Nenhuma rodada encontrada neste período</td></tr>';
+                        html = '<tr><td colspan="7" class="text-center">Nenhuma rodada</td></tr>';
                     }
                     
                     document.getElementById('tabelaBody').innerHTML = html;
-                })
-                .catch(error => {
-                    document.getElementById('tabelaBody').innerHTML = 
-                        `<tr><td colspan="7" class="text-center text-danger">Erro: ${error}</td></tr>`;
                 });
         }
 
         // Inicializar
         document.addEventListener('DOMContentLoaded', function() {
-            // Carregar dados iniciais
             atualizarDados();
             carregarTabela(72);
-            
-            // Atualizar a cada 10 segundos
             setInterval(atualizarDados, 10000);
         });
     </script>
