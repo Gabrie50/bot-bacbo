@@ -1,4 +1,4 @@
-# main.py - Bot BacBo com 8 Estratégias e Previsão 94% (VERSÃO FINAL)
+# main.py - Bot BacBo com 8 Estratégias e Previsão 94% (VERSÃO ROBUSTA ANTI-TRAVAMENTO)
 
 import os
 import time
@@ -11,14 +11,14 @@ from flask import Flask, render_template, jsonify
 from flask_cors import CORS
 
 # =============================================================================
-# CONFIGURAÇÕES
+# CONFIGURAÇÕES ANTI-TRAVAMENTO
 # =============================================================================
 API_URL = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo"
 PARAMS = {
     "page": 0,
-    "size": 100,
+    "size": 50,  # REDUZIDO para 50 (era 100) - mais rápido
     "sort": "data.settledAt,desc",
-    "duration": 4320,  # 72 horas em minutos
+    "duration": 4320,
     "wheelResults": "PlayerWon,BankerWon,Tie"
 }
 HEADERS = {
@@ -26,19 +26,25 @@ HEADERS = {
     'Accept': 'application/json'
 }
 
+# CONFIGURAÇÕES DE SEGURANÇA
+TIMEOUT_API = 5  # 5 segundos máximo (era 10)
+MAX_RETRIES = 3  # Tentar 3 vezes antes de desistir
+RETRY_DELAY = 1  # 1 segundo entre tentativas
 INTERVALO_COLETA = 10  # segundos
 INTERVALO_PAGINAS = 0.5
-MAX_PAGINAS = 100
+MAX_PAGINAS = 50  # REDUZIDO para 50 (era 100)
 ARQUIVO_DADOS = "dados_bacbo.json"
 PORT = int(os.environ.get("PORT", 5000))
 
-# Cache para a interface web
+# Cache com proteção
 cache = {
     'rodadas': [],
     'ultima_atualizacao': None,
     'estatisticas': {},
     'previsao': None,
-    'coletando_historico': False
+    'coletando_historico': False,
+    'falhas_consecutivas': 0,  # Contador de falhas
+    'ultimo_id': None
 }
 
 # =============================================================================
@@ -46,6 +52,10 @@ cache = {
 # =============================================================================
 app = Flask(__name__)
 CORS(app)
+
+# Sessão HTTP com keep-alive (reutiliza conexões)
+session = requests.Session()
+session.headers.update(HEADERS)
 
 # =============================================================================
 # FUNÇÕES DE ARQUIVO
@@ -76,16 +86,16 @@ def salvar_dados():
     """Salva os dados no arquivo JSON."""
     global cache
     try:
+        # Remover duplicatas antes de salvar
+        remover_duplicatas()
+        
         rodadas = cache['rodadas']
         rodadas_para_salvar = []
-        for r in rodadas:
+        for r in rodadas[:5000]:  # Manter só últimas 5000
             r_copy = r.copy()
             if isinstance(r_copy['data_hora'], datetime):
                 r_copy['data_hora'] = r_copy['data_hora'].isoformat()
             rodadas_para_salvar.append(r_copy)
-        
-        if len(rodadas_para_salvar) > 10000:
-            rodadas_para_salvar = rodadas_para_salvar[-10000:]
         
         with open(ARQUIVO_DADOS, 'w', encoding='utf-8') as f:
             json.dump(rodadas_para_salvar, f, indent=2, ensure_ascii=False)
@@ -96,7 +106,65 @@ def salvar_dados():
         return False
 
 # =============================================================================
-# FUNÇÕES DE COLETA HISTÓRICA
+# FUNÇÃO PARA REMOVER DUPLICATAS (NOVA)
+# =============================================================================
+def remover_duplicatas():
+    """Remove rodadas duplicadas baseado no ID."""
+    global cache
+    if not cache['rodadas']:
+        return
+    
+    # Usar dicionário para manter único por ID
+    unicas = {}
+    for r in cache['rodadas']:
+        if r['id'] not in unicas:
+            unicas[r['id']] = r
+    
+    # Ordenar por data (mais recente primeiro)
+    rodadas_unicas = list(unicas.values())
+    rodadas_unicas.sort(key=lambda x: x['data_hora'], reverse=True)
+    
+    if len(rodadas_unicas) != len(cache['rodadas']):
+        print(f"🧹 Removidas {len(cache['rodadas']) - len(rodadas_unicas)} duplicatas")
+        cache['rodadas'] = rodadas_unicas
+
+# =============================================================================
+# FUNÇÃO DE COLETA COM RETRY (NOVA)
+# =============================================================================
+def buscar_dados_api_com_retry():
+    """Faz requisição à API com sistema de retry."""
+    for tentativa in range(MAX_RETRIES):
+        try:
+            params = PARAMS.copy()
+            params['page'] = 0
+            params['size'] = 50
+            
+            # Timeout curto para não travar
+            response = session.get(API_URL, params=params, timeout=TIMEOUT_API)
+            response.raise_for_status()
+            
+            # Sucesso - resetar contador de falhas
+            cache['falhas_consecutivas'] = 0
+            return response.json()
+            
+        except requests.exceptions.Timeout:
+            print(f"⏱️ Timeout na tentativa {tentativa + 1}/{MAX_RETRIES}")
+        except requests.exceptions.ConnectionError:
+            print(f"🔌 Erro de conexão na tentativa {tentativa + 1}/{MAX_RETRIES}")
+        except Exception as e:
+            print(f"⚠️ Erro na tentativa {tentativa + 1}/{MAX_RETRIES}: {e}")
+        
+        # Aguardar antes de tentar novamente
+        if tentativa < MAX_RETRIES - 1:
+            time.sleep(RETRY_DELAY)
+    
+    # Todas as tentativas falharam
+    cache['falhas_consecutivas'] += 1
+    print(f"❌ Todas as {MAX_RETRIES} tentativas falharam. Falhas consecutivas: {cache['falhas_consecutivas']}")
+    return None
+
+# =============================================================================
+# FUNÇÕES DE COLETA HISTÓRICA (OTIMIZADA)
 # =============================================================================
 def buscar_historico_completo():
     """Busca rodadas históricas usando paginação."""
@@ -122,7 +190,7 @@ def buscar_historico_completo():
             params['size'] = 100
             
             print(f"📡 Buscando página {page + 1}/{MAX_PAGINAS}...", end=' ')
-            response = requests.get(API_URL, params=params, headers=HEADERS, timeout=15)
+            response = session.get(API_URL, params=params, timeout=TIMEOUT_API)
             response.raise_for_status()
             dados = response.json()
             
@@ -148,6 +216,9 @@ def buscar_historico_completo():
             print(f"❌ Erro na página {page}: {e}")
             break
     
+    # Remover duplicatas no final
+    remover_duplicatas()
+    
     print("="*60)
     print(f"✅ COLETA HISTÓRICA CONCLUÍDA!")
     print(f"📊 Total de novas rodadas: {total_coletadas}")
@@ -161,22 +232,8 @@ def buscar_historico_completo():
     cache['coletando_historico'] = False
 
 # =============================================================================
-# FUNÇÕES DE COLETA EM TEMPO REAL
+# FUNÇÕES DE COLETA EM TEMPO REAL (COM RETRY)
 # =============================================================================
-def buscar_dados_api():
-    """Faz a requisição à API e retorna os dados brutos."""
-    try:
-        params = PARAMS.copy()
-        params['page'] = 0
-        params['size'] = 50
-        
-        response = requests.get(API_URL, params=params, headers=HEADERS, timeout=10)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        print(f"⚠️ Erro na API: {e}")
-        return None
-
 def processar_item_api(item):
     """Converte um item da API para o formato que usamos."""
     try:
@@ -218,10 +275,13 @@ def processar_item_api(item):
         return None
 
 # =============================================================================
-# FUNÇÕES DE FILTRO E ESTATÍSTICAS
+# FUNÇÕES DE FILTRO E ESTATÍSTICAS (OTIMIZADAS)
 # =============================================================================
 def filtrar_por_periodo(horas):
     """Filtra rodadas das últimas N horas."""
+    # Garantir que não há duplicatas
+    remover_duplicatas()
+    
     rodadas = cache['rodadas']
     if not rodadas:
         return []
@@ -290,10 +350,10 @@ def atualizar_cache_estatisticas():
     print(f"📊 Estatísticas atualizadas: 72h={cache['estatisticas']['72h']['total']} rodadas")
 
 # =============================================================================
-# MÓDULO DE ESTRATÉGIA E PREVISÃO (8 ESTRATÉGIAS COMPLETAS)
+# MÓDULO DE ESTRATÉGIA E PREVISÃO (8 ESTRATÉGIAS)
 # =============================================================================
 
-# Pesos das estratégias por modo (conforme manual)
+# Pesos das estratégias por modo
 PESOS = {
     'compensacao': {'AGRESSIVO': 70, 'EQUILIBRADO': 90, 'PREDATORIO': 60},
     'paredao': {'AGRESSIVO': 90, 'EQUILIBRADO': 50, 'PREDATORIO': 40},
@@ -305,12 +365,7 @@ PESOS = {
 }
 
 def identificar_modo(player_pct, banker_pct, tie_pct, dados):
-    """
-    PASSO 1: Identifica o MODO do algoritmo
-    🔥 AGRESSIVO: Banker > 47% ou Player > 47%
-    ⚖️ EQUILIBRADO: 44% < Ambos < 46%
-    🎯 PREDATÓRIO: Muitos números extremos (10-12)
-    """
+    """Identifica o MODO do algoritmo."""
     # Contar números extremos
     extremos = sum(1 for r in dados if r['player_score'] >= 10 or r['banker_score'] >= 10)
     total = len(dados) if dados else 1
@@ -320,17 +375,13 @@ def identificar_modo(player_pct, banker_pct, tie_pct, dados):
         return "AGRESSIVO"
     elif 44 < player_pct < 46 and 44 < banker_pct < 46:
         return "EQUILIBRADO"
-    elif pct_extremos > 30:  # Muitos extremos
+    elif pct_extremos > 30:
         return "PREDATORIO"
     else:
-        return "EQUILIBRADO"  # Padrão
+        return "EQUILIBRADO"
 
 def estrategia_compensacao(dados, modo):
-    """
-    🟢 ESTRATÉGIA #1: COMPENSAÇÃO
-    Quando ativa: Diferença entre Banker e Player > 4%
-    O que faz: Força vitórias para o lado com menor %
-    """
+    """Estratégia #1: COMPENSAÇÃO"""
     if len(dados) < 10:
         return {'banker': 0, 'player': 0, 'descricao': None}
     
@@ -352,11 +403,7 @@ def estrategia_compensacao(dados, modo):
     return {'banker': 0, 'player': 0, 'descricao': None}
 
 def estrategia_paredao(dados, modo):
-    """
-    🔴 ESTRATÉGIA #2: PAREDÃO
-    Quando ativa: 4+ vitórias seguidas da mesma cor
-    O que faz: Ignora correção e joga 5,6,7 vitórias
-    """
+    """Estratégia #2: PAREDÃO"""
     if len(dados) < 4:
         return {'banker': 0, 'player': 0, 'descricao': None}
     
@@ -372,10 +419,7 @@ def estrategia_paredao(dados, modo):
     return {'banker': 0, 'player': 0, 'descricao': None}
 
 def estrategia_moedor(dados, modo):
-    """
-    🟡 ESTRATÉGIA #3: MOEDOR DE CARNE (Cluster de Empates)
-    Quando ativa: Tie > 13% ou 2+ empates em 5 rodadas
-    """
+    """Estratégia #3: MOEDOR"""
     if len(dados) < 5:
         return {'banker': 0, 'player': 0, 'descricao': None, 'tie': 0}
     
@@ -390,10 +434,7 @@ def estrategia_moedor(dados, modo):
     return {'banker': 0, 'player': 0, 'descricao': None, 'tie': 0}
 
 def estrategia_xadrez(dados, modo):
-    """
-    🔵 ESTRATÉGIA #4: XADREZ (Alternância Forçada)
-    Quando ativa: Alternância B-P-B-P por 3+ rodadas
-    """
+    """Estratégia #4: XADREZ"""
     if len(dados) < 4:
         return {'banker': 0, 'player': 0, 'descricao': None}
     
@@ -412,11 +453,7 @@ def estrategia_xadrez(dados, modo):
     return {'banker': 0, 'player': 0, 'descricao': None}
 
 def estrategia_contragolpe(dados, modo):
-    """
-    ⚫ ESTRATÉGIA #5: CONTRAGOLPE
-    Quando ativa: 3+ iguais → 1 diferente
-    O que faz: Dá 1 falsa esperança e VOLTA à dominante
-    """
+    """Estratégia #5: CONTRAGOLPE"""
     if len(dados) < 5:
         return {'banker': 0, 'player': 0, 'descricao': None}
     
@@ -436,11 +473,7 @@ def estrategia_contragolpe(dados, modo):
     return {'banker': 0, 'player': 0, 'descricao': None}
 
 def estrategia_reset_cluster(dados, modo):
-    """
-    🟤 ESTRATÉGIA #6: RESET PÓS-CLUSTER
-    Quando ativa: 2+ empates em curto espaço
-    O que faz: Ignora cor anterior, inicia nova sequência
-    """
+    """Estratégia #6: RESET PÓS-CLUSTER"""
     if len(dados) < 10:
         return {'banker': 0, 'player': 0, 'descricao': None}
     
@@ -459,10 +492,7 @@ def estrategia_reset_cluster(dados, modo):
     return {'banker': 0, 'player': 0, 'descricao': None}
 
 def estrategia_falsa_alternancia(dados, modo):
-    """
-    🟠 ESTRATÉGIA #7: FALSA ALTERNÂNCIA (NÚMERO EXTREMO)
-    Quando ativa: Número extremo (10,11,12) → oposto → extremo
-    """
+    """Estratégia #7: FALSA ALTERNÂNCIA"""
     if len(dados) < 3:
         return {'banker': 0, 'player': 0, 'descricao': None}
     
@@ -477,14 +507,14 @@ def estrategia_falsa_alternancia(dados, modo):
     return {'banker': 0, 'player': 0, 'descricao': None}
 
 def calcular_previsao():
-    """
-    🎯 FUNÇÃO PRINCIPAL DE PREVISÃO
-    Aplica as 8 estratégias e retorna a previsão com confiança
-    """
+    """Função principal de previsão com 8 estratégias."""
     global cache
     
     if len(cache['rodadas']) < 10:
         return None
+    
+    # Remover duplicatas antes de analisar
+    remover_duplicatas()
     
     dados_analise = cache['rodadas'][:50]
     
@@ -625,6 +655,9 @@ def index():
 def api_stats():
     global cache
     try:
+        # Remover duplicatas antes de contar
+        remover_duplicatas()
+        
         previsao = calcular_previsao()
         cache['previsao'] = previsao
         
@@ -692,6 +725,7 @@ def health():
     return jsonify({
         'status': 'ok',
         'rodadas': len(cache['rodadas']),
+        'falhas': cache['falhas_consecutivas'],
         'coletando_historico': cache['coletando_historico']
     })
 
@@ -702,32 +736,55 @@ def coletar_historico():
     return jsonify({'status': 'iniciado'})
 
 # =============================================================================
-# LOOP DE COLETA
+# LOOP DE COLETA (VERSÃO ANTI-TRAVAMENTO)
 # =============================================================================
 def loop_coleta():
-    print("🔄 Iniciando loop de coleta...")
+    """Loop principal de coleta com proteção anti-travamento."""
+    print("🔄 Iniciando loop de coleta (modo anti-travamento)...")
+    
     while True:
         try:
-            dados_brutos = buscar_dados_api()
+            inicio_ciclo = time.time()
+            
+            # Usar a nova função com retry
+            dados_brutos = buscar_dados_api_com_retry()
+            
             if dados_brutos:
                 novas_rodadas = 0
                 ids_existentes = {r['id'] for r in cache['rodadas']}
                 
                 for item in dados_brutos:
                     rodada = processar_item_api(item)
-                    if rodada and rodada['id'] not in ids_existentes:
+                    if rodada and rodada['id'] and rodada['id'] not in ids_existentes:
                         cache['rodadas'].insert(0, rodada)
+                        ids_existentes.add(rodada['id'])
                         novas_rodadas += 1
                 
                 if novas_rodadas > 0:
-                    print(f"✅ +{novas_rodadas} (total: {len(cache['rodadas'])}")
+                    print(f"✅ +{novas_rodadas} novas (total: {len(cache['rodadas'])}")
+                    
+                    # Remover duplicatas (segurança)
+                    remover_duplicatas()
+                    
                     atualizar_cache_estatisticas()
-                    if novas_rodadas >= 5:
+                    
+                    # Salvar a cada 10 novas rodadas
+                    if novas_rodadas >= 10:
                         salvar_dados()
             
-            time.sleep(INTERVALO_COLETA)
+            # Se muitas falhas consecutivas, aumentar intervalo
+            if cache['falhas_consecutivas'] > 5:
+                print(f"⚠️ Muitas falhas ({cache['falhas_consecutivas']}), aumentando intervalo...")
+                time.sleep(30)  # Esperar 30 segundos
+                cache['falhas_consecutivas'] = 0
+            else:
+                # Calcular tempo restante para manter intervalo de 10s
+                tempo_gasto = time.time() - inicio_ciclo
+                tempo_espera = max(1, INTERVALO_COLETA - tempo_gasto)
+                time.sleep(tempo_espera)
+            
         except Exception as e:
-            print(f"❌ Erro: {e}")
+            print(f"❌ Erro no loop: {e}")
             time.sleep(INTERVALO_COLETA)
 
 # =============================================================================
@@ -735,10 +792,14 @@ def loop_coleta():
 # =============================================================================
 if __name__ == "__main__":
     print("="*70)
-    print("🚀 BOT BACBO - 8 ESTRATÉGIAS - PREVISÃO 94%")
+    print("🚀 BOT BACBO - 8 ESTRATÉGIAS - VERSÃO ANTI-TRAVAMENTO")
     print("="*70)
     
+    # Carregar dados
     carregar_dados()
+    
+    # Remover duplicatas iniciais
+    remover_duplicatas()
     
     print("📚 Iniciando coleta histórica...")
     historico_thread = threading.Thread(target=buscar_historico_completo, daemon=True)
@@ -746,11 +807,15 @@ if __name__ == "__main__":
     
     atualizar_cache_estatisticas()
     
+    print(f"⚡ Timeout: {TIMEOUT_API}s | Retries: {MAX_RETRIES}")
     print(f"⚡ Coleta: a cada {INTERVALO_COLETA}s")
+    print(f"📊 Total: {len(cache['rodadas'])} rodadas")
     print(f"🌐 Porta: {PORT}")
     print("="*70)
 
+    # Iniciar loop de coleta anti-travamento
     coletor = threading.Thread(target=loop_coleta, daemon=True)
     coletor.start()
 
+    # Iniciar Flask
     app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
