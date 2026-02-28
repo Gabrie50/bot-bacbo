@@ -835,8 +835,8 @@
         let filtroAtual = null;
         let limiteAtual = 50;
 
-        // Histórico de previsões
-        let historicoPrevisoes = [];
+        // 🔥 CARREGAR HISTÓRICO DO localStorage
+        let historicoPrevisoes = JSON.parse(localStorage.getItem('historicoPrevisoes')) || [];
         let ultimaPrevisao = null;
 
         // Estatísticas das estratégias
@@ -892,6 +892,9 @@
 
             historicoPrevisoes.unshift(registro);
             if (historicoPrevisoes.length > 20) historicoPrevisoes.pop();
+
+            // 🔥 SALVAR NO localStorage
+            localStorage.setItem('historicoPrevisoes', JSON.stringify(historicoPrevisoes));
 
             // Atualizar estatísticas das estratégias
             registro.estrategias.forEach(e => {
@@ -968,7 +971,7 @@
             }
 
             let html = '';
-            historicoPrevisoes.forEach(p => {
+            historicoPrevisoes.slice(0, 20).forEach(p => {
                 const classe = p.acertou ? 'timeline-acerto' : 'timeline-erro';
                 
                 html += `
@@ -1195,7 +1198,7 @@
         }
 
         // =========================================================================
-        // FUNÇÃO PARA CARREGAR DADOS INICIAIS (SEM PRECISAR CLICAR)
+        // FUNÇÃO PARA CARREGAR DADOS INICIAIS
         // =========================================================================
 
         async function carregarDadosIniciais() {
@@ -1215,6 +1218,11 @@
                 calcularDistribuicao();
                 exibirHistorico(dados);
                 
+                // 🔥 ATUALIZAR TIMELINE COM HISTÓRICO SALVO
+                atualizarTimeline();
+                atualizarStatsPrevisao();
+                atualizarTabelaEstrategias();
+                
                 // Chamar stats também
                 await atualizarDados();
                 
@@ -1225,7 +1233,7 @@
 
         // Inicializar
         document.addEventListener('DOMContentLoaded', function() {
-            // 🔥 CARREGAR DADOS AUTOMATICAMENTE (SEM CLICAR)
+            // Carregar dados automaticamente
             carregarDadosIniciais();
             
             // Atualizar relógio a cada segundo
@@ -1235,7 +1243,7 @@
             // Atualizar stats a cada 5 segundos
             setInterval(atualizarDados, 5000);
             
-            // Atualizar tabela a cada 30 segundos (opcional)
+            // Atualizar tabela a cada 30 segundos
             setInterval(() => {
                 carregarTabela(limiteAtual);
             }, 30000);
