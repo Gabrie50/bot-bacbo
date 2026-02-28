@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🎲 BacBo Analytics - Todos os Períodos</title>
+    <title>🎲 BacBo Analytics - 8 Estratégias</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
-    <meta http-equiv="refresh" content="30">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         * {
             margin: 0;
@@ -78,19 +78,161 @@
             font-size: 14px;
         }
 
-        /* Cards de visão geral - 4 colunas */
-        .overview-grid {
+        /* Card de Previsão */
+        .previsao-card {
+            background: linear-gradient(145deg, #1a1e24 0%, #15181c 100%);
+            border: 1px solid #00ff8840;
+            border-radius: 16px;
+            padding: 25px;
+            margin-bottom: 25px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .previsao-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, #00ff88, #4d4dff, #ff4d4d);
+        }
+
+        .previsao-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .previsao-titulo {
+            font-size: 18px;
+            font-weight: 600;
+            color: #fff;
+        }
+
+        .previsao-titulo i {
+            color: #00ff88;
+            margin-right: 10px;
+        }
+
+        .modo-badge {
+            padding: 8px 16px;
+            border-radius: 30px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .modo-agressivo {
+            background: #ff4d4d20;
+            color: #ff4d4d;
+            border: 1px solid #ff4d4d;
+        }
+
+        .modo-equilibrado {
+            background: #4d4dff20;
+            color: #4d4dff;
+            border: 1px solid #4d4dff;
+        }
+
+        .modo-predatorio {
+            background: #ffaa0020;
+            color: #ffaa00;
+            border: 1px solid #ffaa00;
+        }
+
+        .previsao-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 15px;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 20px;
+        }
+
+        .previsao-item {
+            text-align: center;
+            padding: 15px;
+            background: #1e2227;
+            border-radius: 12px;
+        }
+
+        .previsao-label {
+            color: #8a8f99;
+            font-size: 12px;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+        }
+
+        .previsao-cor {
+            font-size: 48px;
+            margin: 10px 0;
+        }
+
+        .previsao-valor {
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .previsao-confianca {
+            font-size: 32px;
+            font-weight: 700;
+            color: #00ff88;
+        }
+
+        .estrategias-list {
+            margin-top: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .estrategia-tag {
+            background: #1e2227;
+            border: 1px solid #2a2f35;
+            border-radius: 20px;
+            padding: 5px 15px;
+            font-size: 12px;
+            color: #8a8f99;
+        }
+
+        .estrategia-tag.ativa {
+            background: #00ff8820;
+            border-color: #00ff88;
+            color: #00ff88;
+        }
+
+        .delay-warning {
+            background: #ffaa0020;
+            border: 1px solid #ffaa00;
+            color: #ffaa00;
+            padding: 10px;
+            border-radius: 8px;
+            margin-top: 15px;
+            text-align: center;
+        }
+
+        /* Layout de 2 colunas */
+        .row {
+            display: flex;
+            gap: 20px;
             margin-bottom: 25px;
         }
 
+        .col-4 {
+            flex: 4;
+        }
+
+        .col-8 {
+            flex: 8;
+        }
+
+        /* Cards */
         .card {
             background: #15181c;
             border: 1px solid #2a2f35;
             border-radius: 12px;
-            padding: 18px;
+            padding: 20px;
+            height: 100%;
         }
 
         .card-title {
@@ -98,174 +240,202 @@
             font-size: 14px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            margin-bottom: 12px;
+            margin-bottom: 15px;
             display: flex;
             align-items: center;
             gap: 8px;
         }
 
-        .card-value {
-            font-size: 32px;
+        /* Gráfico de Pizza */
+        .chart-container {
+            position: relative;
+            height: 250px;
+            width: 100%;
+            margin-bottom: 20px;
+        }
+
+        /* Estatísticas rápidas */
+        .stats-mini {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 15px;
+        }
+
+        .stat-mini-item {
+            text-align: center;
+        }
+
+        .stat-mini-value {
+            font-size: 20px;
             font-weight: 600;
-            color: #fff;
+        }
+
+        .stat-mini-label {
+            font-size: 12px;
+            color: #8a8f99;
+        }
+
+        .player-color { color: #ff4d4d; }
+        .banker-color { color: #4d4dff; }
+        .tie-color { color: #ffaa00; }
+
+        /* Cards de período */
+        .period-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .period-card {
+            background: #1e2227;
+            border: 1px solid #2a2f35;
+            border-radius: 8px;
+            padding: 12px 5px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .period-card:hover {
+            background: #2a2f35;
+            border-color: #00ff88;
+        }
+
+        .period-card.active {
+            background: #00ff88;
+            border-color: #00ff88;
+        }
+
+        .period-card.active .period-label,
+        .period-card.active .period-value {
+            color: #000;
+            font-weight: 600;
+        }
+
+        .period-label {
+            color: #8a8f99;
+            font-size: 12px;
             margin-bottom: 5px;
         }
 
-        .card-sub {
-            color: #8a8f99;
-            font-size: 13px;
+        .period-value {
+            color: #fff;
+            font-size: 18px;
+            font-weight: 500;
         }
 
-        /* Distribuição - 3 cards grandes */
-        .distribution-grid {
+        /* Cards de distribuição */
+        .distribuicao-grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
             gap: 15px;
             margin-bottom: 25px;
         }
 
-        .distribution-card {
+        .distribuicao-card {
             background: #15181c;
             border: 1px solid #2a2f35;
             border-radius: 12px;
             padding: 20px;
             text-align: center;
+            position: relative;
+            overflow: hidden;
+            cursor: pointer;
+            transition: transform 0.2s;
         }
 
-        .distribution-title {
-            color: #8a8f99;
-            font-size: 16px;
-            margin-bottom: 15px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
+        .distribuicao-card:hover {
+            transform: translateY(-2px);
+            border-color: #00ff88;
         }
 
-        .distribution-percent {
+        .distribuicao-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+        }
+
+        .distribuicao-card.player::before { background: #ff4d4d; }
+        .distribuicao-card.tie::before { background: #ffaa00; }
+        .distribuicao-card.banker::before { background: #4d4dff; }
+
+        .distribuicao-numero {
             font-size: 48px;
             font-weight: 700;
             line-height: 1.2;
-            margin-bottom: 5px;
         }
 
-        .distribution-count {
+        .distribuicao-label {
             color: #8a8f99;
-            font-size: 16px;
-            margin-bottom: 15px;
+            font-size: 14px;
+            margin-top: 5px;
         }
 
-        .progress-bar-bg {
-            background: #1e2227;
-            height: 8px;
-            border-radius: 4px;
-            margin: 15px 0;
-        }
-
-        .progress-fill {
-            height: 8px;
-            border-radius: 4px;
-            transition: width 0.3s;
-        }
-
-        .player-color { color: #ff4d4d; }
-        .banker-color { color: #4d4dff; }
-        .tie-color { color: #ffaa00; }
-        
-        .progress-player { background: #ff4d4d; }
-        .progress-banker { background: #4d4dff; }
-        .progress-tie { background: #ffaa00; }
-
-        /* Botões de período */
-        .period-section {
-            background: #15181c;
-            border: 1px solid #2a2f35;
-            border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 25px;
-        }
-
-        .period-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-        }
-
-        .period-header h2 {
-            font-size: 18px;
+        .distribuicao-percent {
+            font-size: 20px;
+            margin-top: 10px;
             font-weight: 500;
-            color: #fff;
         }
 
-        .period-buttons {
+        /* Botões de rodadas */
+        .rodadas-buttons {
             display: flex;
             flex-wrap: wrap;
-            gap: 8px;
+            gap: 10px;
+            margin: 20px 0;
         }
 
-        .period-btn {
+        .rodadas-btn {
             background: #1e2227;
             border: 1px solid #2a2f35;
             color: #8a8f99;
-            padding: 8px 20px;
+            padding: 10px 20px;
             border-radius: 25px;
             font-size: 14px;
             font-weight: 500;
             cursor: pointer;
             transition: all 0.2s;
+            flex: 1;
+            min-width: 80px;
         }
 
-        .period-btn:hover {
+        .rodadas-btn:hover {
             background: #2a2f35;
             color: #fff;
         }
 
-        .period-btn.active {
+        .rodadas-btn.active {
             background: #00ff88;
             border-color: #00ff88;
             color: #000;
             font-weight: 600;
         }
 
-        .period-btn.special {
-            background: #4a2e1c;
-            border-color: #ff8800;
-            color: #ffaa00;
-        }
-
-        .period-btn.special:hover {
-            background: #ff8800;
-            color: #000;
-        }
-
-        .period-btn.special.active {
-            background: #ff8800;
-            border-color: #ff8800;
-            color: #000;
-        }
-
         /* Grade de números */
         .numeros-grid {
-            display: flex;
-            flex-wrap: wrap;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
             gap: 8px;
             margin-top: 15px;
-            max-height: 350px;
+            max-height: 500px;
             overflow-y: auto;
             padding: 10px;
             background: #1e2227;
             border-radius: 8px;
-            min-height: 120px;
+            min-height: 200px;
         }
 
         .numero-item {
-            min-width: 90px;
-            padding: 10px 12px;
+            padding: 10px;
             background: #0a0c0f;
             border: 1px solid #2a2f35;
             border-radius: 8px;
             font-family: 'Courier New', monospace;
-            font-size: 15px;
-            font-weight: 500;
+            font-size: 14px;
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -275,64 +445,17 @@
         .numero-banker { border-left: 3px solid #4d4dff; }
         .numero-tie { border-left: 3px solid #ffaa00; }
 
-        .numero-player .resultado-cor { color: #ff4d4d; }
-        .numero-banker .resultado-cor { color: #4d4dff; }
-        .numero-tie .resultado-cor { color: #ffaa00; }
-
-        .resultado-badge {
-            font-size: 12px;
-            padding: 2px 8px;
-            border-radius: 12px;
-            background: #2a2f35;
-        }
-
-        /* Último resultado */
-        .ultimo-card {
-            background: #15181c;
-            border: 1px solid #2a2f35;
-            border-radius: 12px;
-            padding: 20px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 20px;
-        }
-
-        .ultimo-label {
-            color: #8a8f99;
-            font-size: 14px;
-            margin-bottom: 5px;
-        }
-
-        .ultimo-valor {
-            font-size: 24px;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }
-
-        .ultimo-numeros {
-            font-family: 'Courier New', monospace;
-            background: #1e2227;
-            padding: 8px 20px;
-            border-radius: 30px;
-            font-size: 20px;
-        }
-
-        .total-info {
-            color: #8a8f99;
-            font-size: 14px;
-            text-align: right;
-            margin-top: 10px;
+        .numero-extremo {
+            background: #ffaa0010;
+            border: 1px solid #ffaa00;
         }
 
         /* Loading */
         .loading {
             text-align: center;
-            padding: 40px;
+            padding: 30px;
             color: #8a8f99;
-            width: 100%;
+            grid-column: 1 / -1;
         }
 
         .loading i {
@@ -344,36 +467,28 @@
             to { transform: rotate(360deg); }
         }
 
-        /* Pesquisar */
-        .search-box {
-            background: #1e2227;
-            border: 1px solid #2a2f35;
-            border-radius: 8px;
-            padding: 12px 15px;
-            color: #fff;
-            width: 100%;
-            margin-top: 15px;
-            font-size: 14px;
-        }
-
-        .search-box::placeholder {
-            color: #5a5f69;
+        /* Info badge */
+        .info-badge {
+            background: #2a2f35;
+            color: #8a8f99;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-left: 10px;
         }
 
         /* Responsividade */
         @media (max-width: 768px) {
-            .overview-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
-            
-            .period-buttons {
-                justify-content: center;
-            }
-            
-            .ultimo-valor {
+            .row {
                 flex-direction: column;
-                align-items: flex-start;
-                gap: 5px;
+            }
+            
+            .period-grid {
+                grid-template-columns: repeat(4, 1fr);
+            }
+            
+            .previsao-grid {
+                grid-template-columns: 1fr;
             }
         }
     </style>
@@ -384,113 +499,143 @@
         <div class="header">
             <h1>
                 <i class="bi bi-dice-6-fill"></i>
-                Bac Bo - Análise Completa
+                Bac Bo - 8 Estratégias PRO
+                <span class="info-badge" id="modoExibicao">72h • 250 rodadas</span>
             </h1>
             <div class="live-badge">
                 <span class="live-dot"></span>
-                AO VIVO
-                <span class="update-time" id="updateTime"></span>
+                <span id="liveStatus">AO VIVO</span>
+                <span class="update-time" id="updateTime">carregando...</span>
             </div>
         </div>
 
-        <!-- Overview Cards (4) -->
-        <div class="overview-grid">
-            <div class="card">
-                <div class="card-title">
-                    <i class="bi bi-table"></i>
-                    Total (72h)
+        <!-- Card de Previsão da Próxima Cor -->
+        <div class="previsao-card" id="previsaoCard">
+            <div class="previsao-header">
+                <div class="previsao-titulo">
+                    <i class="bi bi-graph-up-arrow"></i>
+                    PREVISÃO DA PRÓXIMA COR (8 ESTRATÉGIAS)
                 </div>
-                <div class="card-value" id="totalRodadas">-</div>
-                <div class="card-sub" id="totalRodadasDetalhe">- rodadas</div>
+                <div class="modo-badge" id="modoAlgoritmo">ANALISANDO...</div>
             </div>
-            <div class="card">
-                <div class="card-title">
-                    <i class="bi bi-arrow-up-circle-fill player-color"></i>
-                    Player
+
+            <div class="previsao-grid">
+                <!-- Modo -->
+                <div class="previsao-item">
+                    <div class="previsao-label">MODO DETECTADO</div>
+                    <div class="previsao-valor" id="modoDescricao">-</div>
                 </div>
-                <div class="card-value player-color" id="playerPct">-</div>
-                <div class="card-sub" id="playerCount">- rodadas</div>
+
+                <!-- Próxima Cor -->
+                <div class="previsao-item">
+                    <div class="previsao-label">PRÓXIMA COR</div>
+                    <div class="previsao-cor" id="proximaCorSimbolo">⚪</div>
+                    <div class="previsao-valor" id="proximaCorTexto">AGUARDANDO</div>
+                </div>
+
+                <!-- Confiança -->
+                <div class="previsao-item">
+                    <div class="previsao-label">CONFIANÇA</div>
+                    <div class="previsao-confianca" id="confianca">0%</div>
+                </div>
             </div>
-            <div class="card">
-                <div class="card-title">
-                    <i class="bi bi-arrow-down-circle-fill banker-color"></i>
-                    Banker
-                </div>
-                <div class="card-value banker-color" id="bankerPct">-</div>
-                <div class="card-sub" id="bankerCount">- rodadas</div>
+
+            <!-- Estratégias Ativas -->
+            <div class="estrategias-list" id="estrategiasAtivas">
+                <span class="estrategia-tag">🧠 Carregando estratégias...</span>
             </div>
-            <div class="card">
-                <div class="card-title">
-                    <i class="bi bi-pause-circle-fill tie-color"></i>
-                    Tie
-                </div>
-                <div class="card-value tie-color" id="tiePct">-</div>
-                <div class="card-sub" id="tieCount">- rodadas</div>
+
+            <!-- Delay Warning -->
+            <div id="delayWarning" style="display: none;" class="delay-warning">
+                <i class="bi bi-exclamation-triangle"></i>
+                ⚠️ DELAY PÓS-EMPATE ATIVO - IGNORAR PRÓXIMA RODADA
             </div>
         </div>
 
-        <!-- Distribuição (Player, Tie, Banker) -->
-        <div class="distribution-grid">
-            <div class="distribution-card">
-                <div class="distribution-title player-color">🔴 PLAYER</div>
-                <div class="distribution-percent player-color" id="distPlayerPct">-</div>
-                <div class="distribution-count" id="distPlayerCount">- rodadas</div>
-                <div class="progress-bar-bg">
-                    <div class="progress-fill progress-player" id="playerProgressBar" style="width: 0%"></div>
+        <!-- Distribuição Cards -->
+        <div class="distribuicao-grid" id="distribuicaoGrid">
+            <div class="distribuicao-card player" onclick="setFiltro('player')">
+                <div class="distribuicao-numero player-color" id="playerNumero">-</div>
+                <div class="distribuicao-label">PLAYER</div>
+                <div class="distribuicao-percent player-color" id="playerPercent">-</div>
+            </div>
+            <div class="distribuicao-card tie" onclick="setFiltro('tie')">
+                <div class="distribuicao-numero tie-color" id="tieNumero">-</div>
+                <div class="distribuicao-label">TIE</div>
+                <div class="distribuicao-percent tie-color" id="tiePercent">-</div>
+            </div>
+            <div class="distribuicao-card banker" onclick="setFiltro('banker')">
+                <div class="distribuicao-numero banker-color" id="bankerNumero">-</div>
+                <div class="distribuicao-label">BANKER</div>
+                <div class="distribuicao-percent banker-color" id="bankerPercent">-</div>
+            </div>
+        </div>
+
+        <!-- Linha com Gráfico de Pizza e Períodos -->
+        <div class="row">
+            <!-- Coluna do Gráfico -->
+            <div class="col-4">
+                <div class="card">
+                    <div class="card-title">
+                        <i class="bi bi-pie-chart-fill"></i>
+                        Distribuição
+                        <span class="info-badge" id="pizzaInfo">250 rodadas</span>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="pizzaChart"></canvas>
+                    </div>
+                    <div class="stats-mini">
+                        <div class="stat-mini-item">
+                            <div class="stat-mini-value player-color" id="miniPlayer">-</div>
+                            <div class="stat-mini-label">PLAYER</div>
+                        </div>
+                        <div class="stat-mini-item">
+                            <div class="stat-mini-value tie-color" id="miniTie">-</div>
+                            <div class="stat-mini-label">TIE</div>
+                        </div>
+                        <div class="stat-mini-item">
+                            <div class="stat-mini-value banker-color" id="miniBanker">-</div>
+                            <div class="stat-mini-label">BANKER</div>
+                        </div>
+                    </div>
                 </div>
             </div>
-            <div class="distribution-card">
-                <div class="distribution-title tie-color">🟡 TIE</div>
-                <div class="distribution-percent tie-color" id="distTiePct">-</div>
-                <div class="distribution-count" id="distTieCount">- rodadas</div>
-                <div class="progress-bar-bg">
-                    <div class="progress-fill progress-tie" id="tieProgressBar" style="width: 0%"></div>
-                </div>
-            </div>
-            <div class="distribution-card">
-                <div class="distribution-title banker-color">⚫ BANKER</div>
-                <div class="distribution-percent banker-color" id="distBankerPct">-</div>
-                <div class="distribution-count" id="distBankerCount">- rodadas</div>
-                <div class="progress-bar-bg">
-                    <div class="progress-fill progress-banker" id="bankerProgressBar" style="width: 0%"></div>
+
+            <!-- Coluna dos Períodos -->
+            <div class="col-8">
+                <div class="card">
+                    <div class="card-title">
+                        <i class="bi bi-clock-history"></i>
+                        Períodos
+                    </div>
+                    <div class="period-grid" id="periodGrid">
+                        <!-- Preenchido via JS -->
+                    </div>
+                    
+                    <div class="card-title mt-3">
+                        <i class="bi bi-bar-chart"></i>
+                        # Rodadas para análise
+                    </div>
+                    <div class="rodadas-buttons" id="rodadasButtons">
+                        <button class="rodadas-btn active" onclick="setLimiteRodadas(250)">250</button>
+                        <button class="rodadas-btn" onclick="setLimiteRodadas(500)">500</button>
+                        <button class="rodadas-btn" onclick="setLimiteRodadas(1000)">1.000</button>
+                        <button class="rodadas-btn" onclick="setLimiteRodadas(2000)">2.000</button>
+                        <button class="rodadas-btn" onclick="setLimiteRodadas(3000)">3.000</button>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <!-- Último Resultado -->
-        <div class="ultimo-card">
-            <div>
-                <div class="ultimo-label">
-                    <i class="bi bi-clock"></i> ÚLTIMO RESULTADO
-                </div>
-                <div class="ultimo-valor">
-                    <span id="ultimoResultado">-</span>
-                    <span class="ultimo-numeros" id="ultimoNumeros"></span>
-                </div>
+        <!-- Tabela do Bac Bo -->
+        <div class="card mt-3">
+            <div class="card-title">
+                <i class="bi bi-table"></i>
+                Tabela Do Bac Bo
+                <span class="badge bg-secondary ms-2" id="tabelaCount">0 rodadas</span>
+                <span class="info-badge" id="filtroAtivo">mostrando todas</span>
             </div>
-            <div class="text-secondary">
-                <span id="ultimoHorario"></span>
-            </div>
-        </div>
-
-        <!-- Botões de Período (TODOS: 10min, 1h, 6h, 12h, 24h, 48h, 72h) -->
-        <div class="period-section">
-            <div class="period-header">
-                <h2>
-                    <i class="bi bi-clock-history"></i>
-                    Histórico por Período
-                </h2>
-                <div class="period-buttons">
-                    <button class="period-btn special" onclick="mudarPeriodo(0.16, this)">10min</button>
-                    <button class="period-btn" onclick="mudarPeriodo(1, this)">1h</button>
-                    <button class="period-btn" onclick="mudarPeriodo(6, this)">6h</button>
-                    <button class="period-btn" onclick="mudarPeriodo(12, this)">12h</button>
-                    <button class="period-btn" onclick="mudarPeriodo(24, this)">24h</button>
-                    <button class="period-btn" onclick="mudarPeriodo(48, this)">48h</button>
-                    <button class="period-btn active" onclick="mudarPeriodo(72, this)">72h</button>
-                </div>
-            </div>
-
+            
             <!-- Grade de Números -->
             <div class="numeros-grid" id="numerosGrid">
                 <div class="loading">
@@ -500,158 +645,295 @@
             
             <!-- Total do período -->
             <div class="total-info" id="totalPeriodo">
-                <i class="bi bi-list"></i> <span id="totalRodadasPeriodo">0</span> rodadas
+                <i class="bi bi-list"></i> <span id="totalRodadasPeriodo">0</span> rodadas • <span id="periodoAtualTexto">72h</span>
+                <span class="ms-3" id="distribuicaoResumo"></span>
             </div>
         </div>
-
-        <!-- Pesquisar -->
-        <input type="text" class="search-box" placeholder="🔍 Pesquisar por números (ex: 7 vs 4) ou resultado..." id="searchBox" onkeyup="filtrarHistorico()">
     </div>
 
     <script>
+        // Variáveis globais
+        let pizzaChart = null;
         let periodoAtual = 72;
-        let todosNumeros = [];
-        let botaoAtual = null;
+        let limiteRodadas = 250;
+        let dadosCompletos = [];
+        let dadosFiltrados = [];
+        let filtroAtual = null;
 
-        // Função para atualizar tudo
-        function atualizarDados() {
-            fetch('/api/stats')
-                .then(res => res.json())
-                .then(data => {
-                    if (data.ultima_atualizacao) {
-                        document.getElementById('updateTime').innerText = data.ultima_atualizacao;
-                    }
+        // Dados dos períodos
+        const periodos = [
+            { horas: 0.16, label: '10min' },
+            { horas: 1, label: '1h' },
+            { horas: 6, label: '6h' },
+            { horas: 12, label: '12h' },
+            { horas: 24, label: '24h' },
+            { horas: 48, label: '48h' },
+            { horas: 72, label: '72h' }
+        ];
 
-                    if (data.resumo && data.resumo['72h']) {
-                        const r = data.resumo['72h'];
-                        
-                        // Overview cards (usando 72h como padrão)
-                        document.getElementById('totalRodadas').innerText = r.total;
-                        document.getElementById('totalRodadasDetalhe').innerHTML = `<i class="bi bi-calendar"></i> últimas 72h`;
-                        document.getElementById('playerPct').innerText = r.player_pct + '%';
-                        document.getElementById('playerCount').innerText = r.player + ' rodadas';
-                        document.getElementById('bankerPct').innerText = r.banker_pct + '%';
-                        document.getElementById('bankerCount').innerText = r.banker + ' rodadas';
-                        document.getElementById('tiePct').innerText = r.tie_pct + '%';
-                        document.getElementById('tieCount').innerText = r.tie + ' rodadas';
+        // =========================================================================
+        // FUNÇÕES DE ATUALIZAÇÃO
+        // =========================================================================
 
-                        // Distribution cards
-                        document.getElementById('distPlayerPct').innerText = r.player_pct + '%';
-                        document.getElementById('distPlayerCount').innerText = r.player + ' rodadas';
-                        document.getElementById('distTiePct').innerText = r.tie_pct + '%';
-                        document.getElementById('distTieCount').innerText = r.tie + ' rodadas';
-                        document.getElementById('distBankerPct').innerText = r.banker_pct + '%';
-                        document.getElementById('distBankerCount').innerText = r.banker + ' rodadas';
-
-                        // Progress bars
-                        document.getElementById('playerProgressBar').style.width = r.player_pct + '%';
-                        document.getElementById('tieProgressBar').style.width = r.tie_pct + '%';
-                        document.getElementById('bankerProgressBar').style.width = r.banker_pct + '%';
-                    }
-
-                    // Último resultado
-                    if (data.ultimas_20 && data.ultimas_20.length > 0) {
-                        const ultimo = data.ultimas_20[data.ultimas_20.length - 1];
-                        
-                        let simbolo = '🔴';
-                        if (ultimo.resultado === 'BANKER') simbolo = '⚫';
-                        if (ultimo.resultado === 'TIE') simbolo = '🟡';
-                        
-                        document.getElementById('ultimoResultado').innerHTML = `${simbolo} ${ultimo.resultado}`;
-                        document.getElementById('ultimoNumeros').innerHTML = `${ultimo.player} vs ${ultimo.banker}`;
-                        document.getElementById('ultimoHorario').innerHTML = `<i class="bi bi-clock"></i> ${ultimo.hora}`;
-                    }
-                })
-                .catch(error => console.error('Erro stats:', error));
-
-            // Carregar histórico do período atual
-            carregarHistorico(periodoAtual);
+        function criarPeriodos() {
+            const grid = document.getElementById('periodGrid');
+            grid.innerHTML = '';
+            
+            periodos.forEach(p => {
+                const div = document.createElement('div');
+                div.className = `period-card ${p.horas === periodoAtual ? 'active' : ''}`;
+                div.innerHTML = `
+                    <div class="period-label">${p.label}</div>
+                    <div class="period-value" id="period-${p.label}">-</div>
+                `;
+                div.onclick = () => mudarPeriodo(p.horas);
+                grid.appendChild(div);
+            });
         }
 
-        // Função para carregar histórico
-        function carregarHistorico(horas) {
-            document.getElementById('numerosGrid').innerHTML = '<div class="loading"><i class="bi bi-arrow-repeat"></i> Carregando histórico...</div>';
+        function setLimiteRodadas(limite) {
+            limiteRodadas = limite;
             
-            let endpoint = horas === 0.16 ? '/api/tabela/0.16' : `/api/tabela/${horas}`;
+            document.querySelectorAll('.rodadas-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
             
-            fetch(endpoint)
-                .then(res => res.json())
-                .then(data => {
-                    todosNumeros = data;
-                    exibirHistorico(data);
-                    
-                    let textoPeriodo = horas === 0.16 ? '10 minutos' : `${horas} horas`;
-                    document.getElementById('totalRodadasPeriodo').innerText = data.length;
-                    document.getElementById('totalPeriodo').innerHTML = 
-                        `<i class="bi bi-list"></i> ${data.length} rodadas • últimos ${textoPeriodo}`;
-                })
-                .catch(error => {
-                    console.error('Erro:', error);
-                    document.getElementById('numerosGrid').innerHTML = 
-                        '<div class="loading text-danger">Erro ao carregar histórico</div>';
+            document.getElementById('modoExibicao').textContent = `${periodoAtual}h • ${limite} rodadas`;
+            document.getElementById('pizzaInfo').textContent = `${limite} rodadas`;
+            
+            calcularDistribuicao();
+            atualizarGrade();
+        }
+
+        function setFiltro(tipo) {
+            if (filtroAtual === tipo) {
+                filtroAtual = null;
+                document.getElementById('filtroAtivo').textContent = 'mostrando todas';
+            } else {
+                filtroAtual = tipo;
+                let nomeFiltro = tipo === 'player' ? 'PLAYER' : tipo === 'banker' ? 'BANKER' : 'TIE';
+                document.getElementById('filtroAtivo').textContent = `apenas ${nomeFiltro}`;
+            }
+            
+            atualizarGrade();
+        }
+
+        function calcularDistribuicao() {
+            const dados = dadosCompletos.slice(0, limiteRodadas);
+            
+            if (dados.length === 0) {
+                document.getElementById('playerNumero').textContent = '-';
+                document.getElementById('playerPercent').textContent = '-';
+                document.getElementById('tieNumero').textContent = '-';
+                document.getElementById('tiePercent').textContent = '-';
+                document.getElementById('bankerNumero').textContent = '-';
+                document.getElementById('bankerPercent').textContent = '-';
+                return;
+            }
+            
+            const player = dados.filter(r => r.resultado === 'PLAYER').length;
+            const banker = dados.filter(r => r.resultado === 'BANKER').length;
+            const tie = dados.filter(r => r.resultado === 'TIE').length;
+            const total = dados.length;
+            
+            const playerPct = ((player / total) * 100).toFixed(1);
+            const bankerPct = ((banker / total) * 100).toFixed(1);
+            const tiePct = ((tie / total) * 100).toFixed(1);
+            
+            document.getElementById('playerNumero').textContent = player;
+            document.getElementById('playerPercent').textContent = playerPct + '%';
+            document.getElementById('tieNumero').textContent = tie;
+            document.getElementById('tiePercent').textContent = tiePct + '%';
+            document.getElementById('bankerNumero').textContent = banker;
+            document.getElementById('bankerPercent').textContent = bankerPct + '%';
+            
+            document.getElementById('miniPlayer').textContent = player;
+            document.getElementById('miniTie').textContent = tie;
+            document.getElementById('miniBanker').textContent = banker;
+            
+            document.getElementById('distribuicaoResumo').textContent = 
+                `P:${player} (${playerPct}%) B:${banker} (${bankerPct}%) T:${tie} (${tiePct}%)`;
+            
+            if (pizzaChart) {
+                pizzaChart.data.datasets[0].data = [player, tie, banker];
+                pizzaChart.update();
+            } else {
+                criarPizzaChart(player, tie, banker);
+            }
+        }
+
+        function atualizarGrade() {
+            let dadosParaExibir = dadosCompletos;
+            
+            if (filtroAtual) {
+                dadosParaExibir = dadosCompletos.filter(r => 
+                    r.resultado.toLowerCase() === filtroAtual.toLowerCase()
+                );
+            }
+            
+            dadosFiltrados = dadosParaExibir.slice(0, limiteRodadas);
+            exibirHistorico(dadosFiltrados);
+        }
+
+        async function atualizarDados() {
+            try {
+                const [statsRes, tabelaRes] = await Promise.all([
+                    fetch('/api/stats'),
+                    fetch(`/api/tabela/${periodoAtual}`)
+                ]);
+
+                const stats = await statsRes.json();
+                const tabela = await tabelaRes.json();
+
+                dadosCompletos = tabela;
+                
+                periodos.forEach(p => {
+                    const el = document.getElementById(`period-${p.label}`);
+                    if (el && stats.resumo) {
+                        const periodoKey = p.horas === 0.16 ? '0.16h' : `${p.horas}h`;
+                        if (stats.resumo[periodoKey]) {
+                            el.textContent = stats.resumo[periodoKey].total || '0';
+                        } else {
+                            el.textContent = '0';
+                        }
+                    }
                 });
+
+                calcularDistribuicao();
+                atualizarGrade();
+                
+                // Atualizar previsão
+                if (stats.previsao) {
+                    const p = stats.previsao;
+                    
+                    // Modo
+                    document.getElementById('modoAlgoritmo').textContent = p.modo;
+                    document.getElementById('modoAlgoritmo').className = `modo-badge modo-${p.modo.toLowerCase()}`;
+                    document.getElementById('modoDescricao').textContent = p.modo;
+                    
+                    // Previsão
+                    document.getElementById('proximaCorSimbolo').textContent = p.simbolo;
+                    document.getElementById('proximaCorTexto').textContent = p.previsao;
+                    document.getElementById('confianca').textContent = p.confianca + '%';
+                    
+                    // Estratégias
+                    const estrategiasDiv = document.getElementById('estrategiasAtivas');
+                    if (p.estrategias && p.estrategias.length > 0) {
+                        let html = '<span class="estrategia-tag">🧠 Estratégias ativas:</span>';
+                        p.estrategias.forEach(e => {
+                            html += `<span class="estrategia-tag ativa">${e}</span>`;
+                        });
+                        estrategiasDiv.innerHTML = html;
+                    } else {
+                        estrategiasDiv.innerHTML = '<span class="estrategia-tag">📊 Análise base</span>';
+                    }
+                    
+                    // Delay
+                    const delayDiv = document.getElementById('delayWarning');
+                    if (p.delay_ativo) {
+                        delayDiv.style.display = 'block';
+                    } else {
+                        delayDiv.style.display = 'none';
+                    }
+                }
+
+                if (stats.ultima_atualizacao) {
+                    document.getElementById('updateTime').textContent = stats.ultima_atualizacao;
+                }
+
+                document.getElementById('tabelaCount').textContent = `${dadosCompletos.length} rodadas`;
+                document.getElementById('totalRodadasPeriodo').textContent = dadosCompletos.length;
+
+            } catch (error) {
+                console.error('Erro ao atualizar:', error);
+                document.getElementById('numerosGrid').innerHTML = `
+                    <div class="loading" style="color: #ff4d4d;">
+                        <i class="bi bi-exclamation-triangle"></i> Erro ao carregar dados
+                    </div>
+                `;
+            }
         }
 
-        // Função para exibir histórico em grade
+        function criarPizzaChart(player, tie, banker) {
+            const ctx = document.getElementById('pizzaChart').getContext('2d');
+            
+            pizzaChart = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: ['Player', 'Tie', 'Banker'],
+                    datasets: [{
+                        data: [player, tie, banker],
+                        backgroundColor: ['#ff4d4d', '#ffaa00', '#4d4dff'],
+                        borderColor: '#15181c',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const label = context.label || '';
+                                    const value = context.raw || 0;
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0';
+                                    return `${label}: ${value} (${percentage}%)`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
         function exibirHistorico(data) {
             if (!data || data.length === 0) {
-                document.getElementById('numerosGrid').innerHTML = 
-                    '<div class="loading">📭 Nenhuma rodada neste período</div>';
+                document.getElementById('numerosGrid').innerHTML = `
+                    <div class="loading">📭 Nenhuma rodada neste período</div>
+                `;
                 return;
             }
 
             let html = '';
             data.forEach(item => {
                 let classeNumero = 'numero-' + item.resultado.toLowerCase();
-                let corResultado = item.cor;
+                const isExtremo = item.player >= 10 || item.banker >= 10;
+                if (isExtremo) classeNumero += ' numero-extremo';
                 
                 html += `
                     <div class="numero-item ${classeNumero}">
                         <span>${item.player} vs ${item.banker}</span>
-                        <span class="resultado-cor">${corResultado}</span>
+                        <span class="resultado-cor">${item.cor}</span>
                     </div>
                 `;
             });
-            
+
             document.getElementById('numerosGrid').innerHTML = html;
         }
 
-        // Função para filtrar histórico
-        function filtrarHistorico() {
-            const termo = document.getElementById('searchBox').value.toLowerCase();
-            
-            if (!termo) {
-                exibirHistorico(todosNumeros);
-                return;
-            }
-            
-            const filtrados = todosNumeros.filter(item => 
-                item.player.toString().includes(termo) || 
-                item.banker.toString().includes(termo) ||
-                item.resultado.toLowerCase().includes(termo) ||
-                `${item.player} vs ${item.banker}`.includes(termo)
-            );
-            
-            exibirHistorico(filtrados);
-            document.getElementById('totalRodadasPeriodo').innerText = filtrados.length;
-        }
-
-        // Função para mudar período
-        function mudarPeriodo(horas, botao) {
+        function mudarPeriodo(horas) {
             periodoAtual = horas;
             
-            // Atualizar botões
-            document.querySelectorAll('.period-btn').forEach(btn => btn.classList.remove('active'));
-            botao.classList.add('active');
+            document.querySelectorAll('.period-card').forEach(card => card.classList.remove('active'));
+            event.currentTarget.classList.add('active');
             
-            // Carregar histórico
-            carregarHistorico(horas);
+            const periodoTexto = periodos.find(p => p.horas === horas)?.label || `${horas}h`;
+            document.getElementById('periodoAtualTexto').textContent = periodoTexto;
+            document.getElementById('modoExibicao').textContent = `${periodoTexto} • ${limiteRodadas} rodadas`;
+            
+            filtroAtual = null;
+            document.getElementById('filtroAtivo').textContent = 'mostrando todas';
+            
+            atualizarDados();
         }
 
         // Inicializar
         document.addEventListener('DOMContentLoaded', function() {
+            criarPeriodos();
             atualizarDados();
-            setInterval(atualizarDados, 5000);
+            setInterval(atualizarDados, 10000);
         });
     </script>
 </body>
