@@ -472,52 +472,6 @@
             font-weight: 600;
         }
 
-        /* Cards de período */
-        .period-grid {
-            display: grid;
-            grid-template-columns: repeat(7, 1fr);
-            gap: 10px;
-            margin-bottom: 20px;
-        }
-
-        .period-card {
-            background: #1e2227;
-            border: 1px solid #2a2f35;
-            border-radius: 8px;
-            padding: 12px 5px;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .period-card:hover {
-            background: #2a2f35;
-            border-color: #00ff88;
-        }
-
-        .period-card.active {
-            background: #00ff88;
-            border-color: #00ff88;
-        }
-
-        .period-card.active .period-label,
-        .period-card.active .period-value {
-            color: #000;
-            font-weight: 600;
-        }
-
-        .period-label {
-            color: #8a8f99;
-            font-size: 12px;
-            margin-bottom: 5px;
-        }
-
-        .period-value {
-            color: #fff;
-            font-size: 18px;
-            font-weight: 500;
-        }
-
         /* Cards de distribuição */
         .distribuicao-grid {
             display: grid;
@@ -668,9 +622,6 @@
             .row {
                 flex-direction: column;
             }
-            .period-grid {
-                grid-template-columns: repeat(4, 1fr);
-            }
             .previsao-grid {
                 grid-template-columns: 1fr;
             }
@@ -820,7 +771,7 @@
             </div>
         </div>
 
-        <!-- Linha com Gráfico de Pizza e Períodos -->
+        <!-- Linha com Gráfico de Pizza -->
         <div class="row">
             <div class="col-4">
                 <div class="card">
@@ -850,13 +801,7 @@
             </div>
 
             <div class="col-8">
-                <div class="card">
-                    <div class="card-title">
-                        <i class="bi bi-clock-history"></i>
-                        Períodos
-                    </div>
-                    <div class="period-grid" id="periodGrid"></div>
-                </div>
+                <!-- Espaço vazio -->
             </div>
         </div>
 
@@ -885,7 +830,6 @@
     <script>
         // Variáveis globais
         let pizzaChart = null;
-        let periodoAtual = 72;
         let dadosCompletos = [];
         let filtroAtual = null;
         let limiteAtual = 50;
@@ -905,17 +849,6 @@
             'Falsa Alternância': { acertos: 0, erros: 0 },
             'Meta-Algoritmo': { acertos: 0, erros: 0 }
         };
-
-        // Dados dos períodos
-        const periodos = [
-            { horas: 0.16, label: '10min' },
-            { horas: 1, label: '1h' },
-            { horas: 6, label: '6h' },
-            { horas: 12, label: '12h' },
-            { horas: 24, label: '24h' },
-            { horas: 48, label: '48h' },
-            { horas: 72, label: '72h' }
-        ];
 
         // =========================================================================
         // FUNÇÃO PARA ATUALIZAR RELÓGIO
@@ -1062,22 +995,6 @@
         // FUNÇÕES DE ATUALIZAÇÃO
         // =========================================================================
 
-        function criarPeriodos() {
-            const grid = document.getElementById('periodGrid');
-            grid.innerHTML = '';
-            
-            periodos.forEach(p => {
-                const div = document.createElement('div');
-                div.className = `period-card ${p.horas === periodoAtual ? 'active' : ''}`;
-                div.innerHTML = `
-                    <div class="period-label">${p.label}</div>
-                    <div class="period-value" id="period-${p.label}">-</div>
-                `;
-                div.onclick = () => mudarPeriodo(p.horas);
-                grid.appendChild(div);
-            });
-        }
-
         function setFiltro(tipo) {
             if (filtroAtual === tipo) {
                 filtroAtual = null;
@@ -1156,15 +1073,6 @@
                 const response = await fetch('/api/stats');
                 const stats = await response.json();
 
-                // Atualizar períodos
-                periodos.forEach(p => {
-                    const el = document.getElementById(`period-${p.label}`);
-                    if (el && stats.periodos) {
-                        const periodoKey = p.label === '10min' ? '10min' : p.label;
-                        el.textContent = stats.periodos[periodoKey] || '0';
-                    }
-                });
-
                 // Atualizar previsão
                 if (stats.previsao) {
                     const p = stats.previsao;
@@ -1188,6 +1096,8 @@
                             html += `<span class="estrategia-tag ativa">${e}</span>`;
                         });
                         estrategiasDiv.innerHTML = html;
+                    } else {
+                        estrategiasDiv.innerHTML = '<span class="estrategia-tag">📊 Análise base</span>';
                     }
                     
                     document.getElementById('delayWarning').style.display = p.delay_ativo ? 'block' : 'none';
@@ -1279,30 +1189,16 @@
             document.getElementById('numerosGrid').innerHTML = html;
         }
 
-        function mudarPeriodo(horas) {
-            periodoAtual = horas;
-            
-            document.querySelectorAll('.period-card').forEach(card => card.classList.remove('active'));
-            event.currentTarget.classList.add('active');
-            
-            const periodoTexto = periodos.find(p => p.horas === horas)?.label || `${horas}h`;
-            document.getElementById('periodoAtualTexto').textContent = periodoTexto;
-            
-            // Recarregar dados do período
-            carregarTabela(limiteAtual);
-        }
-
         // Inicializar
         document.addEventListener('DOMContentLoaded', function() {
-            criarPeriodos();
             carregarTabela(50);
             
             // Atualizar relógio a cada segundo
             atualizarRelogio();
             setInterval(atualizarRelogio, 1000);
             
-            // Atualizar stats a cada 5 segundos
-            setInterval(atualizarDatos, 5000);
+            // 🔥 CORRIGIDO: atualizarDados (com D) a cada 5 segundos
+            setInterval(atualizarDados, 5000);
         });
     </script>
 </body>
