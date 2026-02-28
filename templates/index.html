@@ -275,9 +275,10 @@
             color: #8a8f99;
         }
 
-        .player-color { color: #ff4d4d; }
-        .banker-color { color: #4d4dff; }
-        .tie-color { color: #ffaa00; }
+        /* CORES CORRIGIDAS: Banker = Vermelho, Player = Azul */
+        .banker-color { color: #ff4d4d; }  /* Vermelho */
+        .player-color { color: #4d4dff; }  /* Azul */
+        .tie-color { color: #ffaa00; }      /* Amarelo */
 
         /* Cards de período */
         .period-grid {
@@ -359,9 +360,9 @@
             height: 4px;
         }
 
-        .distribuicao-card.player::before { background: #ff4d4d; }
-        .distribuicao-card.tie::before { background: #ffaa00; }
-        .distribuicao-card.banker::before { background: #4d4dff; }
+        .distribuicao-card.player::before { background: #4d4dff; }  /* Azul */
+        .distribuicao-card.tie::before { background: #ffaa00; }    /* Amarelo */
+        .distribuicao-card.banker::before { background: #ff4d4d; } /* Vermelho */
 
         .distribuicao-numero {
             font-size: 48px;
@@ -441,9 +442,10 @@
             justify-content: space-between;
         }
 
-        .numero-player { border-left: 3px solid #ff4d4d; }
-        .numero-banker { border-left: 3px solid #4d4dff; }
-        .numero-tie { border-left: 3px solid #ffaa00; }
+        /* CORES NAS BORDAS */
+        .numero-player { border-left: 3px solid #4d4dff; }  /* Azul */
+        .numero-banker { border-left: 3px solid #ff4d4d; }  /* Vermelho */
+        .numero-tie { border-left: 3px solid #ffaa00; }     /* Amarelo */
 
         .numero-extremo {
             background: #ffaa0010;
@@ -475,6 +477,18 @@
             border-radius: 4px;
             font-size: 12px;
             margin-left: 10px;
+        }
+
+        /* Total período */
+        .total-info {
+            margin-top: 15px;
+            padding: 10px;
+            background: #1e2227;
+            border-radius: 8px;
+            color: #8a8f99;
+            font-size: 14px;
+            display: flex;
+            justify-content: space-between;
         }
 
         /* Responsividade */
@@ -645,8 +659,8 @@
             
             <!-- Total do período -->
             <div class="total-info" id="totalPeriodo">
-                <i class="bi bi-list"></i> <span id="totalRodadasPeriodo">0</span> rodadas • <span id="periodoAtualTexto">72h</span>
-                <span class="ms-3" id="distribuicaoResumo"></span>
+                <span><i class="bi bi-list"></i> <span id="totalRodadasPeriodo">0</span> rodadas</span>
+                <span><span id="periodoAtualTexto">72h</span> • limite: <span id="limiteAtual">250</span></span>
             </div>
         </div>
     </div>
@@ -699,6 +713,7 @@
             
             document.getElementById('modoExibicao').textContent = `${periodoAtual}h • ${limite} rodadas`;
             document.getElementById('pizzaInfo').textContent = `${limite} rodadas`;
+            document.getElementById('limiteAtual').textContent = limite;
             
             calcularDistribuicao();
             atualizarGrade();
@@ -776,6 +791,8 @@
 
         async function atualizarDados() {
             try {
+                console.log('🔄 Atualizando dados...', periodoAtual);
+                
                 const [statsRes, tabelaRes] = await Promise.all([
                     fetch('/api/stats'),
                     fetch(`/api/tabela/${periodoAtual}`)
@@ -785,6 +802,7 @@
                 const tabela = await tabelaRes.json();
 
                 dadosCompletos = tabela;
+                console.log(`📊 Recebidas ${dadosCompletos.length} rodadas`);
                 
                 periodos.forEach(p => {
                     const el = document.getElementById(`period-${p.label}`);
@@ -810,8 +828,13 @@
                     document.getElementById('modoAlgoritmo').className = `modo-badge modo-${p.modo.toLowerCase()}`;
                     document.getElementById('modoDescricao').textContent = p.modo;
                     
-                    // Previsão
-                    document.getElementById('proximaCorSimbolo').textContent = p.simbolo;
+                    // Previsão (CORRIGIDO: símbolos)
+                    let simbolo = '⚪';
+                    if (p.previsao === 'PLAYER') simbolo = '🔵';  // Azul para Player
+                    if (p.previsao === 'BANKER') simbolo = '🔴';  // Vermelho para Banker
+                    if (p.previsao === 'TIE') simbolo = '🟡';      // Amarelo para Tie
+                    
+                    document.getElementById('proximaCorSimbolo').textContent = simbolo;
                     document.getElementById('proximaCorTexto').textContent = p.previsao;
                     document.getElementById('confianca').textContent = p.confianca + '%';
                     
@@ -829,11 +852,7 @@
                     
                     // Delay
                     const delayDiv = document.getElementById('delayWarning');
-                    if (p.delay_ativo) {
-                        delayDiv.style.display = 'block';
-                    } else {
-                        delayDiv.style.display = 'none';
-                    }
+                    delayDiv.style.display = p.delay_ativo ? 'block' : 'none';
                 }
 
                 if (stats.ultima_atualizacao) {
@@ -844,10 +863,10 @@
                 document.getElementById('totalRodadasPeriodo').textContent = dadosCompletos.length;
 
             } catch (error) {
-                console.error('Erro ao atualizar:', error);
+                console.error('❌ Erro ao atualizar:', error);
                 document.getElementById('numerosGrid').innerHTML = `
                     <div class="loading" style="color: #ff4d4d;">
-                        <i class="bi bi-exclamation-triangle"></i> Erro ao carregar dados
+                        <i class="bi bi-exclamation-triangle"></i> Erro: ${error.message}
                     </div>
                 `;
             }
@@ -862,7 +881,7 @@
                     labels: ['Player', 'Tie', 'Banker'],
                     datasets: [{
                         data: [player, tie, banker],
-                        backgroundColor: ['#ff4d4d', '#ffaa00', '#4d4dff'],
+                        backgroundColor: ['#4d4dff', '#ffaa00', '#ff4d4d'], // Azul, Amarelo, Vermelho
                         borderColor: '#15181c',
                         borderWidth: 2
                     }]
@@ -898,14 +917,25 @@
 
             let html = '';
             data.forEach(item => {
-                let classeNumero = 'numero-' + item.resultado.toLowerCase();
+                // CORRIGIDO: Player = Azul, Banker = Vermelho
+                let classeNumero = '';
+                if (item.resultado === 'PLAYER') classeNumero = 'numero-player';
+                else if (item.resultado === 'BANKER') classeNumero = 'numero-banker';
+                else classeNumero = 'numero-tie';
+                
                 const isExtremo = item.player >= 10 || item.banker >= 10;
                 if (isExtremo) classeNumero += ' numero-extremo';
+                
+                // CORRIGIDO: símbolos
+                let simbolo = '⚪';
+                if (item.resultado === 'PLAYER') simbolo = '🔵';
+                else if (item.resultado === 'BANKER') simbolo = '🔴';
+                else if (item.resultado === 'TIE') simbolo = '🟡';
                 
                 html += `
                     <div class="numero-item ${classeNumero}">
                         <span>${item.player} vs ${item.banker}</span>
-                        <span class="resultado-cor">${item.cor}</span>
+                        <span>${simbolo}</span>
                     </div>
                 `;
             });
