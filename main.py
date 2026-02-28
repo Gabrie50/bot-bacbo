@@ -31,7 +31,7 @@ DB_NAME = parsed.path[1:]
 API_URL = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo"
 PARAMS = {
     "page": 0,
-    "size": 100,  # Aumentado para 100
+    "size": 100,
     "sort": "data.settledAt,desc",
     "duration": 4320,  # 72 horas
     "wheelResults": "PlayerWon,BankerWon,Tie"
@@ -820,40 +820,54 @@ def loop_coleta():
             time.sleep(INTERVALO_COLETA)
 
 # =============================================================================
-# COLETA HISTÓRICA INICIAL (CORRIGIDA - FORÇADA)
+# COLETA HISTÓRICA INICIAL (VERSÃO CORRIGIDA - FORÇADA MESMO)
 # =============================================================================
 
 def coleta_historica_inicial():
-    """Busca rodadas históricas para preencher o banco (FORÇADO)."""
+    """Busca rodadas históricas para preencher o banco (FORÇADO MESMO)."""
     if cache['coletando_historico']:
         print("⏳ Coleta histórica já em andamento")
         return
     
     cache['coletando_historico'] = True
     
-    print("="*60)
-    print("📚 INICIANDO COLETA HISTÓRICA COMPLETA")
-    print("="*60)
+    print("="*70)
+    print("📚 INICIANDO COLETA HISTÓRICA COMPLETA (FORÇADA)")
+    print("="*70)
     
     page = 0
     total_coletadas = 0
+    rodadas_antes = get_total_rodadas()
     
+    print(f"📊 Rodadas antes da coleta: {rodadas_antes}")
+    print(f"🎯 Alvo: 3000+ rodadas")
+    print("="*70)
+    
+    # Continuar até não ter mais dados ou atingir 50 páginas
     while page < MAX_PAGINAS_HISTORICO:
         try:
             params = PARAMS.copy()
             params['page'] = page
-            params['size'] = 100
+            params['size'] = 100  # 100 rodadas por página
             
             print(f"📡 Buscando página {page + 1}/{MAX_PAGINAS_HISTORICO}...", end=' ')
+            
             response = session.get(API_URL, params=params, timeout=TIMEOUT_API)
             response.raise_for_status()
             dados = response.json()
             
             if not dados or len(dados) == 0:
-                print("✅ Fim do histórico")
+                print("✅ Fim do histórico (sem dados)")
                 break
             
+            print(f"recebidas {len(dados)} rodadas", end=' ')
+            
+            # Buscar IDs existentes
             conn = get_db_connection()
+            if not conn:
+                print("❌ Erro de conexão")
+                break
+                
             cur = conn.cursor()
             cur.execute('SELECT id FROM rodadas')
             ids_existentes = {row[0] for row in cur.fetchall()}
@@ -867,25 +881,35 @@ def coleta_historica_inicial():
                     if salvar_rodada(rodada):
                         novas_pagina += 1
                         total_coletadas += 1
+                        ids_existentes.add(rodada['id'])  # Atualizar localmente
             
-            print(f"+{novas_pagina} novas (total acumulado: {total_coletadas})")
+            print(f"→ +{novas_pagina} novas (acumulado: {total_coletadas})")
             
-            if novas_pagina == 0:
-                print("⚠️ Sem novas rodadas, parando")
+            # Se não encontrou novas, pode ser o fim
+            if novas_pagina == 0 and page > 5:
+                print("⚠️ Sem novas rodadas por várias páginas, provavelmente fim do histórico")
                 break
                 
             page += 1
             time.sleep(INTERVALO_PAGINAS)
             
+        except requests.exceptions.Timeout:
+            print(f"⏱️ Timeout na página {page}, tentando novamente...")
+            time.sleep(2)
+            continue
         except Exception as e:
             print(f"❌ Erro na página {page}: {e}")
             break
     
-    print("="*60)
+    rodadas_depois = get_total_rodadas()
+    
+    print("="*70)
     print(f"✅ COLETA HISTÓRICA CONCLUÍDA!")
-    print(f"📊 Total de novas rodadas: {total_coletadas}")
-    print(f"📊 Total no banco: {get_total_rodadas()} rodadas")
-    print("="*60)
+    print(f"📊 Rodadas antes: {rodadas_antes}")
+    print(f"📊 Rodadas depois: {rodadas_depois}")
+    print(f"📊 Novas rodadas: {rodadas_depois - rodadas_antes}")
+    print(f"📊 Total coletado no loop: {total_coletadas}")
+    print("="*70)
     
     atualizar_cache_estatisticas()
     cache['coletando_historico'] = False
