@@ -185,6 +185,7 @@
             flex-wrap: wrap;
             gap: 10px;
             align-items: center;
+            min-height: 50px;
         }
 
         .estrategia-tag {
@@ -673,7 +674,7 @@
             </div>
 
             <div class="estrategias-list" id="estrategiasAtivas">
-                <span class="estrategia-tag">🧠 Carregando estratégias...</span>
+                <span class="estrategia-tag">🧠 Nenhuma estratégia ativa</span>
             </div>
 
             <div id="delayWarning" style="display: none;" class="delay-warning">
@@ -1097,7 +1098,7 @@
                         });
                         estrategiasDiv.innerHTML = html;
                     } else {
-                        estrategiasDiv.innerHTML = '<span class="estrategia-tag">📊 Análise base</span>';
+                        estrategiasDiv.innerHTML = '<span class="estrategia-tag">🧠 Nenhuma estratégia ativa</span>';
                     }
                     
                     document.getElementById('delayWarning').style.display = p.delay_ativo ? 'block' : 'none';
@@ -1197,8 +1198,11 @@
             atualizarRelogio();
             setInterval(atualizarRelogio, 1000);
             
-            // Atualizar stats a cada 5 segundos
+            // Atualizar stats a cada 5 segundos (junto com a API)
             setInterval(atualizarDados, 5000);
+            
+            // Chamar primeira vez imediatamente
+            atualizarDados();
         });
     </script>
 </body>
