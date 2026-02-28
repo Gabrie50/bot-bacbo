@@ -17,7 +17,7 @@ import pg8000.native
 # CONFIGURAÇÕES
 # =============================================================================
 # STRING DO BANCO NEON (REPOSITÓRIO PRIVADO)
-DATABASE_URL = "postgresql://neondb_owner:npg_OgR74skiylmJ@ep-long-pond-ai793l7o-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+DATABASE_URL = "postgresql://neondb_owner:npg_OgR74skiylmJ@ep-rapid-mode-aio1bik8-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
 
 # Parse da URL do banco
 parsed = urllib.parse.urlparse(DATABASE_URL)
