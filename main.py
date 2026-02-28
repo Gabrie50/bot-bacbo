@@ -1,5 +1,4 @@
 # main.py - Bot BacBo PROFISSIONAL - VERSÃO FINAL DEFINITIVA
-# TODAS AS CORREÇÕES APLICADAS:
 # ✅ SEM SELECT ID (usa ON CONFLICT)
 # ✅ LEVE x PESADO separados
 # ✅ LIMIT 3000 em todas consultas
@@ -22,10 +21,9 @@ import pg8000.native
 # =============================================================================
 # CONFIGURAÇÕES
 # =============================================================================
-# STRING DO BANCO NEON (REPOSITÓRIO PRIVADO)
 DATABASE_URL = "postgresql://neondb_owner:npg_OgR74skiylmJ@ep-rapid-mode-aio1bik8-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
 
-# Parse da URL do banco
+# Parse da URL
 parsed = urllib.parse.urlparse(DATABASE_URL)
 DB_USER = parsed.username
 DB_PASSWORD = parsed.password
@@ -33,13 +31,13 @@ DB_HOST = parsed.hostname
 DB_PORT = parsed.port or 5432
 DB_NAME = parsed.path[1:]
 
-# API do Casino.org
+# API
 API_URL = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo"
 PARAMS = {
     "page": 0,
-    "size": 50,  # 50 é suficiente para coleta
+    "size": 50,
     "sort": "data.settledAt,desc",
-    "duration": 4320,  # 72 horas
+    "duration": 4320,
     "wheelResults": "PlayerWon,BankerWon,Tie"
 }
 HEADERS = {
@@ -47,7 +45,7 @@ HEADERS = {
     'Accept': 'application/json'
 }
 
-# Configurações de performance
+# Configurações
 TIMEOUT_API = 5
 MAX_RETRIES = 3
 RETRY_DELAY = 1
@@ -55,30 +53,23 @@ INTERVALO_COLETA = 10
 INTERVALO_PAGINAS = 0.5
 PORT = int(os.environ.get("PORT", 5000))
 
-# =============================================================================
-# CACHE OTIMIZADO (separado por tipo)
-# =============================================================================
+# Cache
 cache = {
-    # ⚡ Dados LEVES (atualizam a cada nova rodada)
     'leves': {
-        'ultimas_50': [],          # Para previsão
-        'ultimas_20': [],          # Para gráfico
+        'ultimas_50': [],
+        'ultimas_20': [],
         'total_rodadas': 0,
         'ultima_atualizacao': None,
         'previsao': None
     },
-    
-    # 📊 Dados PESADOS (atualizam a cada 30s)
     'pesados': {
-        'periodos': {},            # 10min, 1h, 6h, 12h, 24h, 48h, 72h
+        'periodos': {},
         'ultima_atualizacao': None
     },
-    
-    # Controle
     'falhas_consecutivas': 0
 }
 
-# Pesos das estratégias por modo
+# Pesos das estratégias
 PESOS = {
     'compensacao': {'AGRESSIVO': 70, 'EQUILIBRADO': 90, 'PREDATORIO': 60},
     'paredao': {'AGRESSIVO': 90, 'EQUILIBRADO': 50, 'PREDATORIO': 40},
@@ -90,21 +81,18 @@ PESOS = {
 }
 
 # =============================================================================
-# INICIALIZAÇÃO DO FLASK
+# INICIALIZAÇÃO
 # =============================================================================
 app = Flask(__name__)
 CORS(app)
-
-# Sessão HTTP com keep-alive
 session = requests.Session()
 session.headers.update(HEADERS)
 
 # =============================================================================
-# FUNÇÕES DO BANCO DE DADOS (pg8000)
+# FUNÇÕES DO BANCO
 # =============================================================================
 
 def get_db_connection():
-    """Cria conexão com o banco PostgreSQL via pg8000."""
     try:
         conn = pg8000.connect(
             user=DB_USER,
@@ -116,19 +104,16 @@ def get_db_connection():
         )
         return conn
     except Exception as e:
-        print(f"❌ Erro ao conectar ao banco: {e}")
+        print(f"❌ Erro ao conectar: {e}")
         return None
 
 def init_db():
-    """Inicializa as tabelas no PostgreSQL com ÍNDICES."""
     conn = get_db_connection()
     if not conn:
         return False
     
     try:
         cur = conn.cursor()
-        
-        # Criar tabela de rodadas
         cur.execute('''
             CREATE TABLE IF NOT EXISTS rodadas (
                 id TEXT PRIMARY KEY,
@@ -144,18 +129,15 @@ def init_db():
                 dados_json JSONB
             )
         ''')
-        
-        # 🔥 ÍNDICES OBRIGATÓRIOS PARA PERFORMANCE
         cur.execute('CREATE INDEX IF NOT EXISTS idx_data_hora ON rodadas(data_hora DESC)')
         cur.execute('CREATE INDEX IF NOT EXISTS idx_resultado ON rodadas(resultado)')
-        
         conn.commit()
         cur.close()
         conn.close()
         print("✅ Tabelas criadas/verificadas com ÍNDICES")
         return True
     except Exception as e:
-        print(f"❌ Erro ao criar tabelas: {e}")
+        print(f"❌ Erro: {e}")
         return False
 
 def salvar_rodada(rodada):
@@ -185,7 +167,7 @@ def salvar_rodada(rodada):
             json.dumps(rodada, default=str)
         ))
         
-        # Verificar se inseriu (rowcount > 0)
+        # Verificar se inseriu
         if cur.rowcount > 0:
             conn.commit()
             cur.close()
@@ -198,15 +180,14 @@ def salvar_rodada(rodada):
             return False
             
     except Exception as e:
-        print(f"❌ Erro ao salvar rodada: {e}")
+        print(f"❌ Erro ao salvar: {e}")
         return False
 
 # =============================================================================
-# FUNÇÕES LEVES (RÁPIDAS - usam índice)
+# FUNÇÕES LEVES
 # =============================================================================
 
 def get_ultimas_50():
-    """Busca últimas 50 rodadas (para previsão)"""
     conn = get_db_connection()
     if not conn:
         return []
@@ -231,12 +212,10 @@ def get_ultimas_50():
                 'resultado': row[2]
             })
         return resultado
-    except Exception as e:
-        print(f"❌ Erro ao buscar últimas 50: {e}")
+    except:
         return []
 
 def get_ultimas_20():
-    """Busca últimas 20 rodadas para gráfico (com horário Brasília)"""
     conn = get_db_connection()
     if not conn:
         return []
@@ -256,17 +235,8 @@ def get_ultimas_20():
         
         resultado = []
         for row in rows:
-            data_hora = row[0]
-            # Converter para Brasília (UTC-3)
-            brasilia = data_hora.astimezone(timezone(timedelta(hours=-3)))
-            
-            if row[3] == 'BANKER':
-                cor = '🔴'
-            elif row[3] == 'PLAYER':
-                cor = '🔵'
-            else:
-                cor = '🟡'
-            
+            brasilia = row[0].astimezone(timezone(timedelta(hours=-3)))
+            cor = '🔴' if row[3] == 'BANKER' else '🔵' if row[3] == 'PLAYER' else '🟡'
             resultado.append({
                 'hora': brasilia.strftime('%H:%M:%S'),
                 'resultado': row[3],
@@ -274,14 +244,11 @@ def get_ultimas_20():
                 'player': row[1],
                 'banker': row[2]
             })
-        
-        return sorted(resultado, key=lambda x: x['hora'])
-    except Exception as e:
-        print(f"❌ Erro ao buscar últimas 20: {e}")
+        return resultado
+    except:
         return []
 
 def get_total_rapido():
-    """Total de rodadas (COUNT rápido com índice)"""
     conn = get_db_connection()
     if not conn:
         return 0
@@ -293,16 +260,14 @@ def get_total_rapido():
         cur.close()
         conn.close()
         return total
-    except Exception as e:
-        print(f"❌ Erro ao obter total: {e}")
+    except:
         return 0
 
 # =============================================================================
-# FUNÇÕES PESADAS (rodam a cada 30s)
+# FUNÇÕES PESADAS
 # =============================================================================
 
 def contar_periodo(horas):
-    """Conta rodadas em um período (usa índice)"""
     conn = get_db_connection()
     if not conn:
         return 0
@@ -316,14 +281,11 @@ def contar_periodo(horas):
         cur.close()
         conn.close()
         return count
-    except Exception as e:
-        print(f"❌ Erro ao contar período {horas}h: {e}")
+    except:
         return 0
 
 def atualizar_dados_pesados():
     """📊 Atualiza dados pesados (a cada 30s)"""
-    print("📊 Atualizando dados pesados...")
-    
     cache['pesados']['periodos'] = {
         '10min': contar_periodo(0.16),
         '1h': contar_periodo(1),
@@ -333,12 +295,10 @@ def atualizar_dados_pesados():
         '48h': contar_periodo(48),
         '72h': contar_periodo(72)
     }
-    
     cache['pesados']['ultima_atualizacao'] = datetime.now(timezone.utc)
-    print(f"✅ Pesados atualizados: {cache['pesados']['periodos']}")
 
 # =============================================================================
-# PREVISÃO (usa só últimas 50)
+# PREVISÃO
 # =============================================================================
 
 def identificar_modo(player_pct, banker_pct, dados):
@@ -407,7 +367,6 @@ def estrategia_falsa_alternancia(dados, modo):
     return {'banker': 0, 'player': 0}
 
 def calcular_previsao():
-    """🎯 Função principal de previsão com 8 estratégias."""
     dados = cache['leves']['ultimas_50']
     if len(dados) < 10:
         return None
@@ -415,7 +374,6 @@ def calcular_previsao():
     total = len(dados)
     player = sum(1 for r in dados if r['resultado'] == 'PLAYER')
     banker = sum(1 for r in dados if r['resultado'] == 'BANKER')
-    tie = sum(1 for r in dados if r['resultado'] == 'TIE')
     
     player_pct = (player / total) * 100
     banker_pct = (banker / total) * 100
@@ -426,7 +384,6 @@ def calcular_previsao():
     votos_player = 0
     estrategias = []
     
-    # Aplicar estratégias
     e1 = estrategia_compensacao(dados, modo)
     votos_banker += e1.get('banker', 0)
     votos_player += e1.get('player', 0)
@@ -451,7 +408,6 @@ def calcular_previsao():
     if e7.get('banker') or e7.get('player'):
         estrategias.append('Falsa Alternância')
     
-    # Meta-algoritmo
     if modo == "AGRESSIVO":
         if banker_pct > player_pct:
             votos_banker = int(votos_banker * 1.5)
@@ -460,7 +416,6 @@ def calcular_previsao():
             votos_player = int(votos_player * 1.5)
             estrategias.append('Meta AGRESSIVO')
     
-    # Decidir previsão
     if votos_banker > votos_player:
         previsao = 'BANKER'
         confianca = round((votos_banker / (votos_banker + votos_player)) * 100)
@@ -468,7 +423,6 @@ def calcular_previsao():
         previsao = 'PLAYER'
         confianca = round((votos_player / (votos_banker + votos_player)) * 100)
     else:
-        # Empate - usar percentuais
         if banker_pct > player_pct:
             previsao = 'BANKER'
             confianca = round((banker_pct / (banker_pct + player_pct)) * 100)
@@ -489,7 +443,7 @@ def calcular_previsao():
     }
 
 # =============================================================================
-# FUNÇÕES DE ATUALIZAÇÃO DE CACHE
+# FUNÇÕES DE ATUALIZAÇÃO
 # =============================================================================
 
 def atualizar_dados_leves():
@@ -501,69 +455,51 @@ def atualizar_dados_leves():
     cache['leves']['ultima_atualizacao'] = datetime.now(timezone.utc)
 
 # =============================================================================
-# FUNÇÕES DE COLETA DA API
+# PROCESSAMENTO DA API
 # =============================================================================
 
 def processar_item_api(item):
-    """Converte um item da API para o formato que usamos."""
     try:
         data = item.get('data', {})
         result = data.get('result', {})
         player_dice = result.get('playerDice', {})
         banker_dice = result.get('bankerDice', {})
-        player_score = player_dice.get('score', 0)
-        banker_score = banker_dice.get('score', 0)
-        resultado_api = result.get('outcome', 'Desconhecido')
-
+        
+        resultado_api = result.get('outcome', '')
         if resultado_api == 'PlayerWon':
             resultado = 'PLAYER'
         elif resultado_api == 'BankerWon':
             resultado = 'BANKER'
-        elif resultado_api == 'Tie':
-            resultado = 'TIE'
         else:
-            resultado = 'DESCONHECIDO'
+            resultado = 'TIE'
 
-        data_hora_str = data.get('settledAt', '')
-        data_hora = datetime.fromisoformat(data_hora_str.replace('Z', '+00:00'))
+        data_hora = datetime.fromisoformat(data.get('settledAt', '').replace('Z', '+00:00'))
 
         return {
             'id': data.get('id'),
             'data_hora': data_hora,
-            'player_score': player_score,
-            'banker_score': banker_score,
+            'player_score': player_dice.get('score', 0),
+            'banker_score': banker_dice.get('score', 0),
             'resultado': resultado,
             'multiplicador': result.get('multiplier', 1),
             'total_winners': item.get('totalWinners', 0),
             'total_amount': item.get('totalAmount', 0)
         }
-    except Exception as e:
+    except:
         return None
 
 def buscar_dados_api_com_retry():
-    """Faz requisição à API com sistema de retry."""
     for tentativa in range(MAX_RETRIES):
         try:
             params = PARAMS.copy()
             params['page'] = 0
             params['size'] = 50
-            
             response = session.get(API_URL, params=params, timeout=TIMEOUT_API)
             response.raise_for_status()
-            
             cache['falhas_consecutivas'] = 0
             return response.json()
-            
-        except requests.exceptions.Timeout:
-            print(f"⏱️ Timeout na tentativa {tentativa + 1}/{MAX_RETRIES}")
-        except requests.exceptions.ConnectionError:
-            print(f"🔌 Erro de conexão na tentativa {tentativa + 1}/{MAX_RETRIES}")
-        except Exception as e:
-            print(f"⚠️ Erro na tentativa {tentativa + 1}/{MAX_RETRIES}: {e}")
-        
-        if tentativa < MAX_RETRIES - 1:
+        except:
             time.sleep(RETRY_DELAY)
-    
     cache['falhas_consecutivas'] += 1
     return None
 
@@ -572,7 +508,7 @@ def buscar_dados_api_com_retry():
 # =============================================================================
 
 def loop_coleta():
-    """Loop principal - SEM consulta de IDs (usa ON CONFLICT)"""
+    """Loop principal - SEM consulta de IDs"""
     print("🔄 Iniciando loop de coleta...")
     
     while True:
@@ -583,7 +519,7 @@ def loop_coleta():
             if dados:
                 novas_rodadas = 0
                 
-                # 🔥 NÃO busca mais todos os IDs - ON CONFLICT resolve
+                # 🔥 NÃO busca mais todos os IDs
                 for item in dados:
                     rodada = processar_item_api(item)
                     if rodada and rodada['id']:
@@ -595,17 +531,10 @@ def loop_coleta():
                     # ⚡ Atualiza apenas dados leves
                     atualizar_dados_leves()
             
-            if cache['falhas_consecutivas'] > 5:
-                print(f"⚠️ Muitas falhas, aguardando 30s...")
-                time.sleep(30)
-                cache['falhas_consecutivas'] = 0
-            else:
-                tempo_gasto = time.time() - inicio_ciclo
-                tempo_espera = max(1, INTERVALO_COLETA - tempo_gasto)
-                time.sleep(tempo_espera)
+            time.sleep(INTERVALO_COLETA)
             
         except Exception as e:
-            print(f"❌ Erro no loop: {e}")
+            print(f"❌ Erro: {e}")
             time.sleep(INTERVALO_COLETA)
 
 # =============================================================================
@@ -613,11 +542,12 @@ def loop_coleta():
 # =============================================================================
 
 def loop_pesado():
-    """Loop separado para estatísticas pesadas (a cada 30s)"""
+    """Loop separado para estatísticas pesadas"""
     print("📊 Iniciando loop pesado (30s)...")
     while True:
         time.sleep(30)
         atualizar_dados_pesados()
+        print("📊 Estatísticas pesadas atualizadas")
 
 # =============================================================================
 # ROTAS DA API
@@ -625,16 +555,11 @@ def loop_pesado():
 
 @app.route('/')
 def index():
-    try:
-        return render_template('index.html')
-    except Exception as e:
-        return f"Erro: {e}", 500
+    return render_template('index.html')
 
 @app.route('/api/stats')
 def api_stats():
-    """Retorna dados leves + pesados"""
     try:
-        # Converter horário para Brasília
         ultima_atualizacao = None
         if cache['leves']['ultima_atualizacao']:
             brasilia = cache['leves']['ultima_atualizacao'].astimezone(timezone(timedelta(hours=-3)))
@@ -650,16 +575,10 @@ def api_stats():
     except Exception as e:
         return jsonify({'erro': str(e)}), 500
 
-@app.route('/api/previsao')
-def api_previsao():
-    previsao = calcular_previsao()
-    return jsonify(previsao if previsao else {'erro': 'Dados insuficientes'})
-
 @app.route('/api/tabela/<int:limite>')
 def api_tabela(limite):
-    """Retorna rodadas com limite específico (50,250,500,1000,2000,3000)"""
+    """🔥 AGORA USA LIMITE (50,250,500,1000,2000,3000)"""
     try:
-        # Limitar entre 50 e 3000
         if limite < 50:
             limite = 50
         if limite > 3000:
@@ -683,9 +602,7 @@ def api_tabela(limite):
         
         resultado = []
         for row in rows:
-            # Converter para Brasília
             brasilia = row[0].astimezone(timezone(timedelta(hours=-3)))
-            
             resultado.append({
                 'data': brasilia.strftime('%d/%m %H:%M:%S'),
                 'player': row[1],
@@ -696,21 +613,11 @@ def api_tabela(limite):
         
         return jsonify(resultado)
     except Exception as e:
-        print(f"❌ Erro: {e}")
         return jsonify([]), 500
-
-@app.route('/api/tabela/padrao')
-def api_tabela_padrao():
-    """Retorna 50 rodadas por padrão (mais rápido)"""
-    return api_tabela(50)
 
 @app.route('/health')
 def health():
-    return jsonify({
-        'status': 'ok',
-        'rodadas': cache['leves']['total_rodadas'],
-        'falhas': cache['falhas_consecutivas']
-    })
+    return jsonify({'status': 'ok', 'rodadas': cache['leves']['total_rodadas']})
 
 # =============================================================================
 # MAIN
@@ -726,32 +633,18 @@ if __name__ == "__main__":
     print("✅ Horário Brasília")
     print("="*70)
     
-    # Inicializar banco de dados com índices
-    if init_db():
-        print("✅ Banco de dados pronto")
-    else:
-        print("❌ Falha ao inicializar banco")
-        sys.exit(1)
+    init_db()
     
-    # Atualizar dados iniciais
+    # Dados iniciais
     atualizar_dados_leves()
     atualizar_dados_pesados()
     
     print(f"📊 {cache['leves']['total_rodadas']} rodadas no banco")
-    print(f"⚡ Timeout: {TIMEOUT_API}s | Retries: {MAX_RETRIES}")
-    print(f"🌐 Porta: {PORT}")
+    print(f"⚡ Timeout: {TIMEOUT_API}s")
     print("="*70)
     
-    # Iniciar threads
+    # Threads separadas
     threading.Thread(target=loop_coleta, daemon=True).start()
     threading.Thread(target=loop_pesado, daemon=True).start()
     
-    # Iniciar Flask
-    try:
-        app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
-    except KeyboardInterrupt:
-        print("\n🛑 Bot encerrado")
-        sys.exit(0)
-    except Exception as e:
-        print(f"❌ Erro fatal: {e}")
-        sys.exit(1)
+    app.run(host='0.0.0.0', port=PORT, debug=False)
