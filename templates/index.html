@@ -299,10 +299,10 @@
         /* Timeline de Previsões */
         .timeline-grid {
             display: flex;
-            flex-wrap: wrap;
+            flex-direction: column;
             gap: 8px;
             margin-top: 15px;
-            max-height: 150px;
+            max-height: 400px;
             overflow-y: auto;
             padding: 10px;
             background: #1e2227;
@@ -310,38 +310,63 @@
         }
 
         .timeline-item {
-            min-width: 80px;
-            padding: 8px;
+            padding: 12px;
             background: #0a0c0f;
             border: 1px solid #2a2f35;
-            border-radius: 6px;
-            font-size: 12px;
-            text-align: center;
+            border-radius: 8px;
+            font-size: 13px;
             position: relative;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
         }
 
         .timeline-acerto {
-            border-left: 3px solid #00ff88;
+            border-left: 4px solid #00ff88;
         }
 
         .timeline-erro {
-            border-left: 3px solid #ff4d4d;
+            border-left: 4px solid #ff4d4d;
+        }
+
+        .timeline-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
 
         .timeline-previsao {
-            font-weight: 600;
+            font-weight: 700;
+            font-size: 16px;
+        }
+
+        .timeline-numeros {
+            font-family: 'Courier New', monospace;
+            color: #ffaa00;
             font-size: 14px;
         }
 
         .timeline-resultado {
-            font-size: 10px;
+            display: flex;
+            gap: 10px;
             color: #8a8f99;
+            font-size: 12px;
         }
 
-        .timeline-previsto {
+        .timeline-estrategias {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-top: 5px;
+        }
+
+        .timeline-estrategia-tag {
+            background: #1e2227;
+            border: 1px solid #2a2f35;
+            border-radius: 12px;
+            padding: 2px 8px;
             font-size: 10px;
-            color: #ffaa00;
-            margin-top: 2px;
+            color: #8a8f99;
         }
 
         /* Layout de 2 colunas */
@@ -412,6 +437,40 @@
         .banker-color { color: #ff4d4d; }
         .player-color { color: #4d4dff; }
         .tie-color { color: #ffaa00; }
+
+        /* Botões de limite */
+        .limite-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 20px 0;
+        }
+
+        .limite-btn {
+            background: #1e2227;
+            border: 1px solid #2a2f35;
+            color: #8a8f99;
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            flex: 1;
+            min-width: 80px;
+        }
+
+        .limite-btn:hover {
+            background: #2a2f35;
+            color: #fff;
+        }
+
+        .limite-btn.active {
+            background: #00ff88;
+            border-color: #00ff88;
+            color: #000;
+            font-weight: 600;
+        }
 
         /* Cards de período */
         .period-grid {
@@ -628,7 +687,6 @@
             <h1>
                 <i class="bi bi-dice-6-fill"></i>
                 Bac Bo - 8 Estratégias PRO
-                <span class="info-badge" id="modoExibicao">72h</span>
             </h1>
             <div class="live-badge">
                 <span class="live-dot"></span>
@@ -727,6 +785,22 @@
             </div>
         </div>
 
+        <!-- Botões de Limite -->
+        <div class="card">
+            <div class="card-title">
+                <i class="bi bi-bar-chart"></i>
+                # RODADAS
+            </div>
+            <div class="limite-buttons">
+                <button class="limite-btn active" onclick="carregarTabela(50)">50</button>
+                <button class="limite-btn" onclick="carregarTabela(250)">250</button>
+                <button class="limite-btn" onclick="carregarTabela(500)">500</button>
+                <button class="limite-btn" onclick="carregarTabela(1000)">1.000</button>
+                <button class="limite-btn" onclick="carregarTabela(2000)">2.000</button>
+                <button class="limite-btn" onclick="carregarTabela(3000)">3.000</button>
+            </div>
+        </div>
+
         <!-- Distribuição Cards -->
         <div class="distribuicao-grid" id="distribuicaoGrid">
             <div class="distribuicao-card player" onclick="setFiltro('player')">
@@ -803,7 +877,7 @@
             
             <div class="total-info" id="totalPeriodo">
                 <span><i class="bi bi-list"></i> <span id="totalRodadasPeriodo">0</span> rodadas</span>
-                <span><span id="periodoAtualTexto">72h</span></span>
+                <span><span id="limiteAtual">50</span> rodadas</span>
             </div>
         </div>
     </div>
@@ -814,6 +888,7 @@
         let periodoAtual = 72;
         let dadosCompletos = [];
         let filtroAtual = null;
+        let limiteAtual = 50;
 
         // Histórico de previsões
         let historicoPrevisoes = [];
@@ -848,7 +923,6 @@
 
         function atualizarRelogio() {
             const agora = new Date();
-            // Horário de Brasília (UTC-3)
             const brasilia = new Date(agora.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
             
             const dia = String(brasilia.getDate()).padStart(2, '0');
@@ -865,20 +939,14 @@
         // FUNÇÕES DE HISTÓRICO DE PREVISÕES
         // =========================================================================
 
-        function registrarPrevisao(previsao, resultadoReal, horario) {
+        function registrarPrevisao(previsao, resultadoReal, horario, numeros) {
             if (!previsao || !resultadoReal) return;
-
-            // Verificar se já registramos esta previsão
-            const jaExiste = historicoPrevisoes.some(p => 
-                p.horario === horario && p.previsao === previsao.previsao
-            );
-
-            if (jaExiste) return;
 
             const acertou = previsao.previsao === resultadoReal;
 
             const registro = {
                 horario: horario,
+                numeros: numeros,
                 previsao: previsao.previsao,
                 simboloPrevisto: previsao.simbolo,
                 resultado: resultadoReal,
@@ -893,7 +961,7 @@
 
             // Atualizar estatísticas das estratégias
             registro.estrategias.forEach(e => {
-                const nomeEstrategia = e.split(':')[0].trim();
+                const nomeEstrategia = e.replace(/[:\d]/g, '').trim().split(' ')[0];
                 if (estrategiasStats[nomeEstrategia]) {
                     if (acertou) {
                         estrategiasStats[nomeEstrategia].acertos++;
@@ -909,12 +977,13 @@
         }
 
         function verificarResultadoAnterior() {
-            if (dadosCompletos.length > 0 && ultimaPrevisao) {
+            if (dadosCompletos.length > 0 && ultimaPrevisao && !ultimaPrevisao.registrado) {
                 const ultimoResultado = dadosCompletos[0]?.resultado;
                 const horario = dadosCompletos[0]?.data;
+                const numeros = `${dadosCompletos[0]?.player} vs ${dadosCompletos[0]?.banker}`;
                 
-                if (ultimoResultado && !ultimaPrevisao.registrado) {
-                    registrarPrevisao(ultimaPrevisao, ultimoResultado, horario);
+                if (ultimoResultado) {
+                    registrarPrevisao(ultimaPrevisao, ultimoResultado, horario, numeros);
                     ultimaPrevisao.registrado = true;
                 }
             }
@@ -970,11 +1039,18 @@
                 
                 html += `
                     <div class="timeline-item ${classe}">
-                        <div class="timeline-previsao">${p.simboloPrevisto} ${p.previsao}</div>
-                        <div class="timeline-resultado">Resultado: ${p.resultado}</div>
-                        <div class="timeline-previsto">Previsto: ${p.previsao}</div>
-                        <div class="timeline-resultado">${p.confianca}%</div>
-                        <div class="timeline-resultado">${p.horario || ''}</div>
+                        <div class="timeline-header">
+                            <span class="timeline-previsao">${p.simboloPrevisto} ${p.previsao}</span>
+                            <span class="timeline-confianca">${p.confianca}%</span>
+                        </div>
+                        <div class="timeline-numeros">${p.numeros || ''}</div>
+                        <div class="timeline-resultado">
+                            <span>Resultado: ${p.resultado}</span>
+                            <span>${p.horario || ''}</span>
+                        </div>
+                        <div class="timeline-estrategias">
+                            ${p.estrategias.map(e => `<span class="timeline-estrategia-tag">${e}</span>`).join('')}
+                        </div>
                     </div>
                 `;
             });
@@ -1012,7 +1088,7 @@
                 document.getElementById('filtroAtivo').textContent = `apenas ${nomeFiltro}`;
             }
             
-            atualizarGrade();
+            exibirHistorico(dadosCompletos);
         }
 
         function calcularDistribuicao() {
@@ -1046,52 +1122,53 @@
             }
         }
 
-        function atualizarGrade() {
-            let dadosParaExibir = dadosCompletos;
+        async function carregarTabela(limite) {
+            limiteAtual = limite;
             
-            if (filtroAtual) {
-                dadosParaExibir = dadosCompletos.filter(r => 
-                    r.resultado.toLowerCase() === filtroAtual.toLowerCase()
-                );
+            // Atualizar botões
+            document.querySelectorAll('.limite-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            document.getElementById('limiteAtual').textContent = limite;
+            
+            try {
+                const response = await fetch(`/api/tabela/${limite}`);
+                const dados = await response.json();
+                
+                dadosCompletos = dados;
+                document.getElementById('tabelaCount').textContent = `${dados.length} rodadas`;
+                document.getElementById('totalRodadasPeriodo').textContent = dados.length;
+                document.getElementById('pizzaInfo').textContent = `${dados.length} rodadas`;
+                
+                calcularDistribuicao();
+                exibirHistorico(dados);
+                
+                // Verificar resultado anterior
+                verificarResultadoAnterior();
+                
+            } catch (error) {
+                console.error('Erro ao carregar tabela:', error);
             }
-            
-            exibirHistorico(dadosParaExibir);
         }
 
         async function atualizarDados() {
             try {
-                console.log('🔄 Atualizando dados...', periodoAtual);
-                
-                const [statsRes, tabelaRes] = await Promise.all([
-                    fetch('/api/stats'),
-                    fetch(`/api/tabela/${periodoAtual}`)
-                ]);
+                const response = await fetch('/api/stats');
+                const stats = await response.json();
 
-                const stats = await statsRes.json();
-                const tabela = await tabelaRes.json();
-
-                dadosCompletos = tabela;
-                console.log(`📊 Recebidas ${dadosCompletos.length} rodadas`);
-                
+                // Atualizar períodos
                 periodos.forEach(p => {
                     const el = document.getElementById(`period-${p.label}`);
-                    if (el && stats.resumo) {
-                        const periodoKey = p.horas === 0.16 ? '0.16h' : `${p.horas}h`;
-                        el.textContent = stats.resumo[periodoKey]?.total || '0';
+                    if (el && stats.periodos) {
+                        const periodoKey = p.label === '10min' ? '10min' : p.label;
+                        el.textContent = stats.periodos[periodoKey] || '0';
                     }
                 });
-
-                calcularDistribuicao();
-                atualizarGrade();
-                
-                // Verificar resultado anterior
-                verificarResultadoAnterior();
 
                 // Atualizar previsão
                 if (stats.previsao) {
                     const p = stats.previsao;
                     
-                    // Guardar última previsão se for nova
                     if (!ultimaPrevisao || ultimaPrevisao.previsao !== p.previsao) {
                         ultimaPrevisao = { ...p, registrado: false };
                     }
@@ -1100,36 +1177,28 @@
                     document.getElementById('modoAlgoritmo').className = `modo-badge modo-${p.modo.toLowerCase()}`;
                     document.getElementById('modoDescricao').textContent = p.modo;
                     
-                    let simbolo = '⚪';
-                    if (p.previsao === 'PLAYER') simbolo = '🔵';
-                    if (p.previsao === 'BANKER') simbolo = '🔴';
-                    if (p.previsao === 'TIE') simbolo = '🟡';
-                    
-                    document.getElementById('proximaCorSimbolo').textContent = simbolo;
+                    document.getElementById('proximaCorSimbolo').textContent = p.simbolo;
                     document.getElementById('proximaCorTexto').textContent = p.previsao;
                     document.getElementById('confianca').textContent = p.confianca + '%';
                     
                     const estrategiasDiv = document.getElementById('estrategiasAtivas');
                     if (p.estrategias && p.estrategias.length > 0) {
-                        let html = '<span class="estrategia-tag">🧠 Estratégias ativas:</span>';
+                        let html = '<span class="estrategia-tag">🧠 Estratégias:</span>';
                         p.estrategias.forEach(e => {
                             html += `<span class="estrategia-tag ativa">${e}</span>`;
                         });
                         estrategiasDiv.innerHTML = html;
-                    } else {
-                        estrategiasDiv.innerHTML = '<span class="estrategia-tag">📊 Análise base</span>';
                     }
                     
-                    const delayDiv = document.getElementById('delayWarning');
-                    delayDiv.style.display = p.delay_ativo ? 'block' : 'none';
+                    document.getElementById('delayWarning').style.display = p.delay_ativo ? 'block' : 'none';
                 }
 
-                document.getElementById('tabelaCount').textContent = `${dadosCompletos.length} rodadas`;
-                document.getElementById('totalRodadasPeriodo').textContent = dadosCompletos.length;
-                document.getElementById('pizzaInfo').textContent = `${dadosCompletos.length} rodadas`;
+                if (stats.ultima_atualizacao) {
+                    document.getElementById('updateTime').textContent = stats.ultima_atualizacao;
+                }
 
             } catch (error) {
-                console.error('❌ Erro ao atualizar:', error);
+                console.error('Erro ao atualizar stats:', error);
             }
         }
 
@@ -1176,8 +1245,15 @@
                 return;
             }
 
+            let dadosParaExibir = data;
+            if (filtroAtual) {
+                dadosParaExibir = data.filter(r => 
+                    r.resultado.toLowerCase() === filtroAtual.toLowerCase()
+                );
+            }
+
             let html = '';
-            data.slice(0, 100).forEach(item => {
+            dadosParaExibir.forEach(item => {
                 let classeNumero = '';
                 if (item.resultado === 'PLAYER') classeNumero = 'numero-player';
                 else if (item.resultado === 'BANKER') classeNumero = 'numero-banker';
@@ -1211,25 +1287,22 @@
             
             const periodoTexto = periodos.find(p => p.horas === horas)?.label || `${horas}h`;
             document.getElementById('periodoAtualTexto').textContent = periodoTexto;
-            document.getElementById('modoExibicao').textContent = periodoTexto;
             
-            filtroAtual = null;
-            document.getElementById('filtroAtivo').textContent = 'mostrando todas';
-            
-            atualizarDados();
+            // Recarregar dados do período
+            carregarTabela(limiteAtual);
         }
 
         // Inicializar
         document.addEventListener('DOMContentLoaded', function() {
             criarPeriodos();
-            atualizarDados();
+            carregarTabela(50);
             
             // Atualizar relógio a cada segundo
             atualizarRelogio();
             setInterval(atualizarRelogio, 1000);
             
-            // Atualizar dados a cada 5 segundos
-            setInterval(atualizarDados, 5000);
+            // Atualizar stats a cada 5 segundos
+            setInterval(atualizarDatos, 5000);
         });
     </script>
 </body>
