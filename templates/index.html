@@ -3,10 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🎲 BacBo Analytics - Monitor 24/7</title>
+    <title>🎲 BacBo Analytics - AO VIVO (5s)</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <meta http-equiv="refresh" content="30"> <!-- Backup: refresh total a cada 30s -->
     <style>
         body {
             background: #1a1a2e;
@@ -105,13 +106,27 @@
         .btn-period:hover {
             background: #0f3460;
         }
+        .live-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            background-color: #00ff00;
+            border-radius: 50%;
+            animation: pulse 1s infinite;
+            margin-right: 5px;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.3; }
+            100% { opacity: 1; }
+        }
     </style>
 </head>
 <body>
     <nav class="navbar navbar-dark">
         <div class="container-fluid">
             <span class="navbar-brand mb-0 h1">
-                <i class="bi bi-dice-6"></i> BacBo Analytics - Monitor 24/7
+                <i class="bi bi-dice-6"></i> BacBo Analytics - <span class="live-indicator"></span> AO VIVO (5s)
             </span>
             <span class="text-light update-time" id="updateTime">
                 <i class="bi bi-clock-history"></i> Atualizando...
@@ -211,25 +226,28 @@
             </div>
         </div>
 
-        <!-- Tabela -->
+        <!-- Tabela com ATUALIZAÇÃO AUTOMÁTICA -->
         <div class="row">
             <div class="col-md-12">
                 <div class="card">
                     <div class="card-header">
-                        <i class="bi bi-table"></i> HISTÓRICO
+                        <i class="bi bi-table"></i> HISTÓRICO AO VIVO <span class="live-indicator"></span>
                         <div class="btn-group float-end" role="group">
-                            <button type="button" class="btn btn-period btn-sm active" onclick="carregarTabela(1)">1h</button>
-                            <button type="button" class="btn btn-period btn-sm" onclick="carregarTabela(6)">6h</button>
-                            <button type="button" class="btn btn-period btn-sm" onclick="carregarTabela(12)">12h</button>
-                            <button type="button" class="btn btn-period btn-sm" onclick="carregarTabela(24)">24h</button>
-                            <button type="button" class="btn btn-period btn-sm" onclick="carregarTabela(48)">48h</button>
-                            <button type="button" class="btn btn-period btn-sm" onclick="carregarTabela(72)">72h</button>
+                            <button type="button" class="btn btn-period btn-sm" onclick="mudarPeriodo(1)">1h</button>
+                            <button type="button" class="btn btn-period btn-sm" onclick="mudarPeriodo(6)">6h</button>
+                            <button type="button" class="btn btn-period btn-sm" onclick="mudarPeriodo(12)">12h</button>
+                            <button type="button" class="btn btn-period btn-sm" onclick="mudarPeriodo(24)">24h</button>
+                            <button type="button" class="btn btn-period btn-sm" onclick="mudarPeriodo(48)">48h</button>
+                            <button type="button" class="btn btn-period btn-sm active" onclick="mudarPeriodo(72)">72h</button>
                         </div>
                     </div>
                     <div class="card-body">
-                        <div class="table-responsive" style="max-height: 400px;">
-                            <table class="table table-dark table-hover">
-                                <thead>
+                        <div class="mb-2 text-info">
+                            <i class="bi bi-info-circle"></i> Atualizando a cada 5 segundos | Total: <span id="totalTabela">0</span> rodadas
+                        </div>
+                        <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                            <table class="table table-dark table-hover table-sm">
+                                <thead style="position: sticky; top: 0; background: #16213e; z-index: 10;">
                                     <tr>
                                         <th>Data/Hora</th>
                                         <th>Player</th>
@@ -253,8 +271,17 @@
 
     <script>
         let tendenciaChart = null;
+        let periodoAtual = 72;
+        let atualizacaoTabela = null;
 
-        function atualizarDados() {
+        // Função para atualizar TODOS os dados
+        function atualizarTudo() {
+            atualizarStats();
+            atualizarTabela(periodoAtual);
+        }
+
+        // Atualizar estatísticas e previsão
+        function atualizarStats() {
             fetch('/api/stats')
                 .then(res => res.json())
                 .then(data => {
@@ -295,6 +322,7 @@
                         }
                     }
 
+                    // Atualizar gráfico
                     if (data.ultimas_20 && data.ultimas_20.length > 0) {
                         const ctx = document.getElementById('tendenciaChart').getContext('2d');
                         
@@ -323,16 +351,12 @@
                             }
                         });
                     }
-                });
+                })
+                .catch(error => console.error('Erro stats:', error));
         }
 
-        function carregarTabela(horas) {
-            document.querySelectorAll('.btn-period').forEach(btn => btn.classList.remove('active'));
-            event.target.classList.add('active');
-            
-            document.getElementById('tabelaBody').innerHTML = 
-                '<tr><td colspan="7" class="text-center">Carregando...</td></tr>';
-            
+        // Atualizar tabela (chamada a cada 5 segundos)
+        function atualizarTabela(horas) {
             fetch(`/api/tabela/${horas}`)
                 .then(res => res.json())
                 .then(data => {
@@ -350,18 +374,40 @@
                     });
                     
                     if (data.length === 0) {
-                        html = '<tr><td colspan="7" class="text-center">Nenhuma rodada</td></tr>';
+                        html = '<tr><td colspan="7" class="text-center">Nenhuma rodada no período</td></tr>';
                     }
                     
                     document.getElementById('tabelaBody').innerHTML = html;
+                    document.getElementById('totalTabela').innerText = data.length;
+                })
+                .catch(error => {
+                    console.error('Erro tabela:', error);
+                    document.getElementById('tabelaBody').innerHTML = 
+                        '<tr><td colspan="7" class="text-center text-danger">Erro ao carregar</td></tr>';
                 });
         }
 
+        // Mudar período da tabela
+        function mudarPeriodo(horas) {
+            periodoAtual = horas;
+            
+            document.querySelectorAll('.btn-period').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            atualizarTabela(horas);
+        }
+
+        // Inicializar
         document.addEventListener('DOMContentLoaded', function() {
-            atualizarDados();
-            carregarTabela(72);
-            setInterval(atualizarDados, 10000);
+            // Carregar dados iniciais
+            atualizarTudo();
+            
+            // Configurar atualização a cada 5 SEGUNDOS (igual ao bot)
+            setInterval(atualizarTudo, 5000); // 5000ms = 5 segundos
+            
+            // Mostrar indicador de conexão
+            console.log('✅ Monitor ao vivo iniciado - atualizando a cada 5s');
         });
     </script>
 </body>
-</html>
+    </html>
