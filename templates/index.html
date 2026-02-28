@@ -275,7 +275,7 @@
             color: #8a8f99;
         }
 
-        /* CORES CORRIGIDAS: Banker = Vermelho, Player = Azul */
+        /* CORES CORRETAS: Banker = Vermelho, Player = Azul */
         .banker-color { color: #ff4d4d; }  /* Vermelho */
         .player-color { color: #4d4dff; }  /* Azul */
         .tie-color { color: #ffaa00; }      /* Amarelo */
@@ -382,40 +382,6 @@
             font-weight: 500;
         }
 
-        /* Botões de rodadas */
-        .rodadas-buttons {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin: 20px 0;
-        }
-
-        .rodadas-btn {
-            background: #1e2227;
-            border: 1px solid #2a2f35;
-            color: #8a8f99;
-            padding: 10px 20px;
-            border-radius: 25px;
-            font-size: 14px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s;
-            flex: 1;
-            min-width: 80px;
-        }
-
-        .rodadas-btn:hover {
-            background: #2a2f35;
-            color: #fff;
-        }
-
-        .rodadas-btn.active {
-            background: #00ff88;
-            border-color: #00ff88;
-            color: #000;
-            font-weight: 600;
-        }
-
         /* Grade de números */
         .numeros-grid {
             display: grid;
@@ -514,7 +480,7 @@
             <h1>
                 <i class="bi bi-dice-6-fill"></i>
                 Bac Bo - 8 Estratégias PRO
-                <span class="info-badge" id="modoExibicao">72h • 250 rodadas</span>
+                <span class="info-badge" id="modoExibicao">72h</span>
             </h1>
             <div class="live-badge">
                 <span class="live-dot"></span>
@@ -593,7 +559,7 @@
                     <div class="card-title">
                         <i class="bi bi-pie-chart-fill"></i>
                         Distribuição
-                        <span class="info-badge" id="pizzaInfo">250 rodadas</span>
+                        <span class="info-badge" id="pizzaInfo">período atual</span>
                     </div>
                     <div class="chart-container">
                         <canvas id="pizzaChart"></canvas>
@@ -625,18 +591,6 @@
                     <div class="period-grid" id="periodGrid">
                         <!-- Preenchido via JS -->
                     </div>
-                    
-                    <div class="card-title mt-3">
-                        <i class="bi bi-bar-chart"></i>
-                        # Rodadas para análise
-                    </div>
-                    <div class="rodadas-buttons" id="rodadasButtons">
-                        <button class="rodadas-btn active" onclick="setLimiteRodadas(250)">250</button>
-                        <button class="rodadas-btn" onclick="setLimiteRodadas(500)">500</button>
-                        <button class="rodadas-btn" onclick="setLimiteRodadas(1000)">1.000</button>
-                        <button class="rodadas-btn" onclick="setLimiteRodadas(2000)">2.000</button>
-                        <button class="rodadas-btn" onclick="setLimiteRodadas(3000)">3.000</button>
-                    </div>
                 </div>
             </div>
         </div>
@@ -660,7 +614,7 @@
             <!-- Total do período -->
             <div class="total-info" id="totalPeriodo">
                 <span><i class="bi bi-list"></i> <span id="totalRodadasPeriodo">0</span> rodadas</span>
-                <span><span id="periodoAtualTexto">72h</span> • limite: <span id="limiteAtual">250</span></span>
+                <span><span id="periodoAtualTexto">72h</span></span>
             </div>
         </div>
     </div>
@@ -669,9 +623,7 @@
         // Variáveis globais
         let pizzaChart = null;
         let periodoAtual = 72;
-        let limiteRodadas = 250;
         let dadosCompletos = [];
-        let dadosFiltrados = [];
         let filtroAtual = null;
 
         // Dados dos períodos
@@ -705,20 +657,6 @@
             });
         }
 
-        function setLimiteRodadas(limite) {
-            limiteRodadas = limite;
-            
-            document.querySelectorAll('.rodadas-btn').forEach(btn => btn.classList.remove('active'));
-            event.target.classList.add('active');
-            
-            document.getElementById('modoExibicao').textContent = `${periodoAtual}h • ${limite} rodadas`;
-            document.getElementById('pizzaInfo').textContent = `${limite} rodadas`;
-            document.getElementById('limiteAtual').textContent = limite;
-            
-            calcularDistribuicao();
-            atualizarGrade();
-        }
-
         function setFiltro(tipo) {
             if (filtroAtual === tipo) {
                 filtroAtual = null;
@@ -733,22 +671,14 @@
         }
 
         function calcularDistribuicao() {
-            const dados = dadosCompletos.slice(0, limiteRodadas);
-            
-            if (dados.length === 0) {
-                document.getElementById('playerNumero').textContent = '-';
-                document.getElementById('playerPercent').textContent = '-';
-                document.getElementById('tieNumero').textContent = '-';
-                document.getElementById('tiePercent').textContent = '-';
-                document.getElementById('bankerNumero').textContent = '-';
-                document.getElementById('bankerPercent').textContent = '-';
+            if (!dadosCompletos || dadosCompletos.length === 0) {
                 return;
             }
             
-            const player = dados.filter(r => r.resultado === 'PLAYER').length;
-            const banker = dados.filter(r => r.resultado === 'BANKER').length;
-            const tie = dados.filter(r => r.resultado === 'TIE').length;
-            const total = dados.length;
+            const player = dadosCompletos.filter(r => r.resultado === 'PLAYER').length;
+            const banker = dadosCompletos.filter(r => r.resultado === 'BANKER').length;
+            const tie = dadosCompletos.filter(r => r.resultado === 'TIE').length;
+            const total = dadosCompletos.length;
             
             const playerPct = ((player / total) * 100).toFixed(1);
             const bankerPct = ((banker / total) * 100).toFixed(1);
@@ -764,9 +694,6 @@
             document.getElementById('miniPlayer').textContent = player;
             document.getElementById('miniTie').textContent = tie;
             document.getElementById('miniBanker').textContent = banker;
-            
-            document.getElementById('distribuicaoResumo').textContent = 
-                `P:${player} (${playerPct}%) B:${banker} (${bankerPct}%) T:${tie} (${tiePct}%)`;
             
             if (pizzaChart) {
                 pizzaChart.data.datasets[0].data = [player, tie, banker];
@@ -785,14 +712,14 @@
                 );
             }
             
-            dadosFiltrados = dadosParaExibir.slice(0, limiteRodadas);
-            exibirHistorico(dadosFiltrados);
+            exibirHistorico(dadosParaExibir);
         }
 
         async function atualizarDados() {
             try {
                 console.log('🔄 Atualizando dados...', periodoAtual);
                 
+                // Buscar stats e tabela em paralelo
                 const [statsRes, tabelaRes] = await Promise.all([
                     fetch('/api/stats'),
                     fetch(`/api/tabela/${periodoAtual}`)
@@ -801,9 +728,11 @@
                 const stats = await statsRes.json();
                 const tabela = await tabelaRes.json();
 
+                // Atualizar dados completos
                 dadosCompletos = tabela;
-                console.log(`📊 Recebidas ${dadosCompletos.length} rodadas`);
+                console.log(`📊 Recebidas ${dadosCompletos.length} rodadas para ${periodoAtual}h`);
                 
+                // Atualizar contadores nos períodos
                 periodos.forEach(p => {
                     const el = document.getElementById(`period-${p.label}`);
                     if (el && stats.resumo) {
@@ -816,7 +745,10 @@
                     }
                 });
 
+                // Calcular distribuição
                 calcularDistribuicao();
+                
+                // Atualizar grade
                 atualizarGrade();
                 
                 // Atualizar previsão
@@ -855,12 +787,15 @@
                     delayDiv.style.display = p.delay_ativo ? 'block' : 'none';
                 }
 
+                // Update time
                 if (stats.ultima_atualizacao) {
                     document.getElementById('updateTime').textContent = stats.ultima_atualizacao;
                 }
 
+                // Atualizar contadores
                 document.getElementById('tabelaCount').textContent = `${dadosCompletos.length} rodadas`;
                 document.getElementById('totalRodadasPeriodo').textContent = dadosCompletos.length;
+                document.getElementById('pizzaInfo').textContent = `${dadosCompletos.length} rodadas`;
 
             } catch (error) {
                 console.error('❌ Erro ao atualizar:', error);
@@ -946,16 +881,20 @@
         function mudarPeriodo(horas) {
             periodoAtual = horas;
             
+            // Atualizar botões
             document.querySelectorAll('.period-card').forEach(card => card.classList.remove('active'));
             event.currentTarget.classList.add('active');
             
+            // Atualizar texto
             const periodoTexto = periodos.find(p => p.horas === horas)?.label || `${horas}h`;
             document.getElementById('periodoAtualTexto').textContent = periodoTexto;
-            document.getElementById('modoExibicao').textContent = `${periodoTexto} • ${limiteRodadas} rodadas`;
+            document.getElementById('modoExibicao').textContent = periodoTexto;
             
+            // Resetar filtro
             filtroAtual = null;
             document.getElementById('filtroAtivo').textContent = 'mostrando todas';
             
+            // Recarregar dados
             atualizarDados();
         }
 
@@ -963,6 +902,8 @@
         document.addEventListener('DOMContentLoaded', function() {
             criarPeriodos();
             atualizarDados();
+            
+            // Atualizar a cada 10 segundos
             setInterval(atualizarDados, 10000);
         });
     </script>
