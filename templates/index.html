@@ -1066,6 +1066,9 @@
                 
             } catch (error) {
                 console.error('Erro ao carregar tabela:', error);
+                document.getElementById('numerosGrid').innerHTML = `
+                    <div class="loading">❌ Erro ao carregar dados</div>
+                `;
             }
         }
 
@@ -1165,7 +1168,7 @@
             }
 
             let html = '';
-            dadosParaExibir.forEach(item => {
+            dadosParaExibir.slice(0, 100).forEach(item => {
                 let classeNumero = '';
                 if (item.resultado === 'PLAYER') classeNumero = 'numero-player';
                 else if (item.resultado === 'BANKER') classeNumero = 'numero-banker';
@@ -1191,9 +1194,39 @@
             document.getElementById('numerosGrid').innerHTML = html;
         }
 
+        // =========================================================================
+        // FUNÇÃO PARA CARREGAR DADOS INICIAIS (SEM PRECISAR CLICAR)
+        // =========================================================================
+
+        async function carregarDadosIniciais() {
+            // Carregar tabela com 50 rodadas automaticamente
+            limiteAtual = 50;
+            document.getElementById('limiteAtual').textContent = 50;
+            
+            try {
+                const response = await fetch('/api/tabela/50');
+                const dados = await response.json();
+                
+                dadosCompletos = dados;
+                document.getElementById('tabelaCount').textContent = `${dados.length} rodadas`;
+                document.getElementById('totalRodadasPeriodo').textContent = dados.length;
+                document.getElementById('pizzaInfo').textContent = `${dados.length} rodadas`;
+                
+                calcularDistribuicao();
+                exibirHistorico(dados);
+                
+                // Chamar stats também
+                await atualizarDados();
+                
+            } catch (error) {
+                console.error('Erro ao carregar dados iniciais:', error);
+            }
+        }
+
         // Inicializar
         document.addEventListener('DOMContentLoaded', function() {
-            carregarTabela(50);
+            // 🔥 CARREGAR DADOS AUTOMATICAMENTE (SEM CLICAR)
+            carregarDadosIniciais();
             
             // Atualizar relógio a cada segundo
             atualizarRelogio();
@@ -1202,8 +1235,10 @@
             // Atualizar stats a cada 5 segundos
             setInterval(atualizarDados, 5000);
             
-            // Chamar primeira vez
-            atualizarDados();
+            // Atualizar tabela a cada 30 segundos (opcional)
+            setInterval(() => {
+                carregarTabela(limiteAtual);
+            }, 30000);
         });
     </script>
 </body>
