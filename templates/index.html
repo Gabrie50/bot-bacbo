@@ -275,7 +275,7 @@
             color: #8a8f99;
         }
 
-        /* CORES CORRETAS: Banker = Vermelho, Player = Azul */
+        /* CORES CORRIGIDAS: Banker = Vermelho, Player = Azul */
         .banker-color { color: #ff4d4d; }  /* Vermelho */
         .player-color { color: #4d4dff; }  /* Azul */
         .tie-color { color: #ffaa00; }      /* Amarelo */
@@ -408,7 +408,7 @@
             justify-content: space-between;
         }
 
-        /* CORES NAS BORDAS */
+        /* CORES NAS BORDAS - Player Azul, Banker Vermelho */
         .numero-player { border-left: 3px solid #4d4dff; }  /* Azul */
         .numero-banker { border-left: 3px solid #ff4d4d; }  /* Vermelho */
         .numero-tie { border-left: 3px solid #ffaa00; }     /* Amarelo */
@@ -760,7 +760,7 @@
                     document.getElementById('modoAlgoritmo').className = `modo-badge modo-${p.modo.toLowerCase()}`;
                     document.getElementById('modoDescricao').textContent = p.modo;
                     
-                    // Previsão (CORRIGIDO: símbolos)
+                    // Previsão com cores corretas: Player = Azul, Banker = Vermelho
                     let simbolo = '⚪';
                     if (p.previsao === 'PLAYER') simbolo = '🔵';  // Azul para Player
                     if (p.previsao === 'BANKER') simbolo = '🔴';  // Vermelho para Banker
@@ -852,7 +852,7 @@
 
             let html = '';
             data.forEach(item => {
-                // CORRIGIDO: Player = Azul, Banker = Vermelho
+                // Player = Azul, Banker = Vermelho
                 let classeNumero = '';
                 if (item.resultado === 'PLAYER') classeNumero = 'numero-player';
                 else if (item.resultado === 'BANKER') classeNumero = 'numero-banker';
@@ -861,7 +861,7 @@
                 const isExtremo = item.player >= 10 || item.banker >= 10;
                 if (isExtremo) classeNumero += ' numero-extremo';
                 
-                // CORRIGIDO: símbolos
+                // Símbolos: Player = 🔵, Banker = 🔴, Tie = 🟡
                 let simbolo = '⚪';
                 if (item.resultado === 'PLAYER') simbolo = '🔵';
                 else if (item.resultado === 'BANKER') simbolo = '🔴';
