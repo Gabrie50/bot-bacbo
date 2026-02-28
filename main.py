@@ -1,4 +1,4 @@
-# main.py - Bot BacBo com Web Interface e JSON (VERSÃO CORRIGIDA)
+# main.py - Bot BacBo com Web Interface (VERSÃO RAILWAY FINAL)
 
 import os
 import time
@@ -21,10 +21,16 @@ PARAMS = {
     "duration": 30,
     "wheelResults": "PlayerWon,BankerWon,Tie"
 }
-HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Accept': 'application/json'
+}
 
 INTERVALO_COLETA = 10  # segundos
 ARQUIVO_DADOS = "dados_bacbo.json"
+
+# PORTA - Railway usa a variável de ambiente PORT
+PORT = int(os.environ.get("PORT", 5000))
 
 # Cache para a interface web
 cache = {
@@ -120,7 +126,6 @@ def filtrar_por_periodo(horas):
                 r_formatada['data_formatada'] = data_hora.strftime('%d/%m %H:%M')
                 filtradas.append(r_formatada)
         except Exception as e:
-            print(f"⚠️ Erro ao filtrar rodada: {e}")
             continue
     
     return sorted(filtradas, key=lambda x: x['data_hora'], reverse=True)
@@ -141,8 +146,8 @@ def calcular_estatisticas_periodo(horas):
     banker = sum(1 for r in rodadas if r['resultado'] == 'BANKER')
     tie = sum(1 for r in rodadas if r['resultado'] == 'TIE')
     
-    media_player = sum(r['player_score'] for r in rodadas) / total
-    media_banker = sum(r['banker_score'] for r in rodadas) / total
+    media_player = sum(r['player_score'] for r in rodadas) / total if total > 0 else 0
+    media_banker = sum(r['banker_score'] for r in rodadas) / total if total > 0 else 0
     
     return {
         'total': total,
@@ -272,10 +277,11 @@ def analisar_historico(historico):
         detalhes['Contragolpe'] = f"+70 para {sequencia[1]}"
 
     # Estratégia #7: FALSA ALTERNÂNCIA (números extremos)
-    ultimo = historico[0]
-    if ultimo['player_score'] >= 10 or ultimo['banker_score'] >= 10:
-        votos[ultimo['resultado']] += 80
-        detalhes['Falsa_Alternancia'] = f"+80 para {ultimo['resultado']}"
+    if historico and len(historico) > 0:
+        ultimo = historico[0]
+        if ultimo['player_score'] >= 10 or ultimo['banker_score'] >= 10:
+            votos[ultimo['resultado']] += 80
+            detalhes['Falsa_Alternancia'] = f"+80 para {ultimo['resultado']}"
 
     return {'PLAYER': votos['PLAYER'], 'BANKER': votos['BANKER'], 'detalhes': detalhes}
 
@@ -284,9 +290,8 @@ def calcular_previsao():
     global cache
     
     rodadas = cache['rodadas']
-    print(f"🔮 Calculando previsão com {len(rodadas)} rodadas")
     
-    if len(rodadas) < 10:
+    if len(rodadas) < 5:
         print("⚠️ Poucas rodadas para previsão")
         return None
     
@@ -304,8 +309,6 @@ def calcular_previsao():
         
         if data_hora >= limite:
             recentes.append(r)
-    
-    print(f"📊 Rodadas nos últimos 30min: {len(recentes)}")
     
     if not recentes:
         recentes = rodadas[-20:]
@@ -368,9 +371,7 @@ def calcular_previsao():
         'delay_ativo': delay_ativo,
         'player_pct': round(estats['player_pct'], 1),
         'banker_pct': round(estats['banker_pct'], 1),
-        'tie_pct': round(estats['tie_pct'], 1),
-        'votos': votos,
-        'detalhes': votos['detalhes']
+        'tie_pct': round(estats['tie_pct'], 1)
     }
 
 # =============================================================================
@@ -379,7 +380,10 @@ def calcular_previsao():
 @app.route('/')
 def index():
     """Página principal."""
-    return render_template('index.html')
+    try:
+        return render_template('index.html')
+    except Exception as e:
+        return f"Erro ao carregar template: {e}", 500
 
 @app.route('/api/stats')
 def api_stats():
@@ -427,7 +431,7 @@ def api_tabela(horas):
         rodadas = filtrar_por_periodo(horas)
         
         tabela = []
-        for r in rodadas[:100]:  # Limitar a 100 registros
+        for r in rodadas[:100]:
             cor = '🔴' if r['resultado'] == 'PLAYER' else '⚫' if r['resultado'] == 'BANKER' else '🟡'
             tabela.append({
                 'data': r['data_formatada'],
@@ -478,7 +482,7 @@ def loop_coleta():
                     atualizar_cache_estatisticas()
                     
                     # Salvar a cada 10 novas rodadas
-                    if novas_rodadas >= 10 or len(cache['rodadas']) % 50 == 0:
+                    if novas_rodadas >= 10:
                         salvar_dados()
                 else:
                     print(f"⏳ {datetime.now().strftime('%H:%M:%S')} - Nenhuma nova")
@@ -490,11 +494,19 @@ def loop_coleta():
             time.sleep(INTERVALO_COLETA)
 
 # =============================================================================
+# HEALTH CHECK (para o Railway)
+# =============================================================================
+@app.route('/health')
+def health():
+    """Endpoint de health check para o Railway."""
+    return jsonify({'status': 'ok', 'rodadas': len(cache['rodadas'])})
+
+# =============================================================================
 # MAIN
 # =============================================================================
-def main():
+if __name__ == "__main__":
     print("="*60)
-    print("🚀 BOT BACBO COM WEB INTERFACE - INICIANDO")
+    print("🚀 BOT BACBO COM WEB INTERFACE - VERSÃO FINAL")
     print("="*60)
     
     # Carregar dados existentes
@@ -505,20 +517,17 @@ def main():
     
     print(f"⏱️  Coletando dados a cada {INTERVALO_COLETA} segundos")
     print(f"📊 Total de rodadas em memória: {len(cache['rodadas'])}")
-    print(f"🌐 Interface web: http://0.0.0.0:5000")
+    print(f"🌐 Servidor rodando na porta: {PORT}")
+    print(f"🔍 Health check: /health")
     print("="*60)
 
     # Iniciar thread de coleta
     coletor = threading.Thread(target=loop_coleta, daemon=True)
     coletor.start()
 
-    # Iniciar Flask (bloqueante)
+    # Iniciar Flask - usando a porta do Railway
     try:
-        app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
-    except KeyboardInterrupt:
-        print("\n🛑 Bot interrompido")
-        salvar_dados()
-        sys.exit(0)
-
-if __name__ == "__main__":
-    main()
+        app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
+    except Exception as e:
+        print(f"❌ Erro ao iniciar Flask: {e}")
+        sys.exit(1)
