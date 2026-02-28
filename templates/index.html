@@ -76,6 +76,7 @@
         .update-time {
             color: #8a8f99;
             font-size: 14px;
+            font-family: 'Courier New', monospace;
         }
 
         /* Card de Previsão */
@@ -309,13 +310,14 @@
         }
 
         .timeline-item {
-            min-width: 60px;
+            min-width: 80px;
             padding: 8px;
             background: #0a0c0f;
             border: 1px solid #2a2f35;
             border-radius: 6px;
             font-size: 12px;
             text-align: center;
+            position: relative;
         }
 
         .timeline-acerto {
@@ -328,11 +330,18 @@
 
         .timeline-previsao {
             font-weight: 600;
+            font-size: 14px;
         }
 
         .timeline-resultado {
             font-size: 10px;
             color: #8a8f99;
+        }
+
+        .timeline-previsto {
+            font-size: 10px;
+            color: #ffaa00;
+            margin-top: 2px;
         }
 
         /* Layout de 2 colunas */
@@ -509,7 +518,7 @@
         /* Grade de números */
         .numeros-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
             gap: 8px;
             margin-top: 15px;
             max-height: 500px;
@@ -528,8 +537,9 @@
             font-family: 'Courier New', monospace;
             font-size: 14px;
             display: flex;
+            flex-direction: column;
             align-items: center;
-            justify-content: space-between;
+            gap: 4px;
         }
 
         .numero-player { border-left: 3px solid #4d4dff; }
@@ -539,6 +549,20 @@
         .numero-extremo {
             background: #ffaa0010;
             border: 1px solid #ffaa00;
+        }
+
+        .numero-valor {
+            font-weight: 600;
+            font-size: 16px;
+        }
+
+        .numero-horario {
+            font-size: 10px;
+            color: #8a8f99;
+        }
+
+        .numero-simbolo {
+            font-size: 16px;
         }
 
         /* Loading */
@@ -793,6 +817,9 @@
 
         // Histórico de previsões
         let historicoPrevisoes = [];
+        let ultimaPrevisao = null;
+
+        // Estatísticas das estratégias
         let estrategiasStats = {
             'Compensação': { acertos: 0, erros: 0 },
             'Paredão': { acertos: 0, erros: 0 },
@@ -803,9 +830,6 @@
             'Falsa Alternância': { acertos: 0, erros: 0 },
             'Meta-Algoritmo': { acertos: 0, erros: 0 }
         };
-
-        // Última previsão feita
-        let ultimaPrevisao = null;
 
         // Dados dos períodos
         const periodos = [
@@ -819,45 +843,66 @@
         ];
 
         // =========================================================================
+        // FUNÇÃO PARA ATUALIZAR RELÓGIO
+        // =========================================================================
+
+        function atualizarRelogio() {
+            const agora = new Date();
+            // Horário de Brasília (UTC-3)
+            const brasilia = new Date(agora.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+            
+            const dia = String(brasilia.getDate()).padStart(2, '0');
+            const mes = String(brasilia.getMonth() + 1).padStart(2, '0');
+            const ano = brasilia.getFullYear();
+            const horas = String(brasilia.getHours()).padStart(2, '0');
+            const minutos = String(brasilia.getMinutes()).padStart(2, '0');
+            const segundos = String(brasilia.getSeconds()).padStart(2, '0');
+            
+            document.getElementById('updateTime').textContent = `${dia}/${mes}/${ano} ${horas}:${minutos}:${segundos}`;
+        }
+
+        // =========================================================================
         // FUNÇÕES DE HISTÓRICO DE PREVISÕES
         // =========================================================================
 
-        function registrarPrevisao(previsao, resultadoReal) {
+        function registrarPrevisao(previsao, resultadoReal, horario) {
             if (!previsao || !resultadoReal) return;
 
-            // Criar registro
+            // Verificar se já registramos esta previsão
+            const jaExiste = historicoPrevisoes.some(p => 
+                p.horario === horario && p.previsao === previsao.previsao
+            );
+
+            if (jaExiste) return;
+
+            const acertou = previsao.previsao === resultadoReal;
+
             const registro = {
-                timestamp: new Date().toLocaleTimeString(),
+                horario: horario,
                 previsao: previsao.previsao,
+                simboloPrevisto: previsao.simbolo,
                 resultado: resultadoReal,
                 confianca: previsao.confianca,
                 modo: previsao.modo,
-                acertou: previsao.previsao === resultadoReal,
+                acertou: acertou,
                 estrategias: previsao.estrategias || []
             };
 
-            // Adicionar ao histórico
             historicoPrevisoes.unshift(registro);
             if (historicoPrevisoes.length > 20) historicoPrevisoes.pop();
 
             // Atualizar estatísticas das estratégias
-            if (registro.acertou) {
-                registro.estrategias.forEach(e => {
-                    const nome = e.replace(/[:\d]/g, '').trim().split(' ')[0];
-                    if (estrategiasStats[nome]) {
-                        estrategiasStats[nome].acertos++;
+            registro.estrategias.forEach(e => {
+                const nomeEstrategia = e.split(':')[0].trim();
+                if (estrategiasStats[nomeEstrategia]) {
+                    if (acertou) {
+                        estrategiasStats[nomeEstrategia].acertos++;
+                    } else {
+                        estrategiasStats[nomeEstrategia].erros++;
                     }
-                });
-            } else {
-                registro.estrategias.forEach(e => {
-                    const nome = e.replace(/[:\d]/g, '').trim().split(' ')[0];
-                    if (estrategiasStats[nome]) {
-                        estrategiasStats[nome].erros++;
-                    }
-                });
-            }
+                }
+            });
 
-            // Atualizar UI
             atualizarStatsPrevisao();
             atualizarTabelaEstrategias();
             atualizarTimeline();
@@ -866,9 +911,11 @@
         function verificarResultadoAnterior() {
             if (dadosCompletos.length > 0 && ultimaPrevisao) {
                 const ultimoResultado = dadosCompletos[0]?.resultado;
-                if (ultimoResultado && ultimoResultado !== ultimaPrevisao.resultadoVerificado) {
-                    registrarPrevisao(ultimaPrevisao, ultimoResultado);
-                    ultimaPrevisao.resultadoVerificado = ultimoResultado;
+                const horario = dadosCompletos[0]?.data;
+                
+                if (ultimoResultado && !ultimaPrevisao.registrado) {
+                    registrarPrevisao(ultimaPrevisao, ultimoResultado, horario);
+                    ultimaPrevisao.registrado = true;
                 }
             }
         }
@@ -920,13 +967,14 @@
             let html = '';
             historicoPrevisoes.forEach(p => {
                 const classe = p.acertou ? 'timeline-acerto' : 'timeline-erro';
-                const simbolo = p.previsao === 'PLAYER' ? '🔵' : p.previsao === 'BANKER' ? '🔴' : '🟡';
                 
                 html += `
                     <div class="timeline-item ${classe}">
-                        <div class="timeline-previsao">${simbolo} ${p.previsao}</div>
-                        <div class="timeline-resultado">${p.resultado}</div>
+                        <div class="timeline-previsao">${p.simboloPrevisto} ${p.previsao}</div>
+                        <div class="timeline-resultado">Resultado: ${p.resultado}</div>
+                        <div class="timeline-previsto">Previsto: ${p.previsao}</div>
                         <div class="timeline-resultado">${p.confianca}%</div>
+                        <div class="timeline-resultado">${p.horario || ''}</div>
                     </div>
                 `;
             });
@@ -1043,9 +1091,9 @@
                 if (stats.previsao) {
                     const p = stats.previsao;
                     
-                    // Guardar última previsão
+                    // Guardar última previsão se for nova
                     if (!ultimaPrevisao || ultimaPrevisao.previsao !== p.previsao) {
-                        ultimaPrevisao = { ...p, resultadoVerificado: null };
+                        ultimaPrevisao = { ...p, registrado: false };
                     }
                     
                     document.getElementById('modoAlgoritmo').textContent = p.modo;
@@ -1074,10 +1122,6 @@
                     
                     const delayDiv = document.getElementById('delayWarning');
                     delayDiv.style.display = p.delay_ativo ? 'block' : 'none';
-                }
-
-                if (stats.ultima_atualizacao) {
-                    document.getElementById('updateTime').textContent = stats.ultima_atualizacao;
                 }
 
                 document.getElementById('tabelaCount').textContent = `${dadosCompletos.length} rodadas`;
@@ -1149,8 +1193,9 @@
                 
                 html += `
                     <div class="numero-item ${classeNumero}">
-                        <span>${item.player} vs ${item.banker}</span>
-                        <span>${simbolo}</span>
+                        <div class="numero-valor">${item.player} vs ${item.banker}</div>
+                        <div class="numero-horario">${item.data || ''}</div>
+                        <div class="numero-simbolo">${simbolo}</div>
                     </div>
                 `;
             });
@@ -1178,6 +1223,12 @@
         document.addEventListener('DOMContentLoaded', function() {
             criarPeriodos();
             atualizarDados();
+            
+            // Atualizar relógio a cada segundo
+            atualizarRelogio();
+            setInterval(atualizarRelogio, 1000);
+            
+            // Atualizar dados a cada 5 segundos
             setInterval(atualizarDados, 5000);
         });
     </script>
