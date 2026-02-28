@@ -1,4 +1,4 @@
-# main.py - Bot BacBo com PostgreSQL (pg8000) - VERSÃO FINAL
+# main.py - Bot BacBo com PostgreSQL (pg8000) - VERSÃO CORRIGIDA
 
 import os
 import time
@@ -31,7 +31,7 @@ DB_NAME = parsed.path[1:]
 API_URL = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo"
 PARAMS = {
     "page": 0,
-    "size": 50,
+    "size": 100,  # Aumentado para 100
     "sort": "data.settledAt,desc",
     "duration": 4320,  # 72 horas
     "wheelResults": "PlayerWon,BankerWon,Tie"
@@ -47,7 +47,7 @@ MAX_RETRIES = 3
 RETRY_DELAY = 1
 INTERVALO_COLETA = 10
 INTERVALO_PAGINAS = 0.5
-MAX_PAGINAS = 50
+MAX_PAGINAS_HISTORICO = 100  # 100 páginas = até 10.000 rodadas
 PORT = int(os.environ.get("PORT", 5000))
 
 # Cache em memória
@@ -56,7 +56,8 @@ cache = {
     'estatisticas': {},
     'previsao': None,
     'total_rodadas': 0,
-    'falhas_consecutivas': 0
+    'falhas_consecutivas': 0,
+    'coletando_historico': False
 }
 
 # Pesos das estratégias por modo
@@ -93,7 +94,7 @@ def get_db_connection():
             host=DB_HOST,
             port=DB_PORT,
             database=DB_NAME,
-            ssl_context=True  # Necessário para Neon
+            ssl_context=True
         )
         return conn
     except Exception as e:
@@ -200,7 +201,6 @@ def buscar_rodadas(horas, limite=3000):
         
         resultado = []
         for row in rows:
-            # Converter para dicionário
             data_hora = row[0]
             player = row[1]
             banker = row[2]
@@ -209,7 +209,6 @@ def buscar_rodadas(horas, limite=3000):
             winners = row[5]
             amount = row[6] if row[6] else 0
             
-            # Determinar cor
             if resultado_str == 'BANKER':
                 cor = '🔴'
             elif resultado_str == 'PLAYER':
@@ -300,7 +299,6 @@ def get_ultimas_20():
             banker = row[2]
             resultado_str = row[3]
             
-            # Determinar cor
             if resultado_str == 'BANKER':
                 cor = '🔴'
             elif resultado_str == 'PLAYER':
@@ -316,7 +314,6 @@ def get_ultimas_20():
                 'banker': banker
             })
         
-        # Ordenar por hora
         return sorted(resultado, key=lambda x: x['hora'])
     except Exception as e:
         print(f"❌ Erro ao buscar últimas 20: {e}")
@@ -337,7 +334,6 @@ def processar_item_api(item):
         banker_score = banker_dice.get('score', 0)
         resultado_api = result.get('outcome', 'Desconhecido')
 
-        # Mapear resultado
         if resultado_api == 'PlayerWon':
             resultado = 'PLAYER'
         elif resultado_api == 'BankerWon':
@@ -347,11 +343,9 @@ def processar_item_api(item):
         else:
             resultado = 'DESCONHECIDO'
 
-        # Converter data
         data_hora_str = data.get('settledAt', '')
         data_hora = datetime.fromisoformat(data_hora_str.replace('Z', '+00:00'))
 
-        # Determinar par/ímpar
         soma = player_score + banker_score
         par_impar = 'PAR' if soma % 2 == 0 else 'IMPAR'
 
@@ -368,7 +362,6 @@ def processar_item_api(item):
             'total_amount': item.get('totalAmount', 0)
         }
     except Exception as e:
-        print(f"⚠️ Erro ao processar item: {e}")
         return None
 
 def buscar_dados_api_com_retry():
@@ -382,7 +375,6 @@ def buscar_dados_api_com_retry():
             response = session.get(API_URL, params=params, timeout=TIMEOUT_API)
             response.raise_for_status()
             
-            # Sucesso - resetar contador de falhas
             cache['falhas_consecutivas'] = 0
             return response.json()
             
@@ -393,13 +385,10 @@ def buscar_dados_api_com_retry():
         except Exception as e:
             print(f"⚠️ Erro na tentativa {tentativa + 1}/{MAX_RETRIES}: {e}")
         
-        # Aguardar antes de tentar novamente
         if tentativa < MAX_RETRIES - 1:
             time.sleep(RETRY_DELAY)
     
-    # Todas as tentativas falharam
     cache['falhas_consecutivas'] += 1
-    print(f"❌ Todas as {MAX_RETRIES} tentativas falharam. Falhas consecutivas: {cache['falhas_consecutivas']}")
     return None
 
 # =============================================================================
@@ -408,7 +397,6 @@ def buscar_dados_api_com_retry():
 
 def identificar_modo(player_pct, banker_pct, tie_pct, dados):
     """Identifica o modo do algoritmo baseado nos dados."""
-    # Contar números extremos (10,11,12)
     extremos = sum(1 for r in dados if r['player_score'] >= 10 or r['banker_score'] >= 10)
     total = len(dados) if dados else 1
     pct_extremos = (extremos / total) * 100 if total > 0 else 0
@@ -423,7 +411,6 @@ def identificar_modo(player_pct, banker_pct, tie_pct, dados):
         return "EQUILIBRADO"
 
 def estrategia_compensacao(dados, modo):
-    """Estratégia #1: Compensação"""
     if len(dados) < 10:
         return {'banker': 0, 'player': 0, 'descricao': None}
     
@@ -445,7 +432,6 @@ def estrategia_compensacao(dados, modo):
     return {'banker': 0, 'player': 0, 'descricao': None}
 
 def estrategia_paredao(dados, modo):
-    """Estratégia #2: Paredão"""
     if len(dados) < 4:
         return {'banker': 0, 'player': 0, 'descricao': None}
     
@@ -461,7 +447,6 @@ def estrategia_paredao(dados, modo):
     return {'banker': 0, 'player': 0, 'descricao': None}
 
 def estrategia_moedor(dados, modo):
-    """Estratégia #3: Moedor (Cluster de Empates)"""
     if len(dados) < 5:
         return {'banker': 0, 'player': 0, 'tie': 0, 'descricao': None}
     
@@ -474,13 +459,12 @@ def estrategia_moedor(dados, modo):
             'banker': 0, 
             'player': 0, 
             'tie': PESOS['moedor'][modo], 
-            'descricao': f'Moedor: {ties_5} ties em 5 rodadas'
+            'descricao': f'Moedor: {ties_5} ties'
         }
     
     return {'banker': 0, 'player': 0, 'tie': 0, 'descricao': None}
 
 def estrategia_xadrez(dados, modo):
-    """Estratégia #4: Xadrez (Alternância)"""
     if len(dados) < 4:
         return {'banker': 0, 'player': 0, 'descricao': None}
     
@@ -499,7 +483,6 @@ def estrategia_xadrez(dados, modo):
     return {'banker': 0, 'player': 0, 'descricao': None}
 
 def estrategia_contragolpe(dados, modo):
-    """Estratégia #5: Contragolpe"""
     if len(dados) < 5:
         return {'banker': 0, 'player': 0, 'descricao': None}
     
@@ -519,7 +502,6 @@ def estrategia_contragolpe(dados, modo):
     return {'banker': 0, 'player': 0, 'descricao': None}
 
 def estrategia_reset_cluster(dados, modo):
-    """Estratégia #6: Reset Pós-Cluster"""
     if len(dados) < 10:
         return {'banker': 0, 'player': 0, 'descricao': None}
     
@@ -538,7 +520,6 @@ def estrategia_reset_cluster(dados, modo):
     return {'banker': 0, 'player': 0, 'descricao': None}
 
 def estrategia_falsa_alternancia(dados, modo):
-    """Estratégia #7: Falsa Alternância"""
     if len(dados) < 3:
         return {'banker': 0, 'player': 0, 'descricao': None}
     
@@ -554,7 +535,6 @@ def estrategia_falsa_alternancia(dados, modo):
 
 def calcular_previsao():
     """Função principal de previsão com 8 estratégias."""
-    # Buscar últimas 50 rodadas do banco
     conn = get_db_connection()
     if not conn:
         return None
@@ -575,7 +555,6 @@ def calcular_previsao():
         if len(rows) < 10:
             return None
         
-        # Converter para lista de dicionários
         dados_analise = []
         for row in rows:
             dados_analise.append({
@@ -584,7 +563,6 @@ def calcular_previsao():
                 'resultado': row[2]
             })
         
-        # Calcular percentuais
         total = len(dados_analise)
         player = sum(1 for r in dados_analise if r['resultado'] == 'PLAYER')
         banker = sum(1 for r in dados_analise if r['resultado'] == 'BANKER')
@@ -594,84 +572,72 @@ def calcular_previsao():
         banker_pct = (banker / total) * 100
         tie_pct = (tie / total) * 100
         
-        # Identificar modo
         modo = identificar_modo(player_pct, banker_pct, tie_pct, dados_analise)
         
-        # Aplicar estratégias
         estrategias = []
         votos_banker = 0
         votos_player = 0
         votos_tie = 0
         
-        # Estratégia 1: Compensação
         e1 = estrategia_compensacao(dados_analise, modo)
         votos_banker += e1.get('banker', 0)
         votos_player += e1.get('player', 0)
         if e1['descricao']:
             estrategias.append(e1['descricao'])
         
-        # Estratégia 2: Paredão
         e2 = estrategia_paredao(dados_analise, modo)
         votos_banker += e2.get('banker', 0)
         votos_player += e2.get('player', 0)
         if e2['descricao']:
             estrategias.append(e2['descricao'])
         
-        # Estratégia 3: Moedor
         e3 = estrategia_moedor(dados_analise, modo)
         votos_tie += e3.get('tie', 0)
         if e3['descricao']:
             estrategias.append(e3['descricao'])
         
-        # Estratégia 4: Xadrez
         e4 = estrategia_xadrez(dados_analise, modo)
         votos_banker += e4.get('banker', 0)
         votos_player += e4.get('player', 0)
         if e4['descricao']:
             estrategias.append(e4['descricao'])
         
-        # Estratégia 5: Contragolpe
         e5 = estrategia_contragolpe(dados_analise, modo)
         votos_banker += e5.get('banker', 0)
         votos_player += e5.get('player', 0)
         if e5['descricao']:
             estrategias.append(e5['descricao'])
         
-        # Estratégia 6: Reset Cluster
         e6 = estrategia_reset_cluster(dados_analise, modo)
         votos_banker += e6.get('banker', 0)
         votos_player += e6.get('player', 0)
         if e6['descricao']:
             estrategias.append(e6['descricao'])
         
-        # Estratégia 7: Falsa Alternância
         e7 = estrategia_falsa_alternancia(dados_analise, modo)
         votos_banker += e7.get('banker', 0)
         votos_player += e7.get('player', 0)
         if e7['descricao']:
             estrategias.append(e7['descricao'])
         
-        # Meta-Algoritmo (Estratégia 8)
         if modo == "AGRESSIVO":
             if banker_pct > player_pct:
                 votos_banker = int(votos_banker * 1.5)
-                estrategias.append('Meta: AGRESSIVO BANKER (x1.5)')
+                estrategias.append('Meta: AGRESSIVO BANKER')
             else:
                 votos_player = int(votos_player * 1.5)
-                estrategias.append('Meta: AGRESSIVO PLAYER (x1.5)')
+                estrategias.append('Meta: AGRESSIVO PLAYER')
         elif modo == "PREDATORIO":
             if any('Falsa Alternância' in e for e in estrategias):
                 if banker_pct > player_pct:
                     votos_banker = int(votos_banker * 1.3)
                 else:
                     votos_player = int(votos_player * 1.3)
-                estrategias.append('Meta: PREDATÓRIO (x1.3)')
+                estrategias.append('Meta: PREDATÓRIO')
         
-        # Determinar vencedor
         total_votos = votos_banker + votos_player + votos_tie
         
         if total_votos == 0:
-            # Fallback: usar percentuais
             if banker_pct > player_pct:
                 previsao = 'BANKER'
                 confianca = round((banker_pct / (banker_pct + player_pct)) * 100)
@@ -689,7 +655,6 @@ def calcular_previsao():
                 previsao = 'TIE'
                 confianca = round((votos_tie / total_votos) * 100)
             else:
-                # Empate - decidir por percentuais
                 if banker_pct > player_pct:
                     previsao = 'BANKER'
                     confianca = round((banker_pct / (banker_pct + player_pct)) * 100)
@@ -697,11 +662,9 @@ def calcular_previsao():
                     previsao = 'PLAYER'
                     confianca = round((player_pct / (banker_pct + player_pct)) * 100)
         
-        # Verificar delay pós-empate
         ultimo_resultado = dados_analise[0]['resultado'] if dados_analise else None
         delay_ativo = (ultimo_resultado == 'TIE')
         
-        # Símbolo
         if previsao == 'PLAYER':
             simbolo = '🔵'
         elif previsao == 'BANKER':
@@ -715,7 +678,7 @@ def calcular_previsao():
             'simbolo': simbolo,
             'confianca': confianca,
             'delay_ativo': delay_ativo,
-            'estrategias': estrategias[:3]  # Top 3 estratégias
+            'estrategias': estrategias[:3]
         }
         
     except Exception as e:
@@ -752,15 +715,13 @@ def atualizar_cache_estatisticas():
 
 @app.route('/')
 def index():
-    """Página principal."""
     try:
         return render_template('index.html')
     except Exception as e:
-        return f"Erro ao carregar template: {e}", 500
+        return f"Erro: {e}", 500
 
 @app.route('/api/stats')
 def api_stats():
-    """Retorna estatísticas em JSON."""
     try:
         return jsonify({
             'ultima_atualizacao': cache['ultima_atualizacao'].strftime('%d/%m/%Y %H:%M:%S') if cache['ultima_atualizacao'] else None,
@@ -774,14 +735,12 @@ def api_stats():
 
 @app.route('/api/previsao')
 def api_previsao():
-    """Endpoint específico para previsão."""
     previsao = calcular_previsao()
     return jsonify(previsao if previsao else {'erro': 'Dados insuficientes'})
 
 @app.route('/api/tabela/<float:horas>')
 @app.route('/api/tabela/<int:horas>')
 def api_tabela(horas):
-    """Retorna tabela de rodadas para um período."""
     try:
         if isinstance(horas, int):
             horas = float(horas)
@@ -797,12 +756,21 @@ def api_tabela(horas):
 
 @app.route('/health')
 def health():
-    """Health check."""
     return jsonify({
         'status': 'ok',
         'rodadas': cache['total_rodadas'],
         'falhas': cache['falhas_consecutivas']
     })
+
+@app.route('/coletar-historico')
+def coletar_historico():
+    """Rota para forçar coleta histórica manual."""
+    if cache['coletando_historico']:
+        return jsonify({'status': 'coleta já em andamento'})
+    
+    thread = threading.Thread(target=coleta_historica_inicial, daemon=True)
+    thread.start()
+    return jsonify({'status': 'coleta histórica iniciada'})
 
 # =============================================================================
 # LOOP DE COLETA EM TEMPO REAL
@@ -815,14 +783,11 @@ def loop_coleta():
     while True:
         try:
             inicio_ciclo = time.time()
-            
-            # Buscar dados da API
             dados_brutos = buscar_dados_api_com_retry()
             
             if dados_brutos:
                 novas_rodadas = 0
                 
-                # Buscar IDs existentes
                 conn = get_db_connection()
                 if conn:
                     cur = conn.cursor()
@@ -831,7 +796,6 @@ def loop_coleta():
                     cur.close()
                     conn.close()
                     
-                    # Processar cada item
                     for item in dados_brutos:
                         rodada = processar_item_api(item)
                         if rodada and rodada['id'] and rodada['id'] not in ids_existentes:
@@ -842,13 +806,11 @@ def loop_coleta():
                         print(f"✅ +{novas_rodadas} novas rodadas")
                         atualizar_cache_estatisticas()
             
-            # Se muitas falhas, aumentar intervalo
             if cache['falhas_consecutivas'] > 5:
                 print(f"⚠️ Muitas falhas, aguardando 30s...")
                 time.sleep(30)
                 cache['falhas_consecutivas'] = 0
             else:
-                # Manter intervalo de 10 segundos
                 tempo_gasto = time.time() - inicio_ciclo
                 tempo_espera = max(1, INTERVALO_COLETA - tempo_gasto)
                 time.sleep(tempo_espera)
@@ -858,32 +820,39 @@ def loop_coleta():
             time.sleep(INTERVALO_COLETA)
 
 # =============================================================================
-# COLETA HISTÓRICA INICIAL
+# COLETA HISTÓRICA INICIAL (CORRIGIDA - FORÇADA)
 # =============================================================================
 
 def coleta_historica_inicial():
-    """Busca rodadas históricas para preencher o banco."""
-    print("📚 Iniciando coleta histórica inicial...")
+    """Busca rodadas históricas para preencher o banco (FORÇADO)."""
+    if cache['coletando_historico']:
+        print("⏳ Coleta histórica já em andamento")
+        return
+    
+    cache['coletando_historico'] = True
+    
+    print("="*60)
+    print("📚 INICIANDO COLETA HISTÓRICA COMPLETA")
+    print("="*60)
     
     page = 0
     total_coletadas = 0
     
-    while page < MAX_PAGINAS:
+    while page < MAX_PAGINAS_HISTORICO:
         try:
             params = PARAMS.copy()
             params['page'] = page
             params['size'] = 100
             
-            print(f"📡 Buscando página {page + 1}/{MAX_PAGINAS}...", end=' ')
+            print(f"📡 Buscando página {page + 1}/{MAX_PAGINAS_HISTORICO}...", end=' ')
             response = session.get(API_URL, params=params, timeout=TIMEOUT_API)
             response.raise_for_status()
             dados = response.json()
             
-            if not dados:
+            if not dados or len(dados) == 0:
                 print("✅ Fim do histórico")
                 break
             
-            # Buscar IDs existentes
             conn = get_db_connection()
             cur = conn.cursor()
             cur.execute('SELECT id FROM rodadas')
@@ -899,27 +868,34 @@ def coleta_historica_inicial():
                         novas_pagina += 1
                         total_coletadas += 1
             
-            print(f"+{novas_pagina} novas")
+            print(f"+{novas_pagina} novas (total acumulado: {total_coletadas})")
             
             if novas_pagina == 0:
+                print("⚠️ Sem novas rodadas, parando")
                 break
                 
             page += 1
             time.sleep(INTERVALO_PAGINAS)
             
         except Exception as e:
-            print(f"❌ Erro: {e}")
+            print(f"❌ Erro na página {page}: {e}")
             break
     
-    print(f"✅ Coleta histórica concluída! +{total_coletadas} rodadas")
+    print("="*60)
+    print(f"✅ COLETA HISTÓRICA CONCLUÍDA!")
+    print(f"📊 Total de novas rodadas: {total_coletadas}")
+    print(f"📊 Total no banco: {get_total_rodadas()} rodadas")
+    print("="*60)
+    
     atualizar_cache_estatisticas()
+    cache['coletando_historico'] = False
 
 # =============================================================================
 # MAIN
 # =============================================================================
 if __name__ == "__main__":
     print("="*70)
-    print("🚀 BOT BACBO - POSTGRESQL (pg8000) - VERSÃO FINAL")
+    print("🚀 BOT BACBO - POSTGRESQL (pg8000) - VERSÃO CORRIGIDA")
     print("="*70)
     
     # Inicializar banco de dados
@@ -937,12 +913,13 @@ if __name__ == "__main__":
     print(f"🌐 Porta: {PORT}")
     print("="*70)
     
-    # Se banco vazio, iniciar coleta histórica
-    if cache['total_rodadas'] < 100:
+    # SEMPRE fazer coleta histórica se tiver menos de 3000 rodadas
+    if cache['total_rodadas'] < 3000:
+        print("📚 Iniciando coleta histórica para completar 3000 rodadas...")
         historico_thread = threading.Thread(target=coleta_historica_inicial, daemon=True)
         historico_thread.start()
     else:
-        print("✅ Banco já populado, pulando coleta histórica")
+        print("✅ Banco já tem 3000+ rodadas, pulando coleta histórica")
     
     # Iniciar coleta em tempo real
     coletor_thread = threading.Thread(target=loop_coleta, daemon=True)
