@@ -3,411 +3,656 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🎲 BacBo Analytics - AO VIVO (5s)</title>
+    <title>🎲 BacBo Analytics - Todos os Períodos</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <meta http-equiv="refresh" content="30"> <!-- Backup: refresh total a cada 30s -->
+    <meta http-equiv="refresh" content="30">
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
-            background: #1a1a2e;
-            color: #fff;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-        .navbar {
-            background: #16213e !important;
-            border-bottom: 2px solid #0f3460;
-        }
-        .card {
-            background: #16213e;
-            border: 1px solid #0f3460;
-            border-radius: 15px;
-            margin-bottom: 20px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-        }
-        .card-header {
-            background: #0f3460;
-            color: #fff;
-            border-bottom: none;
-            border-radius: 15px 15px 0 0 !important;
-            font-weight: bold;
-        }
-        .stat-value {
-            font-size: 2em;
-            font-weight: bold;
-        }
-        .stat-label {
-            color: #aaa;
-            font-size: 0.9em;
-        }
-        .player-color { color: #ff4444; }
-        .banker-color { color: #4444ff; }
-        .tie-color { color: #ffaa00; }
-        .table {
-            color: #fff;
-        }
-        .table thead th {
-            border-bottom-color: #0f3460;
-            color: #aaa;
-        }
-        .table td {
-            border-color: #0f3460;
-        }
-        .badge-player {
-            background: #ff4444;
-            color: white;
-            padding: 5px 10px;
-            border-radius: 5px;
-        }
-        .badge-banker {
-            background: #4444ff;
-            color: white;
-            padding: 5px 10px;
-            border-radius: 5px;
-        }
-        .badge-tie {
-            background: #ffaa00;
-            color: black;
-            padding: 5px 10px;
-            border-radius: 5px;
-        }
-        .prediction-box {
-            background: #0f3460;
-            border-radius: 10px;
+            background: #0a0c0f;
+            color: #e0e0e0;
+            font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
             padding: 20px;
-            text-align: center;
-            margin: 10px 0;
         }
-        .prediction-cor {
-            font-size: 4em;
-            margin: 10px 0;
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
         }
-        .progress {
-            background: #1a1a2e;
-            height: 25px;
+
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #2a2f35;
         }
-        .progress-bar {
-            background: linear-gradient(90deg, #00ff00, #00aa00);
-        }
-        .update-time {
-            color: #aaa;
-            font-size: 0.8em;
-        }
-        .btn-period {
-            background: #16213e;
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 500;
             color: #fff;
-            border: 1px solid #0f3460;
-            margin: 2px;
         }
-        .btn-period.active {
-            background: #0f3460;
-            border-color: #00ff00;
+
+        .header h1 i {
+            color: #00ff88;
+            margin-right: 10px;
         }
-        .btn-period:hover {
-            background: #0f3460;
+
+        .live-badge {
+            background: #1a4c2e;
+            color: #00ff88;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
-        .live-indicator {
-            display: inline-block;
+
+        .live-dot {
             width: 10px;
             height: 10px;
-            background-color: #00ff00;
+            background: #00ff88;
             border-radius: 50%;
-            animation: pulse 1s infinite;
-            margin-right: 5px;
+            animation: pulse 1.5s infinite;
         }
+
         @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.3; }
-            100% { opacity: 1; }
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.2); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        .update-time {
+            color: #8a8f99;
+            font-size: 14px;
+        }
+
+        /* Cards de visão geral - 4 colunas */
+        .overview-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+
+        .card {
+            background: #15181c;
+            border: 1px solid #2a2f35;
+            border-radius: 12px;
+            padding: 18px;
+        }
+
+        .card-title {
+            color: #8a8f99;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .card-value {
+            font-size: 32px;
+            font-weight: 600;
+            color: #fff;
+            margin-bottom: 5px;
+        }
+
+        .card-sub {
+            color: #8a8f99;
+            font-size: 13px;
+        }
+
+        /* Distribuição - 3 cards grandes */
+        .distribution-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+
+        .distribution-card {
+            background: #15181c;
+            border: 1px solid #2a2f35;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .distribution-title {
+            color: #8a8f99;
+            font-size: 16px;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .distribution-percent {
+            font-size: 48px;
+            font-weight: 700;
+            line-height: 1.2;
+            margin-bottom: 5px;
+        }
+
+        .distribution-count {
+            color: #8a8f99;
+            font-size: 16px;
+            margin-bottom: 15px;
+        }
+
+        .progress-bar-bg {
+            background: #1e2227;
+            height: 8px;
+            border-radius: 4px;
+            margin: 15px 0;
+        }
+
+        .progress-fill {
+            height: 8px;
+            border-radius: 4px;
+            transition: width 0.3s;
+        }
+
+        .player-color { color: #ff4d4d; }
+        .banker-color { color: #4d4dff; }
+        .tie-color { color: #ffaa00; }
+        
+        .progress-player { background: #ff4d4d; }
+        .progress-banker { background: #4d4dff; }
+        .progress-tie { background: #ffaa00; }
+
+        /* Botões de período */
+        .period-section {
+            background: #15181c;
+            border: 1px solid #2a2f35;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 25px;
+        }
+
+        .period-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .period-header h2 {
+            font-size: 18px;
+            font-weight: 500;
+            color: #fff;
+        }
+
+        .period-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .period-btn {
+            background: #1e2227;
+            border: 1px solid #2a2f35;
+            color: #8a8f99;
+            padding: 8px 20px;
+            border-radius: 25px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .period-btn:hover {
+            background: #2a2f35;
+            color: #fff;
+        }
+
+        .period-btn.active {
+            background: #00ff88;
+            border-color: #00ff88;
+            color: #000;
+            font-weight: 600;
+        }
+
+        .period-btn.special {
+            background: #4a2e1c;
+            border-color: #ff8800;
+            color: #ffaa00;
+        }
+
+        .period-btn.special:hover {
+            background: #ff8800;
+            color: #000;
+        }
+
+        .period-btn.special.active {
+            background: #ff8800;
+            border-color: #ff8800;
+            color: #000;
+        }
+
+        /* Grade de números */
+        .numeros-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 15px;
+            max-height: 350px;
+            overflow-y: auto;
+            padding: 10px;
+            background: #1e2227;
+            border-radius: 8px;
+            min-height: 120px;
+        }
+
+        .numero-item {
+            min-width: 90px;
+            padding: 10px 12px;
+            background: #0a0c0f;
+            border: 1px solid #2a2f35;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 15px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .numero-player { border-left: 3px solid #ff4d4d; }
+        .numero-banker { border-left: 3px solid #4d4dff; }
+        .numero-tie { border-left: 3px solid #ffaa00; }
+
+        .numero-player .resultado-cor { color: #ff4d4d; }
+        .numero-banker .resultado-cor { color: #4d4dff; }
+        .numero-tie .resultado-cor { color: #ffaa00; }
+
+        .resultado-badge {
+            font-size: 12px;
+            padding: 2px 8px;
+            border-radius: 12px;
+            background: #2a2f35;
+        }
+
+        /* Último resultado */
+        .ultimo-card {
+            background: #15181c;
+            border: 1px solid #2a2f35;
+            border-radius: 12px;
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+
+        .ultimo-label {
+            color: #8a8f99;
+            font-size: 14px;
+            margin-bottom: 5px;
+        }
+
+        .ultimo-valor {
+            font-size: 24px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .ultimo-numeros {
+            font-family: 'Courier New', monospace;
+            background: #1e2227;
+            padding: 8px 20px;
+            border-radius: 30px;
+            font-size: 20px;
+        }
+
+        .total-info {
+            color: #8a8f99;
+            font-size: 14px;
+            text-align: right;
+            margin-top: 10px;
+        }
+
+        /* Loading */
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #8a8f99;
+            width: 100%;
+        }
+
+        .loading i {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        /* Pesquisar */
+        .search-box {
+            background: #1e2227;
+            border: 1px solid #2a2f35;
+            border-radius: 8px;
+            padding: 12px 15px;
+            color: #fff;
+            width: 100%;
+            margin-top: 15px;
+            font-size: 14px;
+        }
+
+        .search-box::placeholder {
+            color: #5a5f69;
+        }
+
+        /* Responsividade */
+        @media (max-width: 768px) {
+            .overview-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .period-buttons {
+                justify-content: center;
+            }
+            
+            .ultimo-valor {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 5px;
+            }
         }
     </style>
 </head>
 <body>
-    <nav class="navbar navbar-dark">
-        <div class="container-fluid">
-            <span class="navbar-brand mb-0 h1">
-                <i class="bi bi-dice-6"></i> BacBo Analytics - <span class="live-indicator"></span> AO VIVO (5s)
-            </span>
-            <span class="text-light update-time" id="updateTime">
-                <i class="bi bi-clock-history"></i> Atualizando...
-            </span>
-        </div>
-    </nav>
-
-    <div class="container-fluid mt-4">
-        <!-- Cards de Resumo -->
-        <div class="row" id="resumoCards">
-            <div class="col-md-3">
-                <div class="card">
-                    <div class="card-body">
-                        <div class="stat-label">Total (72h)</div>
-                        <div class="stat-value" id="totalRodadas">-</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card">
-                    <div class="card-body">
-                        <div class="stat-label">Player</div>
-                        <div class="stat-value player-color" id="playerPct">-</div>
-                        <div id="playerCount" class="stat-label">- rodadas</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card">
-                    <div class="card-body">
-                        <div class="stat-label">Banker</div>
-                        <div class="stat-value banker-color" id="bankerPct">-</div>
-                        <div id="bankerCount" class="stat-label">- rodadas</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card">
-                    <div class="card-body">
-                        <div class="stat-label">Tie</div>
-                        <div class="stat-value tie-color" id="tiePct">-</div>
-                        <div id="tieCount" class="stat-label">- rodadas</div>
-                    </div>
-                </div>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>
+                <i class="bi bi-dice-6-fill"></i>
+                Bac Bo - Análise Completa
+            </h1>
+            <div class="live-badge">
+                <span class="live-dot"></span>
+                AO VIVO
+                <span class="update-time" id="updateTime"></span>
             </div>
         </div>
 
-        <!-- Previsão -->
-        <div class="row">
-            <div class="col-md-12">
-                <div class="card">
-                    <div class="card-header">
-                        <i class="bi bi-graph-up-arrow"></i> PREVISÃO DA PRÓXIMA RODADA
-                    </div>
-                    <div class="card-body">
-                        <div class="row">
-                            <div class="col-md-4">
-                                <div class="prediction-box">
-                                    <div class="stat-label">MODO</div>
-                                    <div style="font-size: 2em;" id="modoAlgoritmo">-</div>
-                                </div>
-                            </div>
-                            <div class="col-md-4">
-                                <div class="prediction-box">
-                                    <div class="stat-label">PRÓXIMA COR</div>
-                                    <div class="prediction-cor" id="proximaCor">⚪</div>
-                                    <div style="font-size: 1.5em;" id="proximaCorTexto">AGUARDANDO</div>
-                                </div>
-                            </div>
-                            <div class="col-md-4">
-                                <div class="prediction-box">
-                                    <div class="stat-label">CONFIANÇA</div>
-                                    <div style="font-size: 2em;" id="confianca">0%</div>
-                                    <div class="progress mt-2">
-                                        <div class="progress-bar" id="confiancaBar" style="width: 0%"></div>
-                                    </div>
-                                    <div class="mt-2" id="delayWarning"></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+        <!-- Overview Cards (4) -->
+        <div class="overview-grid">
+            <div class="card">
+                <div class="card-title">
+                    <i class="bi bi-table"></i>
+                    Total (72h)
+                </div>
+                <div class="card-value" id="totalRodadas">-</div>
+                <div class="card-sub" id="totalRodadasDetalhe">- rodadas</div>
+            </div>
+            <div class="card">
+                <div class="card-title">
+                    <i class="bi bi-arrow-up-circle-fill player-color"></i>
+                    Player
+                </div>
+                <div class="card-value player-color" id="playerPct">-</div>
+                <div class="card-sub" id="playerCount">- rodadas</div>
+            </div>
+            <div class="card">
+                <div class="card-title">
+                    <i class="bi bi-arrow-down-circle-fill banker-color"></i>
+                    Banker
+                </div>
+                <div class="card-value banker-color" id="bankerPct">-</div>
+                <div class="card-sub" id="bankerCount">- rodadas</div>
+            </div>
+            <div class="card">
+                <div class="card-title">
+                    <i class="bi bi-pause-circle-fill tie-color"></i>
+                    Tie
+                </div>
+                <div class="card-value tie-color" id="tiePct">-</div>
+                <div class="card-sub" id="tieCount">- rodadas</div>
+            </div>
+        </div>
+
+        <!-- Distribuição (Player, Tie, Banker) -->
+        <div class="distribution-grid">
+            <div class="distribution-card">
+                <div class="distribution-title player-color">🔴 PLAYER</div>
+                <div class="distribution-percent player-color" id="distPlayerPct">-</div>
+                <div class="distribution-count" id="distPlayerCount">- rodadas</div>
+                <div class="progress-bar-bg">
+                    <div class="progress-fill progress-player" id="playerProgressBar" style="width: 0%"></div>
+                </div>
+            </div>
+            <div class="distribution-card">
+                <div class="distribution-title tie-color">🟡 TIE</div>
+                <div class="distribution-percent tie-color" id="distTiePct">-</div>
+                <div class="distribution-count" id="distTieCount">- rodadas</div>
+                <div class="progress-bar-bg">
+                    <div class="progress-fill progress-tie" id="tieProgressBar" style="width: 0%"></div>
+                </div>
+            </div>
+            <div class="distribution-card">
+                <div class="distribution-title banker-color">⚫ BANKER</div>
+                <div class="distribution-percent banker-color" id="distBankerPct">-</div>
+                <div class="distribution-count" id="distBankerCount">- rodadas</div>
+                <div class="progress-bar-bg">
+                    <div class="progress-fill progress-banker" id="bankerProgressBar" style="width: 0%"></div>
                 </div>
             </div>
         </div>
 
-        <!-- Gráfico -->
-        <div class="row">
-            <div class="col-md-12">
-                <div class="card">
-                    <div class="card-header">
-                        <i class="bi bi-bar-chart"></i> TENDÊNCIA (Últimas 20)
-                    </div>
-                    <div class="card-body">
-                        <canvas id="tendenciaChart" height="100"></canvas>
-                    </div>
+        <!-- Último Resultado -->
+        <div class="ultimo-card">
+            <div>
+                <div class="ultimo-label">
+                    <i class="bi bi-clock"></i> ÚLTIMO RESULTADO
                 </div>
+                <div class="ultimo-valor">
+                    <span id="ultimoResultado">-</span>
+                    <span class="ultimo-numeros" id="ultimoNumeros"></span>
+                </div>
+            </div>
+            <div class="text-secondary">
+                <span id="ultimoHorario"></span>
             </div>
         </div>
 
-        <!-- Tabela com ATUALIZAÇÃO AUTOMÁTICA -->
-        <div class="row">
-            <div class="col-md-12">
-                <div class="card">
-                    <div class="card-header">
-                        <i class="bi bi-table"></i> HISTÓRICO AO VIVO <span class="live-indicator"></span>
-                        <div class="btn-group float-end" role="group">
-                            <button type="button" class="btn btn-period btn-sm" onclick="mudarPeriodo(1)">1h</button>
-                            <button type="button" class="btn btn-period btn-sm" onclick="mudarPeriodo(6)">6h</button>
-                            <button type="button" class="btn btn-period btn-sm" onclick="mudarPeriodo(12)">12h</button>
-                            <button type="button" class="btn btn-period btn-sm" onclick="mudarPeriodo(24)">24h</button>
-                            <button type="button" class="btn btn-period btn-sm" onclick="mudarPeriodo(48)">48h</button>
-                            <button type="button" class="btn btn-period btn-sm active" onclick="mudarPeriodo(72)">72h</button>
-                        </div>
-                    </div>
-                    <div class="card-body">
-                        <div class="mb-2 text-info">
-                            <i class="bi bi-info-circle"></i> Atualizando a cada 5 segundos | Total: <span id="totalTabela">0</span> rodadas
-                        </div>
-                        <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
-                            <table class="table table-dark table-hover table-sm">
-                                <thead style="position: sticky; top: 0; background: #16213e; z-index: 10;">
-                                    <tr>
-                                        <th>Data/Hora</th>
-                                        <th>Player</th>
-                                        <th>Banker</th>
-                                        <th>Resultado</th>
-                                        <th>Mult.</th>
-                                        <th>Ganhadores</th>
-                                        <th>Prêmio</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="tabelaBody">
-                                    <tr><td colspan="7" class="text-center">Carregando...</td></tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+        <!-- Botões de Período (TODOS: 10min, 1h, 6h, 12h, 24h, 48h, 72h) -->
+        <div class="period-section">
+            <div class="period-header">
+                <h2>
+                    <i class="bi bi-clock-history"></i>
+                    Histórico por Período
+                </h2>
+                <div class="period-buttons">
+                    <button class="period-btn special" onclick="mudarPeriodo(0.16, this)">10min</button>
+                    <button class="period-btn" onclick="mudarPeriodo(1, this)">1h</button>
+                    <button class="period-btn" onclick="mudarPeriodo(6, this)">6h</button>
+                    <button class="period-btn" onclick="mudarPeriodo(12, this)">12h</button>
+                    <button class="period-btn" onclick="mudarPeriodo(24, this)">24h</button>
+                    <button class="period-btn" onclick="mudarPeriodo(48, this)">48h</button>
+                    <button class="period-btn active" onclick="mudarPeriodo(72, this)">72h</button>
                 </div>
             </div>
+
+            <!-- Grade de Números -->
+            <div class="numeros-grid" id="numerosGrid">
+                <div class="loading">
+                    <i class="bi bi-arrow-repeat"></i> Carregando histórico...
+                </div>
+            </div>
+            
+            <!-- Total do período -->
+            <div class="total-info" id="totalPeriodo">
+                <i class="bi bi-list"></i> <span id="totalRodadasPeriodo">0</span> rodadas
+            </div>
         </div>
+
+        <!-- Pesquisar -->
+        <input type="text" class="search-box" placeholder="🔍 Pesquisar por números (ex: 7 vs 4) ou resultado..." id="searchBox" onkeyup="filtrarHistorico()">
     </div>
 
     <script>
-        let tendenciaChart = null;
         let periodoAtual = 72;
-        let atualizacaoTabela = null;
+        let todosNumeros = [];
+        let botaoAtual = null;
 
-        // Função para atualizar TODOS os dados
-        function atualizarTudo() {
-            atualizarStats();
-            atualizarTabela(periodoAtual);
-        }
-
-        // Atualizar estatísticas e previsão
-        function atualizarStats() {
+        // Função para atualizar tudo
+        function atualizarDados() {
             fetch('/api/stats')
                 .then(res => res.json())
                 .then(data => {
                     if (data.ultima_atualizacao) {
-                        document.getElementById('updateTime').innerHTML = 
-                            `<i class="bi bi-clock-history"></i> ${data.ultima_atualizacao}`;
+                        document.getElementById('updateTime').innerText = data.ultima_atualizacao;
                     }
 
                     if (data.resumo && data.resumo['72h']) {
                         const r = data.resumo['72h'];
+                        
+                        // Overview cards (usando 72h como padrão)
                         document.getElementById('totalRodadas').innerText = r.total;
+                        document.getElementById('totalRodadasDetalhe').innerHTML = `<i class="bi bi-calendar"></i> últimas 72h`;
                         document.getElementById('playerPct').innerText = r.player_pct + '%';
                         document.getElementById('playerCount').innerText = r.player + ' rodadas';
                         document.getElementById('bankerPct').innerText = r.banker_pct + '%';
                         document.getElementById('bankerCount').innerText = r.banker + ' rodadas';
                         document.getElementById('tiePct').innerText = r.tie_pct + '%';
                         document.getElementById('tieCount').innerText = r.tie + ' rodadas';
+
+                        // Distribution cards
+                        document.getElementById('distPlayerPct').innerText = r.player_pct + '%';
+                        document.getElementById('distPlayerCount').innerText = r.player + ' rodadas';
+                        document.getElementById('distTiePct').innerText = r.tie_pct + '%';
+                        document.getElementById('distTieCount').innerText = r.tie + ' rodadas';
+                        document.getElementById('distBankerPct').innerText = r.banker_pct + '%';
+                        document.getElementById('distBankerCount').innerText = r.banker + ' rodadas';
+
+                        // Progress bars
+                        document.getElementById('playerProgressBar').style.width = r.player_pct + '%';
+                        document.getElementById('tieProgressBar').style.width = r.tie_pct + '%';
+                        document.getElementById('bankerProgressBar').style.width = r.banker_pct + '%';
                     }
 
-                    if (data.previsao) {
-                        const p = data.previsao;
-                        document.getElementById('modoAlgoritmo').innerText = p.modo;
-                        
-                        let simbolo = '⚪', texto = 'INDEFINIDO';
-                        if (p.previsao === 'PLAYER') { simbolo = '🔴'; texto = 'PLAYER'; }
-                        else if (p.previsao === 'BANKER') { simbolo = '⚫'; texto = 'BANKER'; }
-                        
-                        document.getElementById('proximaCor').innerHTML = simbolo;
-                        document.getElementById('proximaCorTexto').innerHTML = texto;
-                        document.getElementById('confianca').innerHTML = p.confianca + '%';
-                        document.getElementById('confiancaBar').style.width = p.confianca + '%';
-                        
-                        if (p.delay_ativo) {
-                            document.getElementById('delayWarning').innerHTML = 
-                                '<span class="badge bg-warning text-dark">⚠️ DELAY PÓS-EMPATE</span>';
-                        } else {
-                            document.getElementById('delayWarning').innerHTML = '';
-                        }
-                    }
-
-                    // Atualizar gráfico
+                    // Último resultado
                     if (data.ultimas_20 && data.ultimas_20.length > 0) {
-                        const ctx = document.getElementById('tendenciaChart').getContext('2d');
+                        const ultimo = data.ultimas_20[data.ultimas_20.length - 1];
                         
-                        const labels = data.ultimas_20.map(r => r.hora);
-                        const playerData = data.ultimas_20.map(r => r.resultado === 'PLAYER' ? 1 : 0);
-                        const bankerData = data.ultimas_20.map(r => r.resultado === 'BANKER' ? 1 : 0);
+                        let simbolo = '🔴';
+                        if (ultimo.resultado === 'BANKER') simbolo = '⚫';
+                        if (ultimo.resultado === 'TIE') simbolo = '🟡';
                         
-                        if (tendenciaChart) tendenciaChart.destroy();
-                        
-                        tendenciaChart = new Chart(ctx, {
-                            type: 'line',
-                            data: {
-                                labels: labels,
-                                datasets: [
-                                    { label: 'PLAYER', data: playerData, borderColor: '#ff4444', tension: 0.3 },
-                                    { label: 'BANKER', data: bankerData, borderColor: '#4444ff', tension: 0.3 }
-                                ]
-                            },
-                            options: {
-                                responsive: true,
-                                plugins: { legend: { labels: { color: '#fff' } } },
-                                scales: {
-                                    y: { beginAtZero: true, max: 1, ticks: { color: '#aaa' } },
-                                    x: { ticks: { color: '#aaa' } }
-                                }
-                            }
-                        });
+                        document.getElementById('ultimoResultado').innerHTML = `${simbolo} ${ultimo.resultado}`;
+                        document.getElementById('ultimoNumeros').innerHTML = `${ultimo.player} vs ${ultimo.banker}`;
+                        document.getElementById('ultimoHorario').innerHTML = `<i class="bi bi-clock"></i> ${ultimo.hora}`;
                     }
                 })
                 .catch(error => console.error('Erro stats:', error));
+
+            // Carregar histórico do período atual
+            carregarHistorico(periodoAtual);
         }
 
-        // Atualizar tabela (chamada a cada 5 segundos)
-        function atualizarTabela(horas) {
-            fetch(`/api/tabela/${horas}`)
+        // Função para carregar histórico
+        function carregarHistorico(horas) {
+            document.getElementById('numerosGrid').innerHTML = '<div class="loading"><i class="bi bi-arrow-repeat"></i> Carregando histórico...</div>';
+            
+            let endpoint = horas === 0.16 ? '/api/tabela/0.16' : `/api/tabela/${horas}`;
+            
+            fetch(endpoint)
                 .then(res => res.json())
                 .then(data => {
-                    let html = '';
-                    data.forEach(r => {
-                        html += `<tr>
-                            <td>${r.data}</td>
-                            <td class="player-color">${r.player}</td>
-                            <td class="banker-color">${r.banker}</td>
-                            <td><span class="badge-${r.resultado.toLowerCase()}">${r.cor} ${r.resultado}</span></td>
-                            <td>${r.mult}</td>
-                            <td>${r.winners}</td>
-                            <td>${r.premio}</td>
-                        </tr>`;
-                    });
+                    todosNumeros = data;
+                    exibirHistorico(data);
                     
-                    if (data.length === 0) {
-                        html = '<tr><td colspan="7" class="text-center">Nenhuma rodada no período</td></tr>';
-                    }
-                    
-                    document.getElementById('tabelaBody').innerHTML = html;
-                    document.getElementById('totalTabela').innerText = data.length;
+                    let textoPeriodo = horas === 0.16 ? '10 minutos' : `${horas} horas`;
+                    document.getElementById('totalRodadasPeriodo').innerText = data.length;
+                    document.getElementById('totalPeriodo').innerHTML = 
+                        `<i class="bi bi-list"></i> ${data.length} rodadas • últimos ${textoPeriodo}`;
                 })
                 .catch(error => {
-                    console.error('Erro tabela:', error);
-                    document.getElementById('tabelaBody').innerHTML = 
-                        '<tr><td colspan="7" class="text-center text-danger">Erro ao carregar</td></tr>';
+                    console.error('Erro:', error);
+                    document.getElementById('numerosGrid').innerHTML = 
+                        '<div class="loading text-danger">Erro ao carregar histórico</div>';
                 });
         }
 
-        // Mudar período da tabela
-        function mudarPeriodo(horas) {
+        // Função para exibir histórico em grade
+        function exibirHistorico(data) {
+            if (!data || data.length === 0) {
+                document.getElementById('numerosGrid').innerHTML = 
+                    '<div class="loading">📭 Nenhuma rodada neste período</div>';
+                return;
+            }
+
+            let html = '';
+            data.forEach(item => {
+                let classeNumero = 'numero-' + item.resultado.toLowerCase();
+                let corResultado = item.cor;
+                
+                html += `
+                    <div class="numero-item ${classeNumero}">
+                        <span>${item.player} vs ${item.banker}</span>
+                        <span class="resultado-cor">${corResultado}</span>
+                    </div>
+                `;
+            });
+            
+            document.getElementById('numerosGrid').innerHTML = html;
+        }
+
+        // Função para filtrar histórico
+        function filtrarHistorico() {
+            const termo = document.getElementById('searchBox').value.toLowerCase();
+            
+            if (!termo) {
+                exibirHistorico(todosNumeros);
+                return;
+            }
+            
+            const filtrados = todosNumeros.filter(item => 
+                item.player.toString().includes(termo) || 
+                item.banker.toString().includes(termo) ||
+                item.resultado.toLowerCase().includes(termo) ||
+                `${item.player} vs ${item.banker}`.includes(termo)
+            );
+            
+            exibirHistorico(filtrados);
+            document.getElementById('totalRodadasPeriodo').innerText = filtrados.length;
+        }
+
+        // Função para mudar período
+        function mudarPeriodo(horas, botao) {
             periodoAtual = horas;
             
-            document.querySelectorAll('.btn-period').forEach(btn => btn.classList.remove('active'));
-            event.target.classList.add('active');
+            // Atualizar botões
+            document.querySelectorAll('.period-btn').forEach(btn => btn.classList.remove('active'));
+            botao.classList.add('active');
             
-            atualizarTabela(horas);
+            // Carregar histórico
+            carregarHistorico(horas);
         }
 
         // Inicializar
         document.addEventListener('DOMContentLoaded', function() {
-            // Carregar dados iniciais
-            atualizarTudo();
-            
-            // Configurar atualização a cada 5 SEGUNDOS (igual ao bot)
-            setInterval(atualizarTudo, 5000); // 5000ms = 5 segundos
-            
-            // Mostrar indicador de conexão
-            console.log('✅ Monitor ao vivo iniciado - atualizando a cada 5s');
+            atualizarDados();
+            setInterval(atualizarDados, 5000);
         });
     </script>
 </body>
-    </html>
+</html>
