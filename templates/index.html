@@ -1074,6 +1074,11 @@
                 const response = await fetch('/api/stats');
                 const stats = await response.json();
 
+                // Atualizar relógio
+                if (stats.ultima_atualizacao) {
+                    document.getElementById('updateTime').textContent = stats.ultima_atualizacao;
+                }
+
                 // Atualizar previsão
                 if (stats.previsao) {
                     const p = stats.previsao;
@@ -1102,10 +1107,6 @@
                     }
                     
                     document.getElementById('delayWarning').style.display = p.delay_ativo ? 'block' : 'none';
-                }
-
-                if (stats.ultima_atualizacao) {
-                    document.getElementById('updateTime').textContent = stats.ultima_atualizacao;
                 }
 
             } catch (error) {
@@ -1198,10 +1199,10 @@
             atualizarRelogio();
             setInterval(atualizarRelogio, 1000);
             
-            // Atualizar stats a cada 5 segundos (junto com a API)
+            // Atualizar stats a cada 5 segundos
             setInterval(atualizarDados, 5000);
             
-            // Chamar primeira vez imediatamente
+            // Chamar primeira vez
             atualizarDados();
         });
     </script>
