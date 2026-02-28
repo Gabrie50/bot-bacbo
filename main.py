@@ -1,4 +1,4 @@
-# main.py - Bot BacBo com 8 Estratégias e Previsão 94%
+# main.py - Bot BacBo com 8 Estratégias e Previsão 94% (VERSÃO FINAL)
 
 import os
 import time
@@ -96,7 +96,72 @@ def salvar_dados():
         return False
 
 # =============================================================================
-# FUNÇÕES DE COLETA
+# FUNÇÕES DE COLETA HISTÓRICA
+# =============================================================================
+def buscar_historico_completo():
+    """Busca rodadas históricas usando paginação."""
+    global cache
+    
+    if cache['coletando_historico']:
+        print("⏳ Coleta histórica já em andamento")
+        return
+    
+    cache['coletando_historico'] = True
+    print("="*60)
+    print("📚 INICIANDO COLETA HISTÓRICA COMPLETA")
+    print("="*60)
+    
+    page = 0
+    total_coletadas = 0
+    ids_existentes = {r['id'] for r in cache['rodadas']}
+    
+    while page < MAX_PAGINAS:
+        try:
+            params = PARAMS.copy()
+            params['page'] = page
+            params['size'] = 100
+            
+            print(f"📡 Buscando página {page + 1}/{MAX_PAGINAS}...", end=' ')
+            response = requests.get(API_URL, params=params, headers=HEADERS, timeout=15)
+            response.raise_for_status()
+            dados = response.json()
+            
+            if not dados or len(dados) == 0:
+                print(f"✅ Fim do histórico na página {page}")
+                break
+            
+            novas_pagina = 0
+            for item in dados:
+                rodada = processar_item_api(item)
+                if rodada and rodada['id'] not in ids_existentes:
+                    cache['rodadas'].append(rodada)
+                    ids_existentes.add(rodada['id'])
+                    novas_pagina += 1
+                    total_coletadas += 1
+            
+            print(f"+{novas_pagina} novas (total acumulado: {total_coletadas})")
+            
+            page += 1
+            time.sleep(INTERVALO_PAGINAS)
+            
+        except Exception as e:
+            print(f"❌ Erro na página {page}: {e}")
+            break
+    
+    print("="*60)
+    print(f"✅ COLETA HISTÓRICA CONCLUÍDA!")
+    print(f"📊 Total de novas rodadas: {total_coletadas}")
+    print(f"📊 Total no cache: {len(cache['rodadas'])} rodadas")
+    print("="*60)
+    
+    if total_coletadas > 0:
+        atualizar_cache_estatisticas()
+        salvar_dados()
+    
+    cache['coletando_historico'] = False
+
+# =============================================================================
+# FUNÇÕES DE COLETA EM TEMPO REAL
 # =============================================================================
 def buscar_dados_api():
     """Faz a requisição à API e retorna os dados brutos."""
@@ -153,7 +218,7 @@ def processar_item_api(item):
         return None
 
 # =============================================================================
-# FUNÇÕES DE FILTRO
+# FUNÇÕES DE FILTRO E ESTATÍSTICAS
 # =============================================================================
 def filtrar_por_periodo(horas):
     """Filtra rodadas das últimas N horas."""
@@ -314,15 +379,11 @@ def estrategia_moedor(dados, modo):
     if len(dados) < 5:
         return {'banker': 0, 'player': 0, 'descricao': None, 'tie': 0}
     
-    # Verificar empates nas últimas 5 rodadas
     ties_5 = sum(1 for r in dados[:5] if r['resultado'] == 'TIE')
-    
-    # Verificar percentual total de ties
     total_ties = sum(1 for r in dados if r['resultado'] == 'TIE')
     tie_pct = (total_ties / len(dados)) * 100
     
     if ties_5 >= 2 or tie_pct > 13:
-        # Moedor ativo - tendência de mais empates
         return {'banker': 0, 'player': 0, 'tie': PESOS['moedor'][modo], 
                 'descricao': f'Moedor: {ties_5} ties em 5 rodadas, {tie_pct:.1f}% total'}
     
@@ -338,13 +399,11 @@ def estrategia_xadrez(dados, modo):
     
     sequencia = [r['resultado'] for r in dados[:4]]
     
-    # Verificar padrão de alternância: B,P,B,P ou P,B,P,B
     if (sequencia[0] != sequencia[1] and 
         sequencia[1] != sequencia[2] and 
         sequencia[2] != sequencia[3]):
         
         peso = PESOS['xadrez'][modo]
-        # Próxima deve ser oposta da última
         if sequencia[3] == 'BANKER':
             return {'banker': 0, 'player': peso, 'descricao': f'Xadrez: Alternância ativa, próximo PLAYER'}
         else:
@@ -357,14 +416,12 @@ def estrategia_contragolpe(dados, modo):
     ⚫ ESTRATÉGIA #5: CONTRAGOLPE
     Quando ativa: 3+ iguais → 1 diferente
     O que faz: Dá 1 falsa esperança e VOLTA à dominante
-    Padrão: B,B,B,P,B,B
     """
     if len(dados) < 5:
         return {'banker': 0, 'player': 0, 'descricao': None}
     
     sequencia = [r['resultado'] for r in dados[:5]]
     
-    # Padrão: 3 iguais, 1 diferente, 1 igual
     if (sequencia[0] == sequencia[1] == sequencia[2] and
         sequencia[2] != sequencia[3] and
         sequencia[3] != sequencia[4] and
@@ -387,11 +444,9 @@ def estrategia_reset_cluster(dados, modo):
     if len(dados) < 10:
         return {'banker': 0, 'player': 0, 'descricao': None}
     
-    # Verificar cluster de empates nas últimas 10 rodadas
     ties_10 = sum(1 for r in dados[:10] if r['resultado'] == 'TIE')
     
     if ties_10 >= 3:
-        # Reset pós-cluster - volta à dominante
         player = sum(1 for r in dados[:20] if r['resultado'] == 'PLAYER')
         banker = sum(1 for r in dados[:20] if r['resultado'] == 'BANKER')
         
@@ -411,7 +466,6 @@ def estrategia_falsa_alternancia(dados, modo):
     if len(dados) < 3:
         return {'banker': 0, 'player': 0, 'descricao': None}
     
-    # Verificar último resultado com número extremo
     ultimo = dados[0]
     if ultimo['player_score'] >= 10 or ultimo['banker_score'] >= 10:
         peso = PESOS['falsa_alternancia'][modo]
@@ -432,10 +486,8 @@ def calcular_previsao():
     if len(cache['rodadas']) < 10:
         return None
     
-    # Pegar últimas 50 rodadas para análise
     dados_analise = cache['rodadas'][:50]
     
-    # Calcular percentuais
     total = len(dados_analise)
     player = sum(1 for r in dados_analise if r['resultado'] == 'PLAYER')
     banker = sum(1 for r in dados_analise if r['resultado'] == 'BANKER')
@@ -445,86 +497,74 @@ def calcular_previsao():
     banker_pct = (banker / total) * 100
     tie_pct = (tie / total) * 100
     
-    # PASSO 1: Identificar modo
     modo = identificar_modo(player_pct, banker_pct, tie_pct, dados_analise)
     
-    # PASSO 2: Aplicar todas as estratégias
     estrategias = []
     votos_banker = 0
     votos_player = 0
     votos_tie = 0
     
-    # Estratégia 1: Compensação
+    # Aplicar todas as estratégias
     e1 = estrategia_compensacao(dados_analise, modo)
     votos_banker += e1.get('banker', 0)
     votos_player += e1.get('player', 0)
     if e1['descricao']:
-        estrategias.append({'nome': 'Compensação', 'desc': e1['descricao'], 'peso': e1.get('banker', 0) + e1.get('player', 0)})
+        estrategias.append({'nome': 'Compensação', 'peso': e1.get('banker', 0) + e1.get('player', 0)})
     
-    # Estratégia 2: Paredão
     e2 = estrategia_paredao(dados_analise, modo)
     votos_banker += e2.get('banker', 0)
     votos_player += e2.get('player', 0)
     if e2['descricao']:
-        estrategias.append({'nome': 'Paredão', 'desc': e2['descricao'], 'peso': e2.get('banker', 0) + e2.get('player', 0)})
+        estrategias.append({'nome': 'Paredão', 'peso': e2.get('banker', 0) + e2.get('player', 0)})
     
-    # Estratégia 3: Moedor
     e3 = estrategia_moedor(dados_analise, modo)
     votos_tie += e3.get('tie', 0)
     if e3['descricao']:
-        estrategias.append({'nome': 'Moedor', 'desc': e3['descricao'], 'peso': e3.get('tie', 0)})
+        estrategias.append({'nome': 'Moedor', 'peso': e3.get('tie', 0)})
     
-    # Estratégia 4: Xadrez
     e4 = estrategia_xadrez(dados_analise, modo)
     votos_banker += e4.get('banker', 0)
     votos_player += e4.get('player', 0)
     if e4['descricao']:
-        estrategias.append({'nome': 'Xadrez', 'desc': e4['descricao'], 'peso': e4.get('banker', 0) + e4.get('player', 0)})
+        estrategias.append({'nome': 'Xadrez', 'peso': e4.get('banker', 0) + e4.get('player', 0)})
     
-    # Estratégia 5: Contragolpe
     e5 = estrategia_contragolpe(dados_analise, modo)
     votos_banker += e5.get('banker', 0)
     votos_player += e5.get('player', 0)
     if e5['descricao']:
-        estrategias.append({'nome': 'Contragolpe', 'desc': e5['descricao'], 'peso': e5.get('banker', 0) + e5.get('player', 0)})
+        estrategias.append({'nome': 'Contragolpe', 'peso': e5.get('banker', 0) + e5.get('player', 0)})
     
-    # Estratégia 6: Reset Cluster
     e6 = estrategia_reset_cluster(dados_analise, modo)
     votos_banker += e6.get('banker', 0)
     votos_player += e6.get('player', 0)
     if e6['descricao']:
-        estrategias.append({'nome': 'Reset Cluster', 'desc': e6['descricao'], 'peso': e6.get('banker', 0) + e6.get('player', 0)})
+        estrategias.append({'nome': 'Reset Cluster', 'peso': e6.get('banker', 0) + e6.get('player', 0)})
     
-    # Estratégia 7: Falsa Alternância
     e7 = estrategia_falsa_alternancia(dados_analise, modo)
     votos_banker += e7.get('banker', 0)
     votos_player += e7.get('player', 0)
     if e7['descricao']:
-        estrategias.append({'nome': 'Falsa Alternância', 'desc': e7['descricao'], 'peso': e7.get('banker', 0) + e7.get('player', 0)})
+        estrategias.append({'nome': 'Falsa Alternância', 'peso': e7.get('banker', 0) + e7.get('player', 0)})
     
-    # Estratégia 8: Meta-Algoritmo (Pesos Dinâmicos)
+    # Meta-Algoritmo
     if modo == "AGRESSIVO":
         if banker_pct > player_pct:
             votos_banker = int(votos_banker * 1.5)
-            estrategias.append({'nome': 'Meta-Algoritmo', 'desc': 'Modo AGRESSIVO: BANKER dominante (x1.5)', 'peso': 0})
+            estrategias.append({'nome': 'Meta-Algoritmo (x1.5)', 'peso': 0})
         else:
             votos_player = int(votos_player * 1.5)
-            estrategias.append({'nome': 'Meta-Algoritmo', 'desc': 'Modo AGRESSIVO: PLAYER dominante (x1.5)', 'peso': 0})
-    
+            estrategias.append({'nome': 'Meta-Algoritmo (x1.5)', 'peso': 0})
     elif modo == "PREDATORIO":
-        # No modo predatório, dar peso extra para falsa alternância
         if any(e['nome'] == 'Falsa Alternância' for e in estrategias):
             if banker_pct > player_pct:
                 votos_banker = int(votos_banker * 1.3)
             else:
                 votos_player = int(votos_player * 1.3)
-            estrategias.append({'nome': 'Meta-Algoritmo', 'desc': 'Modo PREDATÓRIO: Falsa Alternância (x1.3)', 'peso': 0})
+            estrategias.append({'nome': 'Meta-Algoritmo (x1.3)', 'peso': 0})
     
-    # Determinar vencedor
     total_votos = votos_banker + votos_player + votos_tie
     
     if total_votos == 0:
-        # Fallback: usar percentuais
         if banker_pct > player_pct:
             previsao = 'BANKER'
             confianca = round((banker_pct / (banker_pct + player_pct)) * 100)
@@ -543,7 +583,6 @@ def calcular_previsao():
             previsao = 'TIE'
             confianca = round((votos_tie / total_votos) * 100)
         else:
-            # Empate - decidir por percentuais
             if banker_pct > player_pct:
                 previsao = 'BANKER'
                 confianca = round((banker_pct / (banker_pct + player_pct)) * 100)
@@ -551,20 +590,12 @@ def calcular_previsao():
                 previsao = 'PLAYER'
                 confianca = round((player_pct / (banker_pct + player_pct)) * 100)
     
-    # Delay pós-empate
     ultimo_resultado = cache['rodadas'][0]['resultado'] if cache['rodadas'] else None
     delay_ativo = (ultimo_resultado == 'TIE')
     
-    # Estratégias ativas (para exibição)
-    estrategias_ativas = [e['nome'] for e in estrategias if e['peso'] > 0][:3]  # Top 3
+    estrategias_ativas = [e['nome'] for e in estrategias if e['peso'] > 0][:3]
     
-    # Mapear símbolo
-    if previsao == 'PLAYER':
-        simbolo = '🔴'
-    elif previsao == 'BANKER':
-        simbolo = '⚫'
-    else:
-        simbolo = '🟡'
+    simbolo = '🔴' if previsao == 'PLAYER' else '⚫' if previsao == 'BANKER' else '🟡'
     
     return {
         'modo': modo,
@@ -576,35 +607,27 @@ def calcular_previsao():
         'detalhes': {
             'player_pct': round(player_pct, 1),
             'banker_pct': round(banker_pct, 1),
-            'tie_pct': round(tie_pct, 1),
-            'votos_banker': votos_banker,
-            'votos_player': votos_player,
-            'votos_tie': votos_tie
+            'tie_pct': round(tie_pct, 1)
         }
     }
 
 # =============================================================================
-# ROTAS DA API (ATUALIZADAS COM PREVISÃO)
+# ROTAS DA API
 # =============================================================================
 @app.route('/')
 def index():
-    """Página principal."""
     try:
         return render_template('index.html')
     except Exception as e:
-        return f"Erro ao carregar template: {e}", 500
+        return f"Erro: {e}", 500
 
 @app.route('/api/stats')
 def api_stats():
-    """Retorna estatísticas em JSON incluindo previsão."""
     global cache
-    
     try:
-        # Calcular previsão
         previsao = calcular_previsao()
         cache['previsao'] = previsao
         
-        # Últimas 20 rodadas
         ultimas_20 = []
         for r in sorted(cache['rodadas'][-20:], key=lambda x: x['data_hora']):
             cor = '🔴' if r['resultado'] == 'PLAYER' else '⚫' if r['resultado'] == 'BANKER' else '🟡'
@@ -625,24 +648,23 @@ def api_stats():
         }
         
         return jsonify(response_data)
-        
     except Exception as e:
         return jsonify({'erro': str(e)}), 500
 
 @app.route('/api/previsao')
 def api_previsao():
-    """Endpoint específico para previsão."""
     previsao = calcular_previsao()
     return jsonify(previsao if previsao else {'erro': 'Dados insuficientes'})
 
 @app.route('/api/tabela/<float:horas>')
-def api_tabela_float(horas):
-    """Endpoint para períodos com decimais."""
+@app.route('/api/tabela/<int:horas>')
+def api_tabela(horas):
+    """Endpoint único para todos os períodos."""
     try:
-        minutos = int(horas * 60)
-        if minutos == 0:
-            minutos = 10
+        if isinstance(horas, int):
+            horas = float(horas)
         
+        print(f"📋 API /api/tabela/{horas} chamada")
         rodadas = filtrar_por_periodo(horas)
         
         tabela = []
@@ -659,19 +681,14 @@ def api_tabela_float(horas):
                 'premio': f"€{r['total_amount']:,.0f}" if r['total_amount'] else '€0'
             })
         
+        print(f"📤 Retornando {len(tabela)} rodadas")
         return jsonify(tabela)
-        
     except Exception as e:
+        print(f"❌ Erro: {e}")
         return jsonify([]), 500
-
-@app.route('/api/tabela/<int:horas>')
-def api_tabela_int(horas):
-    """Endpoint para períodos inteiros."""
-    return api_tabela_float(float(horas))
 
 @app.route('/health')
 def health():
-    """Health check."""
     return jsonify({
         'status': 'ok',
         'rodadas': len(cache['rodadas']),
@@ -680,7 +697,6 @@ def health():
 
 @app.route('/coletar-historico')
 def coletar_historico():
-    """Força coleta histórica."""
     thread = threading.Thread(target=buscar_historico_completo, daemon=True)
     thread.start()
     return jsonify({'status': 'iniciado'})
@@ -689,13 +705,10 @@ def coletar_historico():
 # LOOP DE COLETA
 # =============================================================================
 def loop_coleta():
-    """Loop principal de coleta."""
     print("🔄 Iniciando loop de coleta...")
-    
     while True:
         try:
             dados_brutos = buscar_dados_api()
-
             if dados_brutos:
                 novas_rodadas = 0
                 ids_existentes = {r['id'] for r in cache['rodadas']}
@@ -703,71 +716,19 @@ def loop_coleta():
                 for item in dados_brutos:
                     rodada = processar_item_api(item)
                     if rodada and rodada['id'] not in ids_existentes:
-                        cache['rodadas'].append(rodada)
+                        cache['rodadas'].insert(0, rodada)
                         novas_rodadas += 1
-
+                
                 if novas_rodadas > 0:
-                    print(f"✅ {datetime.now().strftime('%H:%M:%S')} +{novas_rodadas} (total: {len(cache['rodadas'])}")
+                    print(f"✅ +{novas_rodadas} (total: {len(cache['rodadas'])}")
                     atualizar_cache_estatisticas()
-                    
                     if novas_rodadas >= 5:
                         salvar_dados()
-
+            
             time.sleep(INTERVALO_COLETA)
-
         except Exception as e:
             print(f"❌ Erro: {e}")
             time.sleep(INTERVALO_COLETA)
-
-def buscar_historico_completo():
-    """Busca rodadas históricas usando paginação."""
-    global cache
-    
-    if cache['coletando_historico']:
-        return
-    
-    cache['coletando_historico'] = True
-    
-    page = 0
-    total_coletadas = 0
-    ids_existentes = {r['id'] for r in cache['rodadas']}
-    
-    while page < MAX_PAGINAS:
-        try:
-            params = PARAMS.copy()
-            params['page'] = page
-            params['size'] = 100
-            
-            response = requests.get(API_URL, params=params, headers=HEADERS, timeout=15)
-            response.raise_for_status()
-            dados = response.json()
-            
-            if not dados:
-                break
-            
-            novas_pagina = 0
-            for item in dados:
-                rodada = processar_item_api(item)
-                if rodada and rodada['id'] not in ids_existentes:
-                    cache['rodadas'].append(rodada)
-                    ids_existentes.add(rodada['id'])
-                    novas_pagina += 1
-                    total_coletadas += 1
-            
-            if novas_pagina == 0:
-                break
-            
-            page += 1
-            time.sleep(INTERVALO_PAGINAS)
-            
-        except Exception as e:
-            break
-    
-    if total_coletadas > 0:
-        atualizar_cache_estatisticas()
-        salvar_dados()
-    
-    cache['coletando_historico'] = False
 
 # =============================================================================
 # MAIN
