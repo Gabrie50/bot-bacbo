@@ -800,3 +800,22 @@ if __name__ == "__main__":
     threading.Thread(target=loop_pesado, daemon=True).start()
     
     app.run(host='0.0.0.0', port=PORT, debug=False)
+
+
+# Adicione no final do main.py, antes do app.run()
+import atexit
+import signal
+
+def graceful_shutdown():
+    print("\n🛑 Desligamento gracioso...")
+    # Salvar dados se necessário
+    salvar_dados()
+
+atexit.register(graceful_shutdown)
+
+def signal_handler(sig, frame):
+    print("\n🛑 Recebido sinal para parar")
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
