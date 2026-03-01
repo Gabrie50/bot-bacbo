@@ -843,7 +843,7 @@
         // =========================================================================
         const CONFIG = {
             INTERVALO_RELOGIO: 1000,      // 1 segundo
-            INTERVALO_ATUALIZACAO: 3000,  // 3 segundos (reduzido de 5 para 3)
+            INTERVALO_ATUALIZACAO: 3000,  // 3 segundos
             LIMITE_PADRAO: 50,
             MAX_TENTATIVAS: 3
         };
@@ -903,6 +903,13 @@
         function registrarPrevisao(previsao, resultadoReal, horario, numeros) {
             if (!previsao || !resultadoReal) return;
 
+            // 🔥 EVITAR DUPLICATAS
+            const jaExiste = historicoPrevisoes.some(p => 
+                p.horario === horario && p.numeros === numeros
+            );
+
+            if (jaExiste) return;
+
             const acertou = previsao.previsao === resultadoReal;
 
             const registro = {
@@ -920,10 +927,8 @@
             historicoPrevisoes.unshift(registro);
             if (historicoPrevisoes.length > 20) historicoPrevisoes.pop();
 
-            // 🔥 SALVAR NO localStorage
             localStorage.setItem('historicoPrevisoes', JSON.stringify(historicoPrevisoes));
 
-            // Atualizar estatísticas das estratégias
             registro.estrategias.forEach(e => {
                 const nomeEstrategia = e.replace(/[:\d]/g, '').trim().split(' ')[0];
                 if (estrategiasStats[nomeEstrategia]) {
@@ -935,7 +940,6 @@
                 }
             });
 
-            // 🔥 SALVAR ESTATÍSTICAS
             salvarEstatisticas();
 
             atualizarStatsPrevisao();
@@ -1076,7 +1080,6 @@
         async function carregarTabela(limite) {
             limiteAtual = limite;
             
-            // Atualizar botões
             document.querySelectorAll('.limite-btn').forEach(btn => btn.classList.remove('active'));
             event.target.classList.add('active');
             
@@ -1093,8 +1096,6 @@
                 
                 calcularDistribuicao();
                 exibirHistorico(dados);
-                
-                // Verificar resultado anterior
                 verificarResultadoAnterior();
                 
             } catch (error) {
@@ -1110,12 +1111,10 @@
                 const response = await fetch('/api/stats');
                 const stats = await response.json();
 
-                // Atualizar relógio
                 if (stats.ultima_atualizacao) {
                     document.getElementById('updateTime').textContent = stats.ultima_atualizacao;
                 }
 
-                // Atualizar previsão
                 if (stats.previsao) {
                     const p = stats.previsao;
                     
@@ -1126,7 +1125,6 @@
                     document.getElementById('modoAlgoritmo').textContent = p.modo;
                     document.getElementById('modoAlgoritmo').className = `modo-badge modo-${p.modo.toLowerCase()}`;
                     document.getElementById('modoDescricao').textContent = p.modo;
-                    
                     document.getElementById('proximaCorSimbolo').textContent = p.simbolo;
                     document.getElementById('proximaCorTexto').textContent = p.previsao;
                     document.getElementById('confianca').textContent = p.confianca + '%';
@@ -1187,17 +1185,13 @@
 
         function exibirHistorico(data) {
             if (!data || data.length === 0) {
-                document.getElementById('numerosGrid').innerHTML = `
-                    <div class="loading">📭 Nenhuma rodada neste período</div>
-                `;
+                document.getElementById('numerosGrid').innerHTML = `<div class="loading">📭 Nenhuma rodada neste período</div>`;
                 return;
             }
 
             let dadosParaExibir = data;
             if (filtroAtual) {
-                dadosParaExibir = data.filter(r => 
-                    r.resultado.toLowerCase() === filtroAtual.toLowerCase()
-                );
+                dadosParaExibir = data.filter(r => r.resultado.toLowerCase() === filtroAtual.toLowerCase());
             }
 
             let html = '';
@@ -1232,12 +1226,10 @@
         // =========================================================================
 
         async function carregarDadosIniciais() {
-            // Carregar tabela com 50 rodadas automaticamente
             limiteAtual = CONFIG.LIMITE_PADRAO;
             document.getElementById('limiteAtual').textContent = CONFIG.LIMITE_PADRAO;
             
             try {
-                // 🔥 CARREGAR TABELA E STATS EM PARALELO (mais rápido)
                 const [tabelaRes, statsRes] = await Promise.all([
                     fetch('/api/tabela/50'),
                     fetch('/api/stats')
@@ -1254,12 +1246,10 @@
                 calcularDistribuicao();
                 exibirHistorico(dados);
                 
-                // 🔥 ATUALIZAR TIMELINE E ESTATÍSTICAS COM HISTÓRICO SALVO
                 atualizarTimeline();
                 atualizarStatsPrevisao();
                 atualizarTabelaEstrategias();
                 
-                // Atualizar previsão com os stats
                 if (stats.previsao) {
                     const p = stats.previsao;
                     ultimaPrevisao = { ...p, registrado: false };
@@ -1286,33 +1276,30 @@
         }
 
         // =========================================================================
-        // FUNÇÃO PARA ATUALIZAR TUDO (tabela + stats) EM PARALELO
+        // FUNÇÃO PARA ATUALIZAR TUDO (tabela + stats)
         // =========================================================================
 
         async function atualizarTudo() {
             try {
-                // 🔥 EXECUTAR EM PARALELO (reduz delay)
                 const [tabelaPromise, statsPromise] = await Promise.allSettled([
                     fetch(`/api/tabela/${limiteAtual}`).then(res => res.json()),
                     fetch('/api/stats').then(res => res.json())
                 ]);
 
-                // Atualizar tabela se OK
                 if (tabelaPromise.status === 'fulfilled') {
                     const dados = tabelaPromise.value;
-                    dadosCompletos = dados;
-                    document.getElementById('tabelaCount').textContent = `${dados.length} rodadas`;
-                    document.getElementById('totalRodadasPeriodo').textContent = dados.length;
-                    document.getElementById('pizzaInfo').textContent = `${dados.length} rodadas`;
-                    
-                    calcularDistribuicao();
-                    exibirHistorico(dados);
-                    
-                    // Verificar resultado anterior
-                    verificarResultadoAnterior();
+                    if (dados && dados.length > 0) {
+                        dadosCompletos = dados;
+                        document.getElementById('tabelaCount').textContent = `${dados.length} rodadas`;
+                        document.getElementById('totalRodadasPeriodo').textContent = dados.length;
+                        document.getElementById('pizzaInfo').textContent = `${dados.length} rodadas`;
+                        
+                        calcularDistribuicao();
+                        exibirHistorico(dados);
+                        verificarResultadoAnterior();
+                    }
                 }
 
-                // Atualizar stats se OK
                 if (statsPromise.status === 'fulfilled') {
                     const stats = statsPromise.value;
                     
@@ -1354,14 +1341,10 @@
 
         // Inicializar
         document.addEventListener('DOMContentLoaded', function() {
-            // Carregar dados automaticamente
+            console.log('🚀 Iniciando BacBo Analytics...');
             carregarDadosIniciais();
-            
-            // Atualizar relógio a cada segundo
             atualizarRelogio();
             setInterval(atualizarRelogio, CONFIG.INTERVALO_RELOGIO);
-            
-            // 🔥 ATUALIZAR TUDO A CADA 3 SEGUNDOS (mais rápido)
             setInterval(atualizarTudo, CONFIG.INTERVALO_ATUALIZACAO);
         });
     </script>
