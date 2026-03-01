@@ -1242,6 +1242,15 @@
             }
         }
 
+        // =========================================================================
+        // FUNÇÃO PARA ATUALIZAR TUDO (tabela + stats)
+        // =========================================================================
+
+        async function atualizarTudo() {
+            await carregarTabela(limiteAtual);
+            await atualizarDados();
+        }
+
         // Inicializar
         document.addEventListener('DOMContentLoaded', function() {
             // Carregar dados automaticamente
@@ -1251,11 +1260,8 @@
             atualizarRelogio();
             setInterval(atualizarRelogio, 1000);
             
-            // 🔥 ATUALIZAR A CADA 5 SEGUNDOS (tabela + previsão)
-            setInterval(() => {
-                carregarTabela(limiteAtual);
-                atualizarDados();
-            }, 5000);
+            // 🔥 ATUALIZAR TUDO A CADA 5 SEGUNDOS (tabela + previsão)
+            setInterval(atualizarTudo, 5000);
         });
     </script>
 </body>
