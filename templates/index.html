@@ -839,8 +839,8 @@
         let historicoPrevisoes = JSON.parse(localStorage.getItem('historicoPrevisoes')) || [];
         let ultimaPrevisao = null;
 
-        // Estatísticas das estratégias
-        let estrategiasStats = {
+        // 🔥 CARREGAR ESTATÍSTICAS DAS ESTRATÉGIAS DO localStorage
+        let estrategiasStats = JSON.parse(localStorage.getItem('estrategiasStats')) || {
             'Compensação': { acertos: 0, erros: 0 },
             'Paredão': { acertos: 0, erros: 0 },
             'Moedor': { acertos: 0, erros: 0 },
@@ -850,6 +850,14 @@
             'Falsa Alternância': { acertos: 0, erros: 0 },
             'Meta-Algoritmo': { acertos: 0, erros: 0 }
         };
+
+        // =========================================================================
+        // FUNÇÃO PARA SALVAR ESTATÍSTICAS
+        // =========================================================================
+        
+        function salvarEstatisticas() {
+            localStorage.setItem('estrategiasStats', JSON.stringify(estrategiasStats));
+        }
 
         // =========================================================================
         // FUNÇÃO PARA ATUALIZAR RELÓGIO
@@ -907,6 +915,9 @@
                     }
                 }
             });
+
+            // 🔥 SALVAR ESTATÍSTICAS
+            salvarEstatisticas();
 
             atualizarStatsPrevisao();
             atualizarTabelaEstrategias();
@@ -1218,7 +1229,7 @@
                 calcularDistribuicao();
                 exibirHistorico(dados);
                 
-                // 🔥 ATUALIZAR TIMELINE COM HISTÓRICO SALVO
+                // 🔥 ATUALIZAR TIMELINE E ESTATÍSTICAS COM HISTÓRICO SALVO
                 atualizarTimeline();
                 atualizarStatsPrevisao();
                 atualizarTabelaEstrategias();
@@ -1240,13 +1251,11 @@
             atualizarRelogio();
             setInterval(atualizarRelogio, 1000);
             
-            // Atualizar stats a cada 5 segundos
-            setInterval(atualizarDados, 5000);
-            
-            // Atualizar tabela a cada 30 segundos
+            // 🔥 ATUALIZAR A CADA 5 SEGUNDOS (tabela + previsão)
             setInterval(() => {
                 carregarTabela(limiteAtual);
-            }, 30000);
+                atualizarDados();
+            }, 5000);
         });
     </script>
 </body>
