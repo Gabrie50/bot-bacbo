@@ -5,6 +5,7 @@
 # ✅ Índices no banco
 # ✅ Horário Brasília
 # ✅ TODAS AS 8 ESTRATÉGIAS IMPLEMENTADAS
+# ⚡ INTERVALO DE COLETA: 3 SEGUNDOS
 
 import os
 import time
@@ -47,11 +48,13 @@ HEADERS = {
     'Accept': 'application/json'
 }
 
-# Configurações
+# =============================================================================
+# CONFIGURAÇÕES DE PERFORMANCE (AJUSTADAS)
+# =============================================================================
 TIMEOUT_API = 5
 MAX_RETRIES = 3
 RETRY_DELAY = 1
-INTERVALO_COLETA = 10
+INTERVALO_COLETA = 3  # ⚡ 3 SEGUNDOS (mais rápido)
 INTERVALO_PAGINAS = 0.5
 PORT = int(os.environ.get("PORT", 5000))
 
@@ -68,7 +71,8 @@ cache = {
         'periodos': {},
         'ultima_atualizacao': None
     },
-    'falhas_consecutivas': 0
+    'falhas_consecutivas': 0,
+    'ultimo_id': None
 }
 
 # =============================================================================
@@ -676,29 +680,23 @@ def buscar_dados_api_com_retry():
     return None
 
 # =============================================================================
-# 🔥 LOOP DE COLETA COM LOGS DETALHADOS
+# 🔥 LOOP DE COLETA COM LOGS DETALHADOS (INTERVALO 3s)
 # =============================================================================
 
 def loop_coleta_com_logs():
-    """Loop principal com logs detalhados"""
-    print("🔄 Iniciando loop de coleta com logs...")
+    """Loop principal com logs detalhados - INTERVALO 3s"""
+    print("🔄 Iniciando loop de coleta com logs (intervalo 3s)...")
     ultimo_id = None
     ciclo = 0
     
     while True:
         try:
             ciclo += 1
-            print(f"\n{'='*50}")
-            print(f"📊 CICLO #{ciclo} - {datetime.now().strftime('%H:%M:%S')}")
-            print(f"{'='*50}")
-            
             inicio_ciclo = time.time()
             dados = buscar_dados_api_com_retry()
             
             if dados:
-                print(f"📥 API retornou {len(dados)} itens")
-                
-                # Mostrar primeiro item
+                # Mostrar primeiro item se for novo
                 if len(dados) > 0:
                     primeiro = dados[0]
                     data = primeiro.get('data', {})
@@ -708,40 +706,22 @@ def loop_coleta_com_logs():
                     banker = result.get('bankerDice', {}).get('score')
                     outcome = result.get('outcome', '')
                     
-                    print(f"   📌 Primeiro ID: {novo_id}")
-                    print(f"   🎲 Resultado: {outcome} - {player} vs {banker}")
-                    
                     if novo_id and novo_id != ultimo_id:
-                        print(f"   ✅ NOVA RODADA DETECTADA!")
+                        print(f"\n📥 NOVA RODADA: {outcome} - {player} vs {banker}")
                         ultimo_id = novo_id
-                    else:
-                        print(f"   ⏳ Mesmo ID do ciclo anterior")
                 
                 novas_rodadas = 0
-                for i, item in enumerate(dados):
+                for item in dados:
                     rodada = processar_item_api(item)
                     if rodada and rodada['id']:
                         if salvar_rodada(rodada):
                             novas_rodadas += 1
-                            print(f"      ✓ Item {i+1} salvo (ID: {rodada['id'][-8:]})")
                 
                 if novas_rodadas > 0:
-                    print(f"✅ +{novas_rodadas} novas rodadas salvas")
-                    # ⚡ Atualiza apenas dados leves
+                    print(f"✅ +{novas_rodadas} novas rodadas")
                     atualizar_dados_leves()
-                    print(f"📊 Cache atualizado: {cache['leves']['total_rodadas']} rodadas")
-                else:
-                    print("⏳ Nenhuma rodada nova (já existiam)")
-            else:
-                print("⚠️ API não retornou dados")
             
-            tempo_gasto = time.time() - inicio_ciclo
-            print(f"⏱️ Tempo do ciclo: {tempo_gasto:.2f}s")
-            
-            # Mostrar resumo do cache
-            print(f"📈 Total no banco: {cache['leves']['total_rodadas']}")
-            print(f"💾 Últimas 50: {len(cache['leves']['ultimas_50'])}")
-            
+            # Aguarda o intervalo configurado
             time.sleep(INTERVALO_COLETA)
             
         except Exception as e:
@@ -768,15 +748,16 @@ def loop_pesado():
 def diagnostico():
     """Mostra o status do sistema"""
     try:
-        # Testar conexão com banco
         conn = get_db_connection()
         banco_ok = conn is not None
+        total_banco = 0
+        ultima_rodada = None
+        
         if banco_ok:
             cur = conn.cursor()
             cur.execute('SELECT COUNT(*) FROM rodadas')
             total_banco = cur.fetchone()[0]
             
-            # Pegar última rodada
             cur.execute('''
                 SELECT data_hora, player_score, banker_score, resultado
                 FROM rodadas
@@ -787,56 +768,26 @@ def diagnostico():
             cur.close()
             conn.close()
             
-            ultima_rodada = {
-                'data': str(ultima[0]),
-                'player': ultima[1],
-                'banker': ultima[2],
-                'resultado': ultima[3]
-            } if ultima else None
-        else:
-            total_banco = 0
-            ultima_rodada = None
-
-        # Testar API externa
-        api_ok = False
-        ultima_api = None
-        try:
-            params = PARAMS.copy()
-            params['size'] = 1
-            response = session.get(API_URL, params=params, timeout=5)
-            api_ok = response.status_code == 200
-            if api_ok:
-                dados = response.json()
-                if dados and len(dados) > 0:
-                    data = dados[0].get('data', {})
-                    result = data.get('result', {})
-                    ultima_api = {
-                        'id': data.get('id'),
-                        'outcome': result.get('outcome'),
-                        'player': result.get('playerDice', {}).get('score'),
-                        'banker': result.get('bankerDice', {}).get('score')
-                    }
-        except Exception as e:
-            print(f"⚠️ Erro testando API: {e}")
+            if ultima:
+                ultima_rodada = {
+                    'data': ultima[0].strftime('%H:%M:%S'),
+                    'player': ultima[1],
+                    'banker': ultima[2],
+                    'resultado': ultima[3]
+                }
 
         return jsonify({
             'status': 'ok',
-            'timestamp': datetime.now().isoformat(),
+            'intervalo_coleta': INTERVALO_COLETA,
             'banco': {
                 'conectado': banco_ok,
                 'total_rodadas': total_banco,
-                'cache': cache['leves']['total_rodadas'],
-                'ultima_rodada': ultima_rodada
+                'cache': cache['leves']['total_rodadas']
             },
-            'api_externa': {
-                'funcionando': api_ok,
-                'ultimo_resultado': ultima_api
-            },
+            'ultima_rodada': ultima_rodada,
             'cache': {
                 'ultimas_50': len(cache['leves']['ultimas_50']),
-                'ultimas_20': len(cache['leves']['ultimas_20']),
-                'ultima_atualizacao': str(cache['leves']['ultima_atualizacao']),
-                'previsao': cache['leves']['previsao']
+                'ultima_atualizacao': str(cache['leves']['ultima_atualizacao'])
             }
         })
     except Exception as e:
@@ -863,26 +814,15 @@ def forcar_coleta():
         
         if novas > 0:
             atualizar_dados_leves()
-            
-            # Pegar última rodada salva
             ultima = dados[0].get('data', {}).get('result', {})
-            
             return jsonify({
                 'status': 'ok', 
                 'novas_rodadas': novas,
                 'total_agora': cache['leves']['total_rodadas'],
-                'ultima': {
-                    'outcome': ultima.get('outcome'),
-                    'player': ultima.get('playerDice', {}).get('score'),
-                    'banker': ultima.get('bankerDice', {}).get('score')
-                }
+                'ultima': f"{ultima.get('playerDice', {}).get('score')} vs {ultima.get('bankerDice', {}).get('score')} - {ultima.get('outcome')}"
             })
         else:
-            return jsonify({
-                'status': 'ok', 
-                'mensagem': 'Nenhuma rodada nova',
-                'total': cache['leves']['total_rodadas']
-            })
+            return jsonify({'status': 'ok', 'mensagem': 'Nenhuma rodada nova'})
             
     except Exception as e:
         return jsonify({'status': 'erro', 'erro': str(e)}), 500
@@ -963,21 +903,15 @@ def health():
 # =============================================================================
 if __name__ == "__main__":
     print("="*70)
-    print("🚀 BOT BACBO - 8 ESTRATÉGIAS COMPLETAS (COM DIAGNÓSTICO)")
+    print("🚀 BOT BACBO - 8 ESTRATÉGIAS - INTERVALO 3s")
     print("="*70)
     print("✅ SEM SELECT ID (usa ON CONFLICT)")
     print("✅ LEVE x PESADO separados")
     print("✅ LIMIT 3000 em todas consultas")
     print("✅ Índices no banco")
     print("✅ Horário Brasília")
-    print("✅ Estratégia #1: Compensação")
-    print("✅ Estratégia #2: Paredão")
-    print("✅ Estratégia #3: Moedor")
-    print("✅ Estratégia #4: Xadrez")
-    print("✅ Estratégia #5: Contragolpe")
-    print("✅ Estratégia #6: Reset Cluster")
-    print("✅ Estratégia #7: Falsa Alternância")
-    print("✅ Estratégia #8: Meta-Algoritmo")
+    print("✅ TODAS AS 8 ESTRATÉGIAS")
+    print(f"⚡ INTERVALO DE COLETA: {INTERVALO_COLETA}s")
     print("="*70)
     
     init_db()
@@ -988,11 +922,9 @@ if __name__ == "__main__":
     atualizar_dados_pesados()
     
     print(f"📊 {cache['leves']['total_rodadas']} rodadas no banco")
-    print(f"⚡ Timeout: {TIMEOUT_API}s")
     print("🌐 Rotas disponíveis:")
     print("   - /diagnostico - Ver status do sistema")
     print("   - /forcar-coleta - Forçar coleta manual")
-    print("   - /health - Health check")
     print("="*70)
     
     # Threads separadas
