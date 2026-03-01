@@ -1,15 +1,17 @@
-# main.py - Bot BacBo PROFISSIONAL - VERSÃO FINAL DEFINITIVA
+# main.py - Bot BacBo PROFISSIONAL - 8 ESTRATÉGIAS COMPLETAS
 # ✅ SEM SELECT ID (usa ON CONFLICT)
 # ✅ LEVE x PESADO separados
 # ✅ LIMIT 3000 em todas consultas
 # ✅ Índices no banco
 # ✅ Horário Brasília
+# ✅ TODAS AS 8 ESTRATÉGIAS IMPLEMENTADAS
 
 import os
 import time
 import requests
 import json
 import urllib.parse
+import random
 from datetime import datetime, timedelta, timezone
 import sys
 import threading
@@ -69,7 +71,9 @@ cache = {
     'falhas_consecutivas': 0
 }
 
-# Pesos das estratégias
+# =============================================================================
+# PESOS DAS ESTRATÉGIAS (COMPLETO)
+# =============================================================================
 PESOS = {
     'compensacao': {'AGRESSIVO': 70, 'EQUILIBRADO': 90, 'PREDATORIO': 60},
     'paredao': {'AGRESSIVO': 90, 'EQUILIBRADO': 50, 'PREDATORIO': 40},
@@ -298,21 +302,10 @@ def atualizar_dados_pesados():
     cache['pesados']['ultima_atualizacao'] = datetime.now(timezone.utc)
 
 # =============================================================================
-# PREVISÃO
+# ESTRATÉGIA #1: COMPENSAÇÃO
 # =============================================================================
-
-def identificar_modo(player_pct, banker_pct, dados):
-    extremos = sum(1 for r in dados if r['player_score'] >= 10 or r['banker_score'] >= 10)
-    pct_extremos = (extremos / len(dados)) * 100 if dados else 0
-    
-    if banker_pct > 47 or player_pct > 47:
-        return "AGRESSIVO"
-    elif pct_extremos > 30:
-        return "PREDATORIO"
-    else:
-        return "EQUILIBRADO"
-
 def estrategia_compensacao(dados, modo):
+    """🟢 ESTRATÉGIA #1: COMPENSAÇÃO - Diferença > 4% força lado menor"""
     if len(dados) < 10:
         return {'banker': 0, 'player': 0}
     
@@ -320,40 +313,147 @@ def estrategia_compensacao(dados, modo):
     banker = sum(1 for r in dados if r['resultado'] == 'BANKER')
     total = len(dados)
     
-    diff = abs((banker/total*100) - (player/total*100))
+    player_pct = (player / total) * 100
+    banker_pct = (banker / total) * 100
+    
+    diff = abs(banker_pct - player_pct)
     if diff > 4:
         peso = PESOS['compensacao'][modo]
         if banker > player:
-            return {'banker': 0, 'player': peso}
+            return {'banker': 0, 'player': peso}  # Player precisa subir
         else:
-            return {'banker': peso, 'player': 0}
+            return {'banker': peso, 'player': 0}  # Banker precisa subir
+    
     return {'banker': 0, 'player': 0}
 
+# =============================================================================
+# ESTRATÉGIA #2: PAREDÃO
+# =============================================================================
 def estrategia_paredao(dados, modo):
+    """🔴 ESTRATÉGIA #2: PAREDÃO - 4+ vitórias seguidas"""
     if len(dados) < 4:
         return {'banker': 0, 'player': 0}
     
     seq = [r['resultado'] for r in dados[:4]]
+    
     if all(r == 'BANKER' for r in seq):
         return {'banker': PESOS['paredao'][modo], 'player': 0}
     if all(r == 'PLAYER' for r in seq):
         return {'banker': 0, 'player': PESOS['paredao'][modo]}
+    
     return {'banker': 0, 'player': 0}
 
+# =============================================================================
+# ESTRATÉGIA #3: MOEDOR (Cluster de Empates)
+# =============================================================================
+def estrategia_moedor(dados, modo):
+    """🟡 ESTRATÉGIA #3: MOEDOR - Cluster de Empates"""
+    if len(dados) < 5:
+        return {'banker': 0, 'player': 0}
+    
+    # Contar empates nas últimas 5 rodadas
+    ties = sum(1 for r in dados[:5] if r['resultado'] == 'TIE')
+    
+    # Tie > 13% ou 2+ empates em 5 rodadas
+    tie_pct = (ties / 5) * 100
+    if tie_pct >= 13 or ties >= 2:
+        # Encontrar última cor não-empate
+        ultima_nao_tie = next((r for r in dados if r['resultado'] != 'TIE'), None)
+        if ultima_nao_tie:
+            peso = PESOS['moedor'][modo]
+            if ultima_nao_tie['resultado'] == 'BANKER':
+                return {'banker': peso, 'player': 0}
+            else:
+                return {'banker': 0, 'player': peso}
+    
+    return {'banker': 0, 'player': 0}
+
+# =============================================================================
+# ESTRATÉGIA #4: XADREZ (Alternância)
+# =============================================================================
 def estrategia_xadrez(dados, modo):
+    """🔵 ESTRATÉGIA #4: XADREZ - Alternância B-P-B-P"""
     if len(dados) < 4:
         return {'banker': 0, 'player': 0}
     
     seq = [r['resultado'] for r in dados[:4]]
+    
     if (seq[0] != seq[1] and seq[1] != seq[2] and seq[2] != seq[3]):
         peso = PESOS['xadrez'][modo]
         if seq[3] == 'BANKER':
-            return {'banker': 0, 'player': peso}
+            return {'banker': 0, 'player': peso}  # Próximo PLAYER
         else:
-            return {'banker': peso, 'player': 0}
+            return {'banker': peso, 'player': 0}  # Próximo BANKER
+    
     return {'banker': 0, 'player': 0}
 
+# =============================================================================
+# ESTRATÉGIA #5: CONTRAGOLPE
+# =============================================================================
+def estrategia_contragolpe(dados, modo):
+    """⚫ ESTRATÉGIA #5: CONTRAGOLPE - 3+ iguais → 1 diferente → volta"""
+    if len(dados) < 5:
+        return {'banker': 0, 'player': 0}
+    
+    # Pega últimas 5 rodadas
+    seq = [r['resultado'] for r in dados[:5]]
+    
+    # Padrão: B,B,B,P,B ou P,P,P,B,P
+    if (seq[0] == seq[1] == seq[2] and 
+        seq[2] != seq[3] and 
+        seq[3] != seq[4] and 
+        seq[4] == seq[0]):
+        
+        peso = PESOS['contragolpe'][modo]
+        if seq[0] == 'BANKER':
+            return {'banker': peso, 'player': 0}
+        else:
+            return {'banker': 0, 'player': peso}
+    
+    return {'banker': 0, 'player': 0}
+
+# =============================================================================
+# ESTRATÉGIA #6: RESET PÓS-CLUSTER
+# =============================================================================
+def estrategia_reset_cluster(dados, modo):
+    """🟤 ESTRATÉGIA #6: RESET PÓS-CLUSTER - 2+ empates em curto espaço"""
+    if len(dados) < 6:
+        return {'banker': 0, 'player': 0}
+    
+    # Contar empates nas últimas 6 rodadas
+    ties = sum(1 for r in dados[:6] if r['resultado'] == 'TIE')
+    
+    if ties >= 2:
+        # Encontrar cor antes do cluster
+        antes_cluster = None
+        for r in dados:
+            if r['resultado'] != 'TIE':
+                antes_cluster = r
+                break
+        
+        if antes_cluster:
+            # 70% volta à dominante, 30% vai à oposta
+            peso = PESOS['reset_cluster'][modo]
+            if random.random() < 0.7:
+                # Volta à dominante
+                if antes_cluster['resultado'] == 'BANKER':
+                    return {'banker': peso, 'player': 0}
+                else:
+                    return {'banker': 0, 'player': peso}
+            else:
+                # Vai à oposta
+                if antes_cluster['resultado'] == 'BANKER':
+                    return {'banker': 0, 'player': peso}
+                else:
+                    return {'banker': peso, 'player': 0}
+    
+    return {'banker': 0, 'player': 0}
+
+# =============================================================================
+# ESTRATÉGIA #7: FALSA ALTERNÂNCIA (Números Extremos)
+# =============================================================================
 def estrategia_falsa_alternancia(dados, modo):
+    """🟠 ESTRATÉGIA #7: FALSA ALTERNÂNCIA - Números extremos (10,11,12)"""
     if not dados:
         return {'banker': 0, 'player': 0}
     
@@ -364,9 +464,30 @@ def estrategia_falsa_alternancia(dados, modo):
             return {'banker': peso, 'player': 0}
         else:
             return {'banker': 0, 'player': peso}
+    
     return {'banker': 0, 'player': 0}
 
+# =============================================================================
+# ESTRATÉGIA #8: META-ALGORITMO (aplicado no final)
+# =============================================================================
+
+def identificar_modo(player_pct, banker_pct, dados):
+    """Identifica o modo do algoritmo baseado nos dados."""
+    extremos = sum(1 for r in dados if r['player_score'] >= 10 or r['banker_score'] >= 10)
+    pct_extremos = (extremos / len(dados)) * 100 if dados else 0
+    
+    if banker_pct > 47 or player_pct > 47:
+        return "AGRESSIVO"
+    elif pct_extremos > 30:
+        return "PREDATORIO"
+    else:
+        return "EQUILIBRADO"
+
+# =============================================================================
+# FUNÇÃO PRINCIPAL DE PREVISÃO (COM TODAS AS 8 ESTRATÉGIAS)
+# =============================================================================
 def calcular_previsao():
+    """🎯 Calcula previsão com TODAS as 8 estratégias"""
     dados = cache['leves']['ultimas_50']
     if len(dados) < 10:
         return None
@@ -384,30 +505,56 @@ def calcular_previsao():
     votos_player = 0
     estrategias = []
     
+    # ✅ ESTRATÉGIA 1: Compensação
     e1 = estrategia_compensacao(dados, modo)
     votos_banker += e1.get('banker', 0)
     votos_player += e1.get('player', 0)
     if e1.get('banker') or e1.get('player'):
         estrategias.append('Compensação')
     
+    # ✅ ESTRATÉGIA 2: Paredão
     e2 = estrategia_paredao(dados, modo)
     votos_banker += e2.get('banker', 0)
     votos_player += e2.get('player', 0)
     if e2.get('banker') or e2.get('player'):
         estrategias.append('Paredão')
     
+    # ✅ ESTRATÉGIA 3: Moedor
+    e3 = estrategia_moedor(dados, modo)
+    votos_banker += e3.get('banker', 0)
+    votos_player += e3.get('player', 0)
+    if e3.get('banker') or e3.get('player'):
+        estrategias.append('Moedor')
+    
+    # ✅ ESTRATÉGIA 4: Xadrez
     e4 = estrategia_xadrez(dados, modo)
     votos_banker += e4.get('banker', 0)
     votos_player += e4.get('player', 0)
     if e4.get('banker') or e4.get('player'):
         estrategias.append('Xadrez')
     
+    # ✅ ESTRATÉGIA 5: Contragolpe
+    e5 = estrategia_contragolpe(dados, modo)
+    votos_banker += e5.get('banker', 0)
+    votos_player += e5.get('player', 0)
+    if e5.get('banker') or e5.get('player'):
+        estrategias.append('Contragolpe')
+    
+    # ✅ ESTRATÉGIA 6: Reset Pós-Cluster
+    e6 = estrategia_reset_cluster(dados, modo)
+    votos_banker += e6.get('banker', 0)
+    votos_player += e6.get('player', 0)
+    if e6.get('banker') or e6.get('player'):
+        estrategias.append('Reset Cluster')
+    
+    # ✅ ESTRATÉGIA 7: Falsa Alternância
     e7 = estrategia_falsa_alternancia(dados, modo)
     votos_banker += e7.get('banker', 0)
     votos_player += e7.get('player', 0)
     if e7.get('banker') or e7.get('player'):
         estrategias.append('Falsa Alternância')
     
+    # ✅ ESTRATÉGIA 8: Meta-Algoritmo
     if modo == "AGRESSIVO":
         if banker_pct > player_pct:
             votos_banker = int(votos_banker * 1.5)
@@ -415,14 +562,26 @@ def calcular_previsao():
         else:
             votos_player = int(votos_player * 1.5)
             estrategias.append('Meta AGRESSIVO')
+    elif modo == "PREDATORIO":
+        # No modo predatório, dar peso extra para contragolpe e falsa alternância
+        if any(s in estrategias for s in ['Contragolpe', 'Falsa Alternância']):
+            if banker_pct > player_pct:
+                votos_banker = int(votos_banker * 1.3)
+            else:
+                votos_player = int(votos_player * 1.3)
+            estrategias.append('Meta PREDATÓRIO')
+    
+    # ✅ DECISÃO FINAL
+    total_votos = votos_banker + votos_player
     
     if votos_banker > votos_player:
         previsao = 'BANKER'
-        confianca = round((votos_banker / (votos_banker + votos_player)) * 100)
+        confianca = round((votos_banker / total_votos) * 100) if total_votos > 0 else 50
     elif votos_player > votos_banker:
         previsao = 'PLAYER'
-        confianca = round((votos_player / (votos_banker + votos_player)) * 100)
+        confianca = round((votos_player / total_votos) * 100) if total_votos > 0 else 50
     else:
+        # Empate técnico: usar porcentagem do gráfico
         if banker_pct > player_pct:
             previsao = 'BANKER'
             confianca = round((banker_pct / (banker_pct + player_pct)) * 100)
@@ -439,7 +598,7 @@ def calcular_previsao():
         'simbolo': '🔴' if previsao == 'BANKER' else '🔵' if previsao == 'PLAYER' else '🟡',
         'confianca': confianca,
         'delay_ativo': (ultimo_resultado == 'TIE'),
-        'estrategias': estrategias[:3]
+        'estrategias': estrategias[:4]  # Mostra até 4 estratégias
     }
 
 # =============================================================================
@@ -624,13 +783,21 @@ def health():
 # =============================================================================
 if __name__ == "__main__":
     print("="*70)
-    print("🚀 BOT BACBO - VERSÃO FINAL DEFINITIVA")
+    print("🚀 BOT BACBO - 8 ESTRATÉGIAS COMPLETAS")
     print("="*70)
     print("✅ SEM SELECT ID (usa ON CONFLICT)")
     print("✅ LEVE x PESADO separados")
     print("✅ LIMIT 3000 em todas consultas")
     print("✅ Índices no banco")
     print("✅ Horário Brasília")
+    print("✅ Estratégia #1: Compensação")
+    print("✅ Estratégia #2: Paredão")
+    print("✅ Estratégia #3: Moedor")
+    print("✅ Estratégia #4: Xadrez")
+    print("✅ Estratégia #5: Contragolpe")
+    print("✅ Estratégia #6: Reset Cluster")
+    print("✅ Estratégia #7: Falsa Alternância")
+    print("✅ Estratégia #8: Meta-Algoritmo")
     print("="*70)
     
     init_db()
