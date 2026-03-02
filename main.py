@@ -1,9 +1,8 @@
-# main.py - BOT BACBO COM SCRAPING (NUNCA TRAVA) - VERSÃO COMPLETA
-# ✅ Faz scraping direto do site betmind.org
-# ✅ Não depende de API pública
-# ✅ Atualiza em tempo real a cada 2 segundos
-# ✅ 8 estratégias funcionando perfeitamente
-# ✅ Estatísticas e aprendizado automático
+# main.py - BOT BACBO COM SCRAPING + API FALLBACK (NUNCA TRAVA)
+# ✅ Múltiplos seletores para encontrar resultados
+# ✅ Fallback para API quando scraping falha
+# ✅ Reconexão automática do driver
+# ✅ Atualização a cada 2 segundos
 
 import os
 import time
@@ -21,6 +20,7 @@ import pg8000
 # =============================================================================
 # SCRAPING - INSTALAÇÃO NECESSÁRIA
 # =============================================================================
+# No terminal do container, execute:
 # pip install selenium webdriver-manager beautifulsoup4 lxml
 
 try:
@@ -33,7 +33,9 @@ try:
     from webdriver_manager.chrome import ChromeDriverManager
     from bs4 import BeautifulSoup
     SCRAPING_AVAILABLE = True
-except ImportError:
+    print("✅ Bibliotecas de scraping disponíveis!")
+except ImportError as e:
+    print(f"⚠️ Erro ao importar: {e}")
     print("⚠️ Instale as dependências:")
     print("pip install selenium webdriver-manager beautifulsoup4 lxml")
     SCRAPING_AVAILABLE = False
@@ -50,6 +52,20 @@ DB_PASSWORD = parsed.password
 DB_HOST = parsed.hostname
 DB_PORT = parsed.port or 5432
 DB_NAME = parsed.path[1:]
+
+# API Casino.org (fallback quando scraping falha)
+API_URL = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo"
+API_PARAMS = {
+    "page": 0,
+    "size": 30,
+    "sort": "data.settledAt,desc",
+    "duration": 4320,
+    "wheelResults": "PlayerWon,BankerWon,Tie"
+}
+API_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Accept': 'application/json'
+}
 
 # Site alvo
 TARGET_URL = "https://betmind.org/bacbo"
@@ -95,10 +111,12 @@ cache = {
         'driver': None,
         'status': 'parado',
         'rodadas_coletadas': 0,
-        'ultima_rodada': None
+        'ultima_rodada': None,
+        'tentativas_reconexao': 0
     },
     'ultima_previsao': None,
-    'ultimo_resultado_real': None
+    'ultimo_resultado_real': None,
+    'fonte_ativa': 'nenhuma'
 }
 
 # =============================================================================
@@ -119,6 +137,8 @@ PESOS = {
 # =============================================================================
 app = Flask(__name__)
 CORS(app)
+api_session = requests.Session()
+api_session.headers.update(API_HEADERS)
 
 # =============================================================================
 # FUNÇÕES DO BANCO
@@ -155,6 +175,7 @@ def init_db():
                 soma INTEGER,
                 resultado TEXT,
                 multiplicador FLOAT DEFAULT 1,
+                fonte TEXT,
                 dados_json JSONB
             )
         ''')
@@ -183,7 +204,7 @@ def init_db():
         print(f"❌ Erro: {e}")
         return False
 
-def salvar_rodada(rodada):
+def salvar_rodada(rodada, fonte='scraper'):
     conn = get_db_connection()
     if not conn:
         return False
@@ -192,8 +213,8 @@ def salvar_rodada(rodada):
         cur = conn.cursor()
         cur.execute('''
             INSERT INTO rodadas 
-            (id, data_hora, player_score, banker_score, soma, resultado, dados_json)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            (id, data_hora, player_score, banker_score, soma, resultado, fonte, dados_json)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (id) DO NOTHING
         ''', (
             rodada['id'],
@@ -202,6 +223,7 @@ def salvar_rodada(rodada):
             rodada['banker_score'],
             rodada['player_score'] + rodada['banker_score'],
             rodada['resultado'],
+            fonte,
             json.dumps(rodada, default=str)
         ))
         
@@ -339,7 +361,58 @@ def atualizar_dados_pesados():
     print(f"📊 Pesados: {cache['pesados']['periodos']}")
 
 # =============================================================================
-# 🔥 SCRAPER - CORAÇÃO DO SISTEMA
+# 🔥 FUNÇÃO FALLBACK - API CASINO.ORG
+# =============================================================================
+
+def buscar_api_casino():
+    """Busca dados da API Casino.org como fallback"""
+    try:
+        response = api_session.get(API_URL, params=API_PARAMS, timeout=TIMEOUT_API)
+        response.raise_for_status()
+        dados = response.json()
+        
+        if dados and len(dados) > 0:
+            print(f"✅ API Casino: {len(dados)} rodadas")
+            rodadas = []
+            
+            for item in dados[:20]:
+                try:
+                    data = item.get('data', {})
+                    result = data.get('result', {})
+                    player_dice = result.get('playerDice', {})
+                    banker_dice = result.get('bankerDice', {})
+                    
+                    resultado_api = result.get('outcome', '')
+                    if resultado_api == 'PlayerWon':
+                        resultado = 'PLAYER'
+                    elif resultado_api == 'BankerWon':
+                        resultado = 'BANKER'
+                    else:
+                        resultado = 'TIE'
+                    
+                    data_hora = datetime.fromisoformat(data.get('settledAt', '').replace('Z', '+00:00'))
+                    
+                    rodada = {
+                        'id': data.get('id'),
+                        'data_hora': data_hora,
+                        'player_score': player_dice.get('score', 0),
+                        'banker_score': banker_dice.get('score', 0),
+                        'resultado': resultado,
+                        'multiplicador': result.get('multiplier', 1)
+                    }
+                    rodadas.append(rodada)
+                except:
+                    continue
+            
+            return rodadas
+        
+        return None
+    except Exception as e:
+        print(f"⚠️ API Casino erro: {e}")
+        return None
+
+# =============================================================================
+# 🔥 SCRAPER OTIMIZADO
 # =============================================================================
 
 class BacBoScraper:
@@ -347,11 +420,13 @@ class BacBoScraper:
         self.driver = None
         self.ultimas_rodadas = []
         self.running = False
+        self.fallback_ativo = False
         
     def iniciar(self):
         """Inicia o Chrome em modo headless"""
         if not SCRAPING_AVAILABLE:
-            print("❌ Scraping não disponível - instale as dependências")
+            print("❌ Scraping não disponível - usando fallback da API")
+            self.fallback_ativo = True
             return False
         
         try:
@@ -363,8 +438,13 @@ class BacBoScraper:
             chrome_options.add_argument("--window-size=1920,1080")
             chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             
-            service = Service(ChromeDriverManager().install())
-            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            # Tenta instalar o driver automaticamente
+            try:
+                service = Service(ChromeDriverManager().install())
+                self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            except:
+                # Se falhar, tenta sem o gerenciador
+                self.driver = webdriver.Chrome(options=chrome_options)
             
             print("🔄 Carregando site...")
             self.driver.get(TARGET_URL)
@@ -377,6 +457,7 @@ class BacBoScraper:
             print("✅ Site carregado!")
             cache['scraper']['status'] = 'rodando'
             self.running = True
+            self.fallback_ativo = False
             
             # Aceitar cookies se aparecer
             try:
@@ -390,10 +471,11 @@ class BacBoScraper:
         except Exception as e:
             print(f"❌ Erro ao iniciar scraper: {e}")
             cache['scraper']['status'] = 'erro'
+            self.fallback_ativo = True
             return False
     
     def extrair_rodadas(self):
-        """Extrai rodadas da página atual"""
+        """Extrai rodadas da página atual com múltiplos seletores"""
         try:
             # Pega o HTML atual
             html = self.driver.page_source
@@ -401,46 +483,61 @@ class BacBoScraper:
             
             rodadas_encontradas = []
             
-            # Procura por padrões de resultados em elementos de histórico
+            # Lista COMPLETA de seletores para encontrar resultados
             selectors = [
+                # Seletores específicos do betmind
                 'div.history-item',
                 'div.game-result',
                 'tr.result-row',
                 'div[class*="history"]',
                 'span[class*="result"]',
-                'td.result'
+                'td.result',
+                'div[class*="round"]',
+                'div[class*="game"]',
+                
+                # Seletores genéricos
+                '.history',
+                '.results',
+                '.games',
+                '.rounds',
+                
+                # Elementos com texto
+                'div:contains("vs")',
+                'span:contains("vs")',
+                'td:contains("vs")',
+                
+                # Tabelas
+                'table tbody tr',
+                '.table tr',
+                
+                # Listas
+                'ul li',
+                '.list-item'
             ]
             
+            # Tenta cada seletor
             for selector in selectors:
-                elementos = soup.select(selector)
-                for elem in elementos[:20]:
-                    texto = elem.get_text().strip()
-                    if texto and ('vs' in texto or 'x' in texto or '🔴' in texto or '🔵' in texto or '🟡' in texto):
-                        rodada = self.parse_rodada(texto)
-                        if rodada:
-                            rodadas_encontradas.append(rodada)
+                try:
+                    elementos = soup.select(selector)
+                    for elem in elementos[:15]:
+                        texto = elem.get_text().strip()
+                        if texto and len(texto) < 50:  # Evita textos muito longos
+                            if any(x in texto for x in ['vs', 'x', '🔴', '🔵', '🟡']):
+                                rodada = self.parse_rodada(texto)
+                                if rodada:
+                                    rodadas_encontradas.append(rodada)
+                except:
+                    continue
                 
-                if rodadas_encontradas:
+                if len(rodadas_encontradas) >= 5:
                     break
-            
-            # Método 2: Procurar em tabelas se não encontrou
-            if not rodadas_encontradas:
-                tabelas = soup.find_all('table')
-                for tabela in tabelas:
-                    linhas = tabela.find_all('tr')
-                    for linha in linhas[:20]:
-                        texto = linha.get_text().strip()
-                        if texto and any(c in texto for c in ['vs', 'x', '🔴', '🔵', '🟡']):
-                            rodada = self.parse_rodada(texto)
-                            if rodada:
-                                rodadas_encontradas.append(rodada)
             
             # Se encontrou rodadas, processa
             if rodadas_encontradas:
-                # Remove duplicatas baseado no score
+                # Remove duplicatas
                 rodadas_unicas = []
                 seen = set()
-                for r in rodadas_encontradas[:10]:
+                for r in rodadas_encontradas:
                     key = f"{r['player']}_{r['banker']}"
                     if key not in seen:
                         seen.add(key)
@@ -448,7 +545,7 @@ class BacBoScraper:
                 
                 # Verifica quais são novas
                 novas = []
-                for r in rodadas_unicas:
+                for r in rodadas_unicas[:5]:
                     if not any(r['player'] == old.get('player') and 
                               r['banker'] == old.get('banker') 
                               for old in self.ultimas_rodadas[-3:]):
@@ -456,7 +553,7 @@ class BacBoScraper:
                 
                 if novas:
                     self.ultimas_rodadas.extend(novas)
-                    self.ultimas_rodadas = self.ultimas_rodadas[-50:]  # Mantém últimas 50
+                    self.ultimas_rodadas = self.ultimas_rodadas[-50:]
                     cache['scraper']['rodadas_coletadas'] += len(novas)
                     cache['scraper']['ultima_rodada'] = novas[0]
                     
@@ -475,18 +572,18 @@ class BacBoScraper:
     
     def parse_rodada(self, texto):
         """Converte texto em rodada estruturada"""
-        # Remove espaços extras e emojis
-        texto_limpo = re.sub(r'[🔴🔵🟡🟠⭐✅❌]', '', texto).strip()
+        # Remove espaços extras
+        texto = texto.strip()
         
         # Procura números (scores)
-        numeros = re.findall(r'\d+', texto_limpo)
+        numeros = re.findall(r'\d+', texto)
         
         if len(numeros) >= 2:
             try:
                 player = int(numeros[0])
                 banker = int(numeros[1])
                 
-                # Determina resultado pela cor no texto original
+                # Determina resultado pela cor
                 if '🔴' in texto:
                     resultado = 'BANKER'
                 elif '🔵' in texto:
@@ -502,7 +599,7 @@ class BacBoScraper:
                     else:
                         resultado = 'TIE'
                 
-                # Cria ID único baseado nos scores e timestamp
+                # Cria ID único
                 timestamp = int(time.time() * 1000)
                 rodada_id = f"scrape_{player}_{banker}_{timestamp}"
                 
@@ -512,8 +609,7 @@ class BacBoScraper:
                     'player_score': player,
                     'banker_score': banker,
                     'resultado': resultado,
-                    'multiplicador': 1,
-                    'texto_original': texto
+                    'multiplicador': 1
                 }
             except:
                 pass
@@ -521,48 +617,79 @@ class BacBoScraper:
         return None
     
     def loop_scraping(self):
-        """Loop principal de scraping"""
+        """Loop principal de scraping com fallback"""
         print("🔄 Iniciando loop de scraping...")
+        falhas_consecutivas = 0
         
         while self.running:
             try:
                 inicio_ciclo = time.time()
                 
-                # Extrai rodadas
+                # Tenta scraping
                 novas = self.extrair_rodadas()
                 
-                # Salva no banco
-                for rodada in novas:
-                    if salvar_rodada(rodada):
-                        # Guarda resultado para verificar previsão
-                        if rodada == novas[0]:
-                            cache['ultimo_resultado_real'] = rodada['resultado']
-                
                 if novas:
-                    # Atualiza cache leve
+                    falhas_consecutivas = 0
+                    for rodada in novas:
+                        if salvar_rodada(rodada, 'scraper'):
+                            if rodada == novas[0]:
+                                cache['ultimo_resultado_real'] = rodada['resultado']
+                    
+                    cache['fonte_ativa'] = 'scraper'
                     atualizar_dados_leves()
-                    print(f"⚡ Tempo de ciclo: {time.time() - inicio_ciclo:.2f}s")
+                    print(f"⚡ Scraping: {time.time() - inicio_ciclo:.2f}s")
                 
-                # Aguarda
+                else:
+                    falhas_consecutivas += 1
+                    
+                    # Se falhar 3 vezes seguidas, tenta API
+                    if falhas_consecutivas >= 3:
+                        print("⚠️ Scraping falhou, tentando API fallback...")
+                        api_dados = buscar_api_casino()
+                        
+                        if api_dados:
+                            novas_api = 0
+                            for rodada in api_dados[:5]:
+                                if salvar_rodada(rodada, 'api'):
+                                    novas_api += 1
+                                    if rodada == api_dados[0]:
+                                        cache['ultimo_resultado_real'] = rodada['resultado']
+                            
+                            if novas_api > 0:
+                                cache['fonte_ativa'] = 'api'
+                                atualizar_dados_leves()
+                                print(f"✅ API Fallback: {novas_api} novas rodadas")
+                                falhas_consecutivas = 0
+                
                 time.sleep(INTERVALO_SCRAPING)
                 
             except Exception as e:
                 print(f"❌ Erro no loop: {e}")
+                falhas_consecutivas += 1
                 time.sleep(5)
+                
+                # Tenta reiniciar driver após muitas falhas
+                if falhas_consecutivas > 10 and self.driver:
+                    print("🔄 Tentando reiniciar driver...")
+                    self.parar()
+                    time.sleep(5)
+                    self.iniciar()
     
     def parar(self):
         self.running = False
         if self.driver:
-            self.driver.quit()
+            try:
+                self.driver.quit()
+            except:
+                pass
             cache['scraper']['status'] = 'parado'
 
 # Instancia scraper
 scraper = BacBoScraper()
 
 # =============================================================================
-# ESTRATÉGIAS (COMPLETAS)
+# ESTRATÉGIAS (resumido para caber, mas completas)
 # =============================================================================
-
 def estrategia_compensacao(dados, modo):
     if len(dados) < 10:
         return {'banker': 0, 'player': 0}
@@ -868,7 +995,7 @@ def atualizar_dados_leves():
     cache['leves']['previsao'] = calcular_previsao()
     cache['leves']['ultima_atualizacao'] = datetime.now(timezone.utc)
     
-    print(f"⚡ Cache atualizado - Total: {cache['leves']['total_rodadas']} | Precisão: {calcular_precisao()}%")
+    print(f"⚡ Cache atualizado - Total: {cache['leves']['total_rodadas']} | Precisão: {calcular_precisao()}% | Fonte: {cache['fonte_ativa']}")
 
 # =============================================================================
 # LOOP PESADO
@@ -915,10 +1042,10 @@ def api_stats():
             'ultimas_20': cache['leves']['ultimas_20'],
             'previsao': cache['leves']['previsao'],
             'periodos': cache['pesados']['periodos'],
+            'fonte_ativa': cache['fonte_ativa'],
             'scraper': {
                 'status': cache['scraper']['status'],
-                'rodadas_coletadas': cache['scraper']['rodadas_coletadas'],
-                'ultima_rodada': cache['scraper']['ultima_rodada']
+                'rodadas_coletadas': cache['scraper']['rodadas_coletadas']
             },
             'estatisticas': {
                 'total_previsoes': cache['estatisticas']['total_previsoes'],
@@ -982,6 +1109,7 @@ def diagnostico():
         'status': 'ok',
         'timestamp': datetime.now().isoformat(),
         'scraper': cache['scraper'],
+        'fonte_ativa': cache['fonte_ativa'],
         'cache': {
             'total_rodadas': cache['leves']['total_rodadas'],
             'previsao': cache['leves']['previsao'],
@@ -998,20 +1126,23 @@ def diagnostico():
 def forcar_scraping():
     """Força uma coleta manual"""
     try:
-        novas = scraper.extrair_rodadas()
-        for rodada in novas:
-            salvar_rodada(rodada)
-        
-        if novas:
-            atualizar_dados_leves()
-            return jsonify({
-                'status': 'ok',
-                'novas': len(novas),
-                'total': cache['leves']['total_rodadas'],
-                'ultima': novas[0]
-            })
+        if scraper.fallback_ativo:
+            api_dados = buscar_api_casino()
+            if api_dados:
+                for rodada in api_dados[:5]:
+                    salvar_rodada(rodada, 'api_forcado')
+                atualizar_dados_leves()
+                return jsonify({'status': 'ok', 'fonte': 'api', 'novas': len(api_dados[:5])})
         else:
-            return jsonify({'status': 'ok', 'mensagem': 'Nenhuma rodada nova'})
+            novas = scraper.extrair_rodadas()
+            for rodada in novas:
+                salvar_rodada(rodada, 'scraper_forcado')
+            
+            if novas:
+                atualizar_dados_leves()
+                return jsonify({'status': 'ok', 'fonte': 'scraper', 'novas': len(novas)})
+        
+        return jsonify({'status': 'ok', 'mensagem': 'Nenhuma rodada nova'})
     except Exception as e:
         return jsonify({'status': 'erro', 'erro': str(e)}), 500
 
@@ -1020,13 +1151,12 @@ def forcar_scraping():
 # =============================================================================
 if __name__ == "__main__":
     print("="*70)
-    print("🚀 BOT BACBO - SCRAPING DIRETO (NUNCA TRAVA) - VERSÃO COMPLETA")
+    print("🚀 BOT BACBO - SCRAPING + API FALLBACK (NUNCA TRAVA)")
     print("="*70)
-    print("✅ Faz scraping do site betmind.org")
+    print("✅ Múltiplos seletores para encontrar resultados")
+    print("✅ Fallback para API quando scraping falha")
+    print("✅ Reconexão automática do driver")
     print("✅ Atualiza a cada 2 segundos")
-    print("✅ Sem depender de API pública")
-    print("✅ 8 estratégias implementadas")
-    print("✅ Sistema de aprendizado automático")
     print("="*70)
     print("📋 ESTRATÉGIAS:")
     print("   #1: Compensação")
@@ -1047,7 +1177,8 @@ if __name__ == "__main__":
         print("🚀 Iniciando thread de scraping...")
         threading.Thread(target=scraper.loop_scraping, daemon=True).start()
     else:
-        print("⚠️ Scraper não iniciado - verifique as dependências")
+        print("⚠️ Scraping desativado - usando apenas API fallback")
+        cache['fonte_ativa'] = 'api'
     
     # Dados iniciais
     print("📊 Carregando dados do banco...")
