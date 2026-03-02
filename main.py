@@ -1,7 +1,7 @@
-# main.py - BOT BACBO COM MONITORAMENTO VISUAL DA API
-# ✅ Alerta quando API cai (muda cor do badge)
-# ✅ Reconexão automática
-# ✅ Logs completos no /diagnostico
+# main.py - BOT BACBO COM RETRY FORÇADO E RECONEXÃO
+# ✅ Força requisições mesmo quando API parece vazia
+# ✅ Reconecta a cada falha
+# ✅ Logs detalhados
 
 import os
 import time
@@ -41,14 +41,16 @@ HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     'Accept': 'application/json',
     'Accept-Encoding': 'gzip, deflate, br',
-    'Connection': 'keep-alive'
+    'Connection': 'keep-alive',
+    'Cache-Control': 'no-cache',  # Força não usar cache
+    'Pragma': 'no-cache'
 }
 
 # Configurações
-TIMEOUT_API = 10
-MAX_RETRIES = 5
-RETRY_DELAY = 2
-INTERVALO_COLETA = 3  # 3 segundos
+TIMEOUT_API = 15  # Aumentado
+MAX_RETRIES = 10   # Mais tentativas
+RETRY_DELAY = 3
+INTERVALO_COLETA = 3
 PORT = int(os.environ.get("PORT", 5000))
 
 # =============================================================================
@@ -58,7 +60,7 @@ cache = {
     'leves': {
         'ultimas_50': [],
         'ultimas_20': [],
-        'total_rodadas': 2123,  # SEU TOTAL ATUAL
+        'total_rodadas': 2123,
         'ultima_atualizacao': None,
         'previsao': None
     },
@@ -86,10 +88,12 @@ cache = {
         'ultimo_id': None,
         'total_coletado': 0,
         'falhas': 0,
-        'status': 'online',  # online, offline, verificando
+        'status': 'online',
         'ultima_verificacao': None,
         'historico_falhas': [],
-        'mensagem': 'API funcionando'
+        'mensagem': 'API funcionando',
+        'ultima_resposta': None,
+        'tentativas_forcadas': 0
     },
     'ultima_previsao': None,
     'ultimo_resultado_real': None
@@ -113,7 +117,16 @@ PESOS = {
 # =============================================================================
 app = Flask(__name__)
 CORS(app)
+
+# Sessão global com retry
 session = requests.Session()
+adapter = requests.adapters.HTTPAdapter(
+    max_retries=3,
+    pool_connections=10,
+    pool_maxsize=10
+)
+session.mount('http://', adapter)
+session.mount('https://', adapter)
 session.headers.update(HEADERS)
 
 # =============================================================================
@@ -335,22 +348,25 @@ def atualizar_dados_pesados():
     print(f"📊 Pesados: {cache['pesados']['periodos']}")
 
 # =============================================================================
-# 🔥 FUNÇÃO PRINCIPAL - API COM MONITORAMENTO
+# 🔥 FUNÇÃO PRINCIPAL - API COM RETRY FORÇADO
 # =============================================================================
 
 def buscar_api_casino():
-    """Busca rodadas da API Casino.org com monitoramento de status"""
+    """Busca rodadas com retry forçado e logs detalhados"""
     cache['api']['status'] = 'verificando'
     cache['api']['ultima_verificacao'] = datetime.now().isoformat()
     
     for tentativa in range(MAX_RETRIES):
         try:
+            # Cria nova sessão a cada tentativa para evitar conexões stale
             local_session = requests.Session()
             local_session.headers.update(HEADERS)
             
+            # Adiciona timestamp para evitar cache
             params = PARAMS.copy()
-            params['page'] = 0
-            params['size'] = 30
+            params['_t'] = int(time.time() * 1000)  # Cache buster
+            
+            print(f"   🔄 Tentativa {tentativa + 1}/{MAX_RETRIES}")
             
             response = local_session.get(
                 API_URL, 
@@ -359,16 +375,27 @@ def buscar_api_casino():
                 allow_redirects=True
             )
             
+            print(f"   📡 Status Code: {response.status_code}")
+            
             response.raise_for_status()
             dados = response.json()
             
+            # Guarda a resposta para diagnóstico
+            cache['api']['ultima_resposta'] = {
+                'timestamp': datetime.now().isoformat(),
+                'status': response.status_code,
+                'itens': len(dados) if dados else 0
+            }
+            
             if dados and len(dados) > 0:
+                print(f"   ✅ API retornou {len(dados)} itens")
                 cache['api']['status'] = 'online'
                 cache['api']['falhas'] = 0
-                cache['api']['mensagem'] = 'API funcionando'
+                cache['api']['mensagem'] = f'API online - {len(dados)} itens'
                 
+                # Processa os dados
                 rodadas = []
-                for item in dados[:15]:
+                for i, item in enumerate(dados[:20]):
                     try:
                         data = item.get('data', {})
                         result = data.get('result', {})
@@ -395,36 +422,35 @@ def buscar_api_casino():
                         }
                         rodadas.append(rodada)
                     except Exception as e:
-                        print(f"⚠️ Erro processando item: {e}")
+                        print(f"      ⚠️ Erro processando item {i}: {e}")
                         continue
                 
                 return rodadas
-            
+            else:
+                print(f"   ⚠️ API retornou lista vazia")
+                
         except requests.exceptions.Timeout:
-            print(f"⏱️ Timeout tentativa {tentativa + 1}")
-            time.sleep(RETRY_DELAY * (tentativa + 1))
+            print(f"   ⏱️ Timeout tentativa {tentativa + 1}")
         except requests.exceptions.ConnectionError:
-            print(f"🔌 Erro de conexão tentativa {tentativa + 1}")
-            time.sleep(RETRY_DELAY * (tentativa + 1))
+            print(f"   🔌 Erro de conexão tentativa {tentativa + 1}")
         except requests.exceptions.HTTPError as e:
-            print(f"🌐 HTTP {e.response.status_code} tentativa {tentativa + 1}")
-            time.sleep(RETRY_DELAY * (tentativa + 1))
+            print(f"   🌐 HTTP {e.response.status_code} tentativa {tentativa + 1}")
         except Exception as e:
-            print(f"⚠️ Erro tentativa {tentativa + 1}: {e}")
-            time.sleep(RETRY_DELAY * (tentativa + 1))
+            print(f"   ⚠️ Erro: {e}")
+        
+        # Backoff exponencial
+        time.sleep(RETRY_DELAY * (tentativa + 1))
     
     # Se todas tentativas falharam
     cache['api']['falhas'] += 1
     cache['api']['status'] = 'offline'
-    cache['api']['mensagem'] = f'API offline - {cache["api"]["falhas"]} falhas consecutivas'
+    cache['api']['mensagem'] = f'API offline - {cache["api"]["falhas"]} falhas'
     cache['api']['historico_falhas'].append({
         'timestamp': datetime.now().isoformat(),
         'tentativas': MAX_RETRIES
     })
-    if len(cache['api']['historico_falhas']) > 10:
-        cache['api']['historico_falhas'].pop(0)
     
-    print(f"❌ Todas as {MAX_RETRIES} tentativas falharam - API OFFLINE")
+    print(f"   ❌ Todas as {MAX_RETRIES} tentativas falharam")
     return None
 
 # =============================================================================
@@ -717,11 +743,11 @@ def atualizar_dados_leves():
     print(f"⚡ Cache atualizado - Total: {cache['leves']['total_rodadas']} | Precisão: {calcular_precisao()}%")
 
 # =============================================================================
-# 🔥 LOOP PRINCIPAL COM MONITORAMENTO
+# 🔥 LOOP PRINCIPAL COM LOGS DETALHADOS
 # =============================================================================
 
 def loop_coleta():
-    """Loop principal com monitoramento de status da API"""
+    """Loop principal com logs detalhados de cada tentativa"""
     print("🔄 Iniciando coleta da API Casino.org...")
     ultimo_id = None
     ciclo = 0
@@ -740,7 +766,7 @@ def loop_coleta():
             
             if dados and len(dados) > 0:
                 falhas_consecutivas = 0
-                print(f"📥 API retornou {len(dados)} itens")
+                print(f"\n📥 API retornou {len(dados)} itens")
                 
                 primeiro = dados[0]
                 novo_id = primeiro['id']
@@ -764,7 +790,6 @@ def loop_coleta():
                         cache['api']['total_coletado'] += novas
                         print(f"✅ +{novas} novas rodadas salvas")
                         atualizar_dados_leves()
-                        print(f"⚡ Tempo do ciclo: {time.time() - inicio:.2f}s")
                     else:
                         print("⏳ Nenhuma rodada nova (já existiam)")
                 else:
@@ -774,11 +799,11 @@ def loop_coleta():
                 falhas_consecutivas += 1
                 
                 if falhas_consecutivas > 5:
-                    print(f"⚠️ {falhas_consecutivas} falhas consecutivas - aumentando intervalo")
+                    print(f"⚠️ {falhas_consecutivas} falhas consecutivas")
                     time.sleep(INTERVALO_COLETA * 2)
             
             print(f"📈 Total no banco: {cache['leves']['total_rodadas']}")
-            print(f"💾 Últimas 50: {len(cache['leves']['ultimas_50'])}")
+            print(f"⏱️ Tempo do ciclo: {time.time() - inicio:.2f}s")
             
             time.sleep(INTERVALO_COLETA)
             
@@ -833,7 +858,8 @@ def api_stats():
                 'mensagem': cache['api']['mensagem'],
                 'total_coletado': cache['api']['total_coletado'],
                 'falhas': cache['api']['falhas'],
-                'ultima_verificacao': cache['api']['ultima_verificacao']
+                'ultima_verificacao': cache['api']['ultima_verificacao'],
+                'ultima_resposta': cache['api']['ultima_resposta']
             },
             'estatisticas': {
                 'total_previsoes': cache['estatisticas']['total_previsoes'],
@@ -935,7 +961,8 @@ def forcar_coleta():
             return jsonify({
                 'status': 'ok',
                 'novas': novas,
-                'total': cache['leves']['total_rodadas']
+                'total': cache['leves']['total_rodadas'],
+                'api_status': cache['api']['status']
             })
         else:
             return jsonify({'status': 'ok', 'mensagem': 'Nenhuma rodada nova'})
@@ -949,10 +976,19 @@ def reiniciar_sessao():
     try:
         global session
         session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(
+            max_retries=3,
+            pool_connections=10,
+            pool_maxsize=10
+        )
+        session.mount('http://', adapter)
+        session.mount('https://', adapter)
         session.headers.update(HEADERS)
+        
         cache['api']['falhas'] = 0
         cache['api']['status'] = 'reiniciado'
         cache['api']['mensagem'] = 'Sessão reiniciada manualmente'
+        
         return jsonify({'status': 'ok', 'mensagem': 'Sessão reiniciada'})
     except Exception as e:
         return jsonify({'status': 'erro', 'erro': str(e)}), 500
@@ -962,11 +998,11 @@ def reiniciar_sessao():
 # =============================================================================
 if __name__ == "__main__":
     print("="*70)
-    print("🚀 BOT BACBO - MONITORAMENTO VISUAL DA API")
+    print("🚀 BOT BACBO - RETRY FORÇADO + LOGS DETALHADOS")
     print("="*70)
-    print("✅ Alerta quando API cair (muda cor do badge)")
+    print("✅ Força requisições mesmo com cache")
+    print("✅ Logs detalhados de cada tentativa")
     print("✅ Reconexão automática")
-    print("✅ Logs completos em /diagnostico")
     print("="*70)
     
     init_db()
@@ -985,5 +1021,6 @@ if __name__ == "__main__":
     threading.Thread(target=loop_pesado, daemon=True).start()
     
     print("✅ Servidor Flask iniciando...")
-    print("🌐 Acesse /diagnostico para ver status da API")
+    print("🌐 Acesse /diagnostico para ver status detalhado")
+    print("🌐 Acesse /reiniciar-sessao para forçar reconexão")
     app.run(host='0.0.0.0', port=PORT, debug=False)
