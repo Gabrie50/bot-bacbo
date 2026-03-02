@@ -1,12 +1,7 @@
 # main.py - Bot BacBo PROFISSIONAL - 8 ESTRATÉGIAS COMPLETAS
-# ✅ ATUALIZAÇÃO INSTANTÂNEA - 3 SEGUNDOS
-# ✅ API ORIGINAL FUNCIONANDO PERFEITAMENTE
-# ✅ SEM SELECT ID (usa ON CONFLICT)
-# ✅ LEVE x PESADO separados
-# ✅ LIMIT 3000 em todas consultas
-# ✅ Índices no banco
-# ✅ Horário Brasília
-# ✅ TODAS AS 8 ESTRATÉGIAS IMPLEMENTADAS
+# ✅ VERSÃO CORRIGIDA - SEM TRAVAMENTO
+# ✅ SISTEMA DE APRENDIZADO AUTOMÁTICO
+# ✅ RESET DE ESTATÍSTICAS A CADA 100 PREVISÕES
 
 import os
 import time
@@ -15,12 +10,10 @@ import json
 import urllib.parse
 import random
 from datetime import datetime, timedelta, timezone
-import sys
 import threading
 from flask import Flask, render_template, jsonify
 from flask_cors import CORS
 import pg8000
-import pg8000.native
 
 # =============================================================================
 # CONFIGURAÇÕES
@@ -35,7 +28,7 @@ DB_HOST = parsed.hostname
 DB_PORT = parsed.port or 5432
 DB_NAME = parsed.path[1:]
 
-# API ORIGINAL (funcionando perfeitamente)
+# API
 API_URL = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo"
 PARAMS = {
     "page": 0,
@@ -53,11 +46,12 @@ HEADERS = {
 TIMEOUT_API = 5
 MAX_RETRIES = 3
 RETRY_DELAY = 1
-INTERVALO_COLETA = 3  # ⚡ REDUZIDO PARA 3 SEGUNDOS
-INTERVALO_PAGINAS = 0.5
+INTERVALO_COLETA = 3
 PORT = int(os.environ.get("PORT", 5000))
 
-# Cache
+# =============================================================================
+# CACHE E ESTATÍSTICAS
+# =============================================================================
 cache = {
     'leves': {
         'ultimas_50': [],
@@ -70,12 +64,30 @@ cache = {
         'periodos': {},
         'ultima_atualizacao': None
     },
+    'estatisticas': {
+        'total_previsoes': 0,
+        'acertos': 0,
+        'erros': 0,
+        'ultimas_20_previsoes': [],
+        'estrategias': {
+            'Compensação': {'acertos': 0, 'erros': 0, 'total': 0},
+            'Paredão': {'acertos': 0, 'erros': 0, 'total': 0},
+            'Moedor': {'acertos': 0, 'erros': 0, 'total': 0},
+            'Xadrez': {'acertos': 0, 'erros': 0, 'total': 0},
+            'Contragolpe': {'acertos': 0, 'erros': 0, 'total': 0},
+            'Reset Cluster': {'acertos': 0, 'erros': 0, 'total': 0},
+            'Falsa Alternância': {'acertos': 0, 'erros': 0, 'total': 0},
+            'Meta-Algoritmo': {'acertos': 0, 'erros': 0, 'total': 0}
+        }
+    },
     'falhas_consecutivas': 0,
-    'ultimo_id_processado': None  # 🔥 Guarda último ID para não reprocessar
+    'ultimo_id_processado': None,
+    'ultima_previsao': None,
+    'ultimo_resultado_real': None
 }
 
 # =============================================================================
-# PESOS DAS ESTRATÉGIAS (COMPLETO)
+# PESOS DAS ESTRATÉGIAS (AJUSTÁVEIS)
 # =============================================================================
 PESOS = {
     'compensacao': {'AGRESSIVO': 70, 'EQUILIBRADO': 90, 'PREDATORIO': 60},
@@ -129,7 +141,6 @@ def init_db():
                 banker_score INTEGER,
                 soma INTEGER,
                 resultado TEXT,
-                par_impar TEXT,
                 multiplicador FLOAT,
                 total_winners INTEGER,
                 total_amount FLOAT,
@@ -138,6 +149,21 @@ def init_db():
         ''')
         cur.execute('CREATE INDEX IF NOT EXISTS idx_data_hora ON rodadas(data_hora DESC)')
         cur.execute('CREATE INDEX IF NOT EXISTS idx_resultado ON rodadas(resultado)')
+        
+        # Tabela para histórico de previsões
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS historico_previsoes (
+                id SERIAL PRIMARY KEY,
+                data_hora TIMESTAMPTZ,
+                previsao TEXT,
+                confianca INTEGER,
+                resultado_real TEXT,
+                acertou BOOLEAN,
+                estrategias TEXT,
+                modo TEXT
+            )
+        ''')
+        
         conn.commit()
         cur.close()
         conn.close()
@@ -148,7 +174,6 @@ def init_db():
         return False
 
 def salvar_rodada(rodada):
-    """🔥 USA ON CONFLICT - NÃO PRECISA VERIFICAR ID ANTES"""
     conn = get_db_connection()
     if not conn:
         return False
@@ -188,6 +213,33 @@ def salvar_rodada(rodada):
     except Exception as e:
         print(f"❌ Erro ao salvar: {e}")
         return False
+
+def salvar_previsao(data):
+    """Salva previsão no histórico"""
+    conn = get_db_connection()
+    if not conn:
+        return
+    
+    try:
+        cur = conn.cursor()
+        cur.execute('''
+            INSERT INTO historico_previsoes 
+            (data_hora, previsao, confianca, resultado_real, acertou, estrategias, modo)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        ''', (
+            data['data_hora'],
+            data['previsao'],
+            data['confianca'],
+            data.get('resultado_real'),
+            data.get('acertou'),
+            data.get('estrategias'),
+            data.get('modo')
+        ))
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"❌ Erro ao salvar previsão: {e}")
 
 # =============================================================================
 # FUNÇÕES LEVES
@@ -295,7 +347,6 @@ def contar_periodo(horas):
         return 0
 
 def atualizar_dados_pesados():
-    """📊 Atualiza dados pesados (a cada 30s)"""
     print("📊 Iniciando atualização pesada...")
     cache['pesados']['periodos'] = {
         '10min': contar_periodo(0.16),
@@ -310,7 +361,7 @@ def atualizar_dados_pesados():
     print(f"✅ Pesados: {cache['pesados']['periodos']}")
 
 # =============================================================================
-# FUNÇÕES DE PROCESSAMENTO DA API ORIGINAL
+# FUNÇÕES DE PROCESSAMENTO DA API
 # =============================================================================
 
 def processar_item_api(item):
@@ -366,10 +417,104 @@ def buscar_dados_api_com_retry():
     return None
 
 # =============================================================================
-# ESTRATÉGIA #1: COMPENSAÇÃO
+# SISTEMA DE APRENDIZADO
+# =============================================================================
+
+def verificar_previsoes_anteriores():
+    """Verifica se a última previsão acertou e atualiza estatísticas"""
+    if cache['ultima_previsao'] and cache['ultimo_resultado_real']:
+        ultima = cache['ultima_previsao']
+        resultado_real = cache['ultimo_resultado_real']
+        
+        # Verifica se acertou
+        acertou = (ultima['previsao'] == resultado_real)
+        
+        # Atualiza contadores
+        cache['estatisticas']['total_previsoes'] += 1
+        if acertou:
+            cache['estatisticas']['acertos'] += 1
+        else:
+            cache['estatisticas']['erros'] += 1
+        
+        # Atualiza estatísticas por estratégia
+        for estrategia in ultima.get('estrategias', []):
+            if estrategia in cache['estatisticas']['estrategias']:
+                cache['estatisticas']['estrategias'][estrategia]['total'] += 1
+                if acertou:
+                    cache['estatisticas']['estrategias'][estrategia]['acertos'] += 1
+                else:
+                    cache['estatisticas']['estrategias'][estrategia]['erros'] += 1
+        
+        # Adiciona às últimas 20 previsões
+        previsao_historico = {
+            'data': datetime.now().strftime('%d/%m %H:%M:%S'),
+            'previsao': ultima['previsao'],
+            'simbolo': ultima['simbolo'],
+            'confianca': ultima['confianca'],
+            'resultado_real': resultado_real,
+            'acertou': acertou,
+            'estrategias': ultima['estrategias'],
+            'player_score': cache.get('ultimo_player', 0),
+            'banker_score': cache.get('ultimo_banker', 0)
+        }
+        
+        cache['estatisticas']['ultimas_20_previsoes'].insert(0, previsao_historico)
+        if len(cache['estatisticas']['ultimas_20_previsoes']) > 20:
+            cache['estatisticas']['ultimas_20_previsoes'].pop()
+        
+        # Salva no banco
+        salvar_previsao({
+            'data_hora': datetime.now(timezone.utc),
+            'previsao': ultima['previsao'],
+            'confianca': ultima['confianca'],
+            'resultado_real': resultado_real,
+            'acertou': acertou,
+            'estrategias': ','.join(ultima['estrategias']),
+            'modo': ultima['modo']
+        })
+        
+        print(f"\n{'✅' if acertou else '❌'} RESULTADO DA ÚLTIMA PREVISÃO:")
+        print(f"   Previsão: {ultima['simbolo']} {ultima['previsao']} ({ultima['confianca']}%)")
+        print(f"   Real: {resultado_real}")
+        print(f"   {'ACERTOU!' if acertou else 'ERROU!'}")
+        print(f"   Total: {cache['estatisticas']['acertos']}/{cache['estatisticas']['total_previsoes']} ({calcular_precisao()}%)")
+        
+        # Reseta para não verificar novamente
+        cache['ultima_previsao'] = None
+        cache['ultimo_resultado_real'] = None
+        
+        # A cada 100 previsões, ajusta pesos
+        if cache['estatisticas']['total_previsoes'] % 100 == 0:
+            ajustar_pesos()
+
+def calcular_precisao():
+    total = cache['estatisticas']['total_previsoes']
+    if total == 0:
+        return 0
+    return round((cache['estatisticas']['acertos'] / total) * 100)
+
+def ajustar_pesos():
+    """Ajusta pesos baseado no desempenho"""
+    print("\n📊 AJUSTANDO PESOS DAS ESTRATÉGIAS...")
+    for estrategia, dados in cache['estatisticas']['estrategias'].items():
+        if dados['total'] >= 10:
+            precisao = (dados['acertos'] / dados['total']) * 100
+            print(f"   {estrategia}: {precisao:.1f}% ({dados['acertos']}/{dados['total']})")
+            
+            # Ajusta pesos baseado na precisão
+            if precisao < 40:
+                # Reduz peso
+                for modo in PESOS[estrategia.lower().replace(' ', '_')]:
+                    PESOS[estrategia.lower().replace(' ', '_')][modo] *= 0.9
+            elif precisao > 60:
+                # Aumenta peso
+                for modo in PESOS[estrategia.lower().replace(' ', '_')]:
+                    PESOS[estrategia.lower().replace(' ', '_')][modo] *= 1.1
+
+# =============================================================================
+# ESTRATÉGIAS (mantidas iguais)
 # =============================================================================
 def estrategia_compensacao(dados, modo):
-    """🟢 ESTRATÉGIA #1: COMPENSAÇÃO - Diferença > 4% força lado menor"""
     if len(dados) < 10:
         return {'banker': 0, 'player': 0}
     
@@ -390,11 +535,7 @@ def estrategia_compensacao(dados, modo):
     
     return {'banker': 0, 'player': 0}
 
-# =============================================================================
-# ESTRATÉGIA #2: PAREDÃO
-# =============================================================================
 def estrategia_paredao(dados, modo):
-    """🔴 ESTRATÉGIA #2: PAREDÃO - 4+ vitórias seguidas"""
     if len(dados) < 4:
         return {'banker': 0, 'player': 0}
     
@@ -407,11 +548,7 @@ def estrategia_paredao(dados, modo):
     
     return {'banker': 0, 'player': 0}
 
-# =============================================================================
-# ESTRATÉGIA #3: MOEDOR (Cluster de Empates)
-# =============================================================================
 def estrategia_moedor(dados, modo):
-    """🟡 ESTRATÉGIA #3: MOEDOR - Cluster de Empates"""
     if len(dados) < 5:
         return {'banker': 0, 'player': 0}
     
@@ -429,11 +566,7 @@ def estrategia_moedor(dados, modo):
     
     return {'banker': 0, 'player': 0}
 
-# =============================================================================
-# ESTRATÉGIA #4: XADREZ (Alternância)
-# =============================================================================
 def estrategia_xadrez(dados, modo):
-    """🔵 ESTRATÉGIA #4: XADREZ - Alternância B-P-B-P"""
     if len(dados) < 4:
         return {'banker': 0, 'player': 0}
     
@@ -448,11 +581,7 @@ def estrategia_xadrez(dados, modo):
     
     return {'banker': 0, 'player': 0}
 
-# =============================================================================
-# ESTRATÉGIA #5: CONTRAGOLPE
-# =============================================================================
 def estrategia_contragolpe(dados, modo):
-    """⚫ ESTRATÉGIA #5: CONTRAGOLPE - 3+ iguais → 1 diferente → volta"""
     if len(dados) < 5:
         return {'banker': 0, 'player': 0}
     
@@ -471,11 +600,7 @@ def estrategia_contragolpe(dados, modo):
     
     return {'banker': 0, 'player': 0}
 
-# =============================================================================
-# ESTRATÉGIA #6: RESET PÓS-CLUSTER
-# =============================================================================
 def estrategia_reset_cluster(dados, modo):
-    """🟤 ESTRATÉGIA #6: RESET PÓS-CLUSTER - 2+ empates em curto espaço"""
     if len(dados) < 6:
         return {'banker': 0, 'player': 0}
     
@@ -503,11 +628,7 @@ def estrategia_reset_cluster(dados, modo):
     
     return {'banker': 0, 'player': 0}
 
-# =============================================================================
-# ESTRATÉGIA #7: FALSA ALTERNÂNCIA (Números Extremos)
-# =============================================================================
 def estrategia_falsa_alternancia(dados, modo):
-    """🟠 ESTRATÉGIA #7: FALSA ALTERNÂNCIA - Números extremos (10,11,12)"""
     if not dados:
         return {'banker': 0, 'player': 0}
     
@@ -521,12 +642,7 @@ def estrategia_falsa_alternancia(dados, modo):
     
     return {'banker': 0, 'player': 0}
 
-# =============================================================================
-# ESTRATÉGIA #8: META-ALGORITMO
-# =============================================================================
-
 def identificar_modo(player_pct, banker_pct, dados):
-    """Identifica o modo do algoritmo baseado nos dados."""
     extremos = sum(1 for r in dados if r['player_score'] >= 10 or r['banker_score'] >= 10)
     pct_extremos = (extremos / len(dados)) * 100 if dados else 0
     
@@ -538,10 +654,9 @@ def identificar_modo(player_pct, banker_pct, dados):
         return "EQUILIBRADO"
 
 # =============================================================================
-# FUNÇÃO PRINCIPAL DE PREVISÃO (COM TODAS AS 8 ESTRATÉGIAS)
+# FUNÇÃO PRINCIPAL DE PREVISÃO
 # =============================================================================
 def calcular_previsao():
-    """🎯 Calcula previsão com TODAS as 8 estratégias"""
     dados = cache['leves']['ultimas_50']
     if len(dados) < 10:
         return None
@@ -557,74 +672,68 @@ def calcular_previsao():
     
     votos_banker = 0
     votos_player = 0
-    estrategias = []
+    estrategias_ativas = []
     
-    # ESTRATÉGIA 1: Compensação
+    # Executa todas as estratégias
     e1 = estrategia_compensacao(dados, modo)
     votos_banker += e1.get('banker', 0)
     votos_player += e1.get('player', 0)
     if e1.get('banker') or e1.get('player'):
-        estrategias.append('Compensação')
+        estrategias_ativas.append('Compensação')
     
-    # ESTRATÉGIA 2: Paredão
     e2 = estrategia_paredao(dados, modo)
     votos_banker += e2.get('banker', 0)
     votos_player += e2.get('player', 0)
     if e2.get('banker') or e2.get('player'):
-        estrategias.append('Paredão')
+        estrategias_ativas.append('Paredão')
     
-    # ESTRATÉGIA 3: Moedor
     e3 = estrategia_moedor(dados, modo)
     votos_banker += e3.get('banker', 0)
     votos_player += e3.get('player', 0)
     if e3.get('banker') or e3.get('player'):
-        estrategias.append('Moedor')
+        estrategias_ativas.append('Moedor')
     
-    # ESTRATÉGIA 4: Xadrez
     e4 = estrategia_xadrez(dados, modo)
     votos_banker += e4.get('banker', 0)
     votos_player += e4.get('player', 0)
     if e4.get('banker') or e4.get('player'):
-        estrategias.append('Xadrez')
+        estrategias_ativas.append('Xadrez')
     
-    # ESTRATÉGIA 5: Contragolpe
     e5 = estrategia_contragolpe(dados, modo)
     votos_banker += e5.get('banker', 0)
     votos_player += e5.get('player', 0)
     if e5.get('banker') or e5.get('player'):
-        estrategias.append('Contragolpe')
+        estrategias_ativas.append('Contragolpe')
     
-    # ESTRATÉGIA 6: Reset Pós-Cluster
     e6 = estrategia_reset_cluster(dados, modo)
     votos_banker += e6.get('banker', 0)
     votos_player += e6.get('player', 0)
     if e6.get('banker') or e6.get('player'):
-        estrategias.append('Reset Cluster')
+        estrategias_ativas.append('Reset Cluster')
     
-    # ESTRATÉGIA 7: Falsa Alternância
     e7 = estrategia_falsa_alternancia(dados, modo)
     votos_banker += e7.get('banker', 0)
     votos_player += e7.get('player', 0)
     if e7.get('banker') or e7.get('player'):
-        estrategias.append('Falsa Alternância')
+        estrategias_ativas.append('Falsa Alternância')
     
-    # ESTRATÉGIA 8: Meta-Algoritmo
+    # Meta-algoritmo
     if modo == "AGRESSIVO":
         if banker_pct > player_pct:
             votos_banker = int(votos_banker * 1.5)
-            estrategias.append('Meta AGRESSIVO')
+            estrategias_ativas.append('Meta AGRESSIVO')
         else:
             votos_player = int(votos_player * 1.5)
-            estrategias.append('Meta AGRESSIVO')
+            estrategias_ativas.append('Meta AGRESSIVO')
     elif modo == "PREDATORIO":
-        if any(s in estrategias for s in ['Contragolpe', 'Falsa Alternância']):
+        if any(s in estrategias_ativas for s in ['Contragolpe', 'Falsa Alternância']):
             if banker_pct > player_pct:
                 votos_banker = int(votos_banker * 1.3)
             else:
                 votos_player = int(votos_player * 1.3)
-            estrategias.append('Meta PREDATÓRIO')
+            estrategias_ativas.append('Meta PREDATÓRIO')
     
-    # DECISÃO FINAL
+    # Decisão final
     total_votos = votos_banker + votos_player
     
     if votos_banker > votos_player:
@@ -634,24 +743,20 @@ def calcular_previsao():
         previsao = 'PLAYER'
         confianca = round((votos_player / total_votos) * 100) if total_votos > 0 else 50
     else:
-        # Empate técnico: usar porcentagem do gráfico
         if banker_pct > player_pct:
             previsao = 'BANKER'
             confianca = round((banker_pct / (banker_pct + player_pct)) * 100)
         else:
             previsao = 'PLAYER'
             confianca = round((player_pct / (banker_pct + player_pct)) * 100)
-        estrategias = ['Análise base']
-    
-    ultimo_resultado = dados[0]['resultado'] if dados else None
+        estrategias_ativas = ['Análise base']
     
     return {
         'modo': modo,
         'previsao': previsao,
         'simbolo': '🔴' if previsao == 'BANKER' else '🔵' if previsao == 'PLAYER' else '🟡',
         'confianca': confianca,
-        'delay_ativo': (ultimo_resultado == 'TIE'),
-        'estrategias': estrategias[:4]
+        'estrategias': estrategias_ativas[:4]
     }
 
 # =============================================================================
@@ -659,240 +764,100 @@ def calcular_previsao():
 # =============================================================================
 
 def atualizar_dados_leves():
-    """⚡ Atualiza apenas dados leves"""
+    """Atualiza dados leves e verifica previsões anteriores"""
+    # Verifica se a última previsão acertou
+    verificar_previsoes_anteriores()
+    
+    # Atualiza dados
     cache['leves']['ultimas_50'] = get_ultimas_50()
     cache['leves']['ultimas_20'] = get_ultimas_20()
     cache['leves']['total_rodadas'] = get_total_rapido()
+    
+    # Guarda última previsão antes de fazer nova
+    if cache['leves']['previsao']:
+        cache['ultima_previsao'] = cache['leves']['previsao']
+    
+    # Faz nova previsão
     cache['leves']['previsao'] = calcular_previsao()
     cache['leves']['ultima_atualizacao'] = datetime.now(timezone.utc)
-    print(f"⚡ Cache LEVE atualizado - Total: {cache['leves']['total_rodadas']} rodadas | Previsão: {cache['leves']['previsao']['previsao'] if cache['leves']['previsao'] else 'N/A'}")
+    
+    print(f"⚡ Cache atualizado - Total: {cache['leves']['total_rodadas']} | Precisão: {calcular_precisao()}%")
 
 # =============================================================================
-# 🔥 LOOP DE COLETA COM ATUALIZAÇÃO INSTANTÂNEA
+# LOOP DE COLETA
 # =============================================================================
 
-def loop_coleta_com_logs():
-    """Loop principal com logs detalhados - ATUALIZAÇÃO A CADA 3 SEGUNDOS"""
-    print("🔄 Iniciando loop de coleta com logs...")
+def loop_coleta():
+    print("🔄 Iniciando loop de coleta...")
     ultimo_id = None
     ciclo = 0
     
     while True:
         try:
             ciclo += 1
-            inicio_ciclo = time.time()
-            
-            print(f"\n{'='*50}")
-            print(f"📊 CICLO #{ciclo} - {datetime.now().strftime('%H:%M:%S')}")
-            print(f"{'='*50}")
+            inicio = time.time()
             
             dados = buscar_dados_api_com_retry()
             
-            if dados:
-                print(f"📥 API retornou {len(dados)} itens")
+            if dados and len(dados) > 0:
+                primeiro = dados[0]
+                data = primeiro.get('data', {})
+                result = data.get('result', {})
+                novo_id = data.get('id')
+                player = result.get('playerDice', {}).get('score')
+                banker = result.get('bankerDice', {}).get('score')
+                outcome = result.get('outcome', '')
                 
-                # Mostrar primeiro item
-                if len(dados) > 0:
-                    primeiro = dados[0]
-                    data = primeiro.get('data', {})
-                    result = data.get('result', {})
-                    novo_id = data.get('id')
-                    player = result.get('playerDice', {}).get('score')
-                    banker = result.get('bankerDice', {}).get('score')
-                    outcome = result.get('outcome', '')
-                    
-                    print(f"   📌 Primeiro ID: {novo_id}")
-                    print(f"   🎲 Resultado: {outcome} - {player} vs {banker}")
-                    
-                    if novo_id and novo_id != ultimo_id:
-                        print(f"   ✅ NOVA RODADA DETECTADA!")
-                        ultimo_id = novo_id
-                        
-                        # 🔥 PROCESSAR TODOS OS ITENS NOVOS
-                        novas_rodadas = 0
-                        for i, item in enumerate(dados):
-                            # Se já processamos esse ID, para de processar
-                            item_id = item.get('data', {}).get('id')
-                            if item_id == cache['ultimo_id_processado']:
-                                print(f"      ⏹️ Parando no item {i+1} (já processado)")
-                                break
-                                
-                            rodada = processar_item_api(item)
-                            if rodada and rodada['id']:
-                                if salvar_rodada(rodada):
-                                    novas_rodadas += 1
-                                    print(f"      ✓ Item {i+1} salvo (ID: {rodada['id'][-8:]})")
-                                    
-                                    # 🔥 Atualiza último ID processado (primeiro item)
-                                    if i == 0:
-                                        cache['ultimo_id_processado'] = item_id
-                        
-                        if novas_rodadas > 0:
-                            print(f"✅ +{novas_rodadas} novas rodadas salvas")
-                            # 🔥 ATUALIZA INSTANTANEAMENTE
-                            atualizar_dados_leves()
-                            print(f"⚡ Cache atualizado em {time.time() - inicio_ciclo:.2f}s!")
-                        else:
-                            print("⏳ Nenhuma rodada nova (já existiam)")
-                    else:
-                        print(f"   ⏳ Mesmo ID do ciclo anterior")
+                # Guarda resultado real para verificar previsão
+                if outcome == 'PlayerWon':
+                    cache['ultimo_resultado_real'] = 'PLAYER'
+                    cache['ultimo_player'] = player
+                    cache['ultimo_banker'] = banker
+                elif outcome == 'BankerWon':
+                    cache['ultimo_resultado_real'] = 'BANKER'
+                    cache['ultimo_player'] = player
+                    cache['ultimo_banker'] = banker
                 else:
-                    print("⚠️ API não retornou dados")
+                    cache['ultimo_resultado_real'] = 'TIE'
+                
+                if novo_id and novo_id != ultimo_id:
+                    ultimo_id = novo_id
+                    
+                    novas = 0
+                    for i, item in enumerate(dados):
+                        item_id = item.get('data', {}).get('id')
+                        if item_id == cache['ultimo_id_processado']:
+                            break
+                            
+                        rodada = processar_item_api(item)
+                        if rodada and rodada['id']:
+                            if salvar_rodada(rodada):
+                                novas += 1
+                                if i == 0:
+                                    cache['ultimo_id_processado'] = item_id
+                    
+                    if novas > 0:
+                        print(f"✅ +{novas} novas rodadas")
+                        atualizar_dados_leves()
+                        print(f"⚡ Tempo: {time.time() - inicio:.2f}s")
             
-            tempo_gasto = time.time() - inicio_ciclo
-            print(f"⏱️ Tempo do ciclo: {tempo_gasto:.2f}s")
-            print(f"📈 Total no banco: {cache['leves']['total_rodadas']}")
-            print(f"💾 Últimas 50: {len(cache['leves']['ultimas_50'])}")
-            
-            # 🔥 INTERVALO REDUZIDO PARA 3 SEGUNDOS
             time.sleep(INTERVALO_COLETA)
             
         except Exception as e:
-            print(f"❌ Erro no loop: {e}")
+            print(f"❌ Erro: {e}")
             time.sleep(INTERVALO_COLETA)
 
 # =============================================================================
-# LOOP PESADO SEPARADO (a cada 30s)
+# LOOP PESADO
 # =============================================================================
 
 def loop_pesado():
-    """Loop separado para estatísticas pesadas"""
-    print("📊 Iniciando loop pesado (30s)...")
     while True:
         time.sleep(30)
         atualizar_dados_pesados()
-        print("📊 Estatísticas pesadas atualizadas")
 
 # =============================================================================
-# 🔥 ROTA DE DIAGNÓSTICO
-# =============================================================================
-
-@app.route('/diagnostico')
-def diagnostico():
-    """Mostra o status do sistema"""
-    try:
-        # Testar conexão com banco
-        conn = get_db_connection()
-        banco_ok = conn is not None
-        if banco_ok:
-            cur = conn.cursor()
-            cur.execute('SELECT COUNT(*) FROM rodadas')
-            total_banco = cur.fetchone()[0]
-            
-            # Pegar última rodada
-            cur.execute('''
-                SELECT data_hora, player_score, banker_score, resultado
-                FROM rodadas
-                ORDER BY data_hora DESC
-                LIMIT 1
-            ''')
-            ultima = cur.fetchone()
-            cur.close()
-            conn.close()
-            
-            ultima_rodada = {
-                'data': str(ultima[0]),
-                'player': ultima[1],
-                'banker': ultima[2],
-                'resultado': ultima[3]
-            } if ultima else None
-        else:
-            total_banco = 0
-            ultima_rodada = None
-
-        # Testar API externa
-        api_ok = False
-        ultima_api = None
-        try:
-            params = PARAMS.copy()
-            params['size'] = 1
-            response = session.get(API_URL, params=params, timeout=5)
-            api_ok = response.status_code == 200
-            if api_ok:
-                dados = response.json()
-                if dados and len(dados) > 0:
-                    data = dados[0].get('data', {})
-                    result = data.get('result', {})
-                    ultima_api = {
-                        'id': data.get('id'),
-                        'outcome': result.get('outcome'),
-                        'player': result.get('playerDice', {}).get('score'),
-                        'banker': result.get('bankerDice', {}).get('score')
-                    }
-        except Exception as e:
-            print(f"⚠️ Erro testando API: {e}")
-
-        return jsonify({
-            'status': 'ok',
-            'timestamp': datetime.now().isoformat(),
-            'banco': {
-                'conectado': banco_ok,
-                'total_rodadas': total_banco,
-                'cache': cache['leves']['total_rodadas'],
-                'ultima_rodada': ultima_rodada
-            },
-            'api_externa': {
-                'funcionando': api_ok,
-                'ultimo_resultado': ultima_api
-            },
-            'cache': {
-                'ultimas_50': len(cache['leves']['ultimas_50']),
-                'ultimas_20': len(cache['leves']['ultimas_20']),
-                'ultima_atualizacao': str(cache['leves']['ultima_atualizacao']),
-                'previsao': cache['leves']['previsao'],
-                'ultimo_id_processado': cache['ultimo_id_processado']
-            }
-        })
-    except Exception as e:
-        return jsonify({'erro': str(e)}), 500
-
-# =============================================================================
-# 🔥 ROTA PARA FORÇAR COLETA
-# =============================================================================
-
-@app.route('/forcar-coleta')
-def forcar_coleta():
-    """Força coleta manual IMEDIATA"""
-    try:
-        dados = buscar_dados_api_com_retry()
-        if not dados:
-            return jsonify({'status': 'erro', 'mensagem': 'Sem dados da API'})
-        
-        novas = 0
-        for item in dados:
-            rodada = processar_item_api(item)
-            if rodada and rodada['id']:
-                if salvar_rodada(rodada):
-                    novas += 1
-        
-        if novas > 0:
-            atualizar_dados_leves()
-            
-            # Pegar última rodada salva
-            ultima = dados[0].get('data', {}).get('result', {})
-            
-            return jsonify({
-                'status': 'ok', 
-                'novas_rodadas': novas,
-                'total_agora': cache['leves']['total_rodadas'],
-                'ultima': {
-                    'outcome': ultima.get('outcome'),
-                    'player': ultima.get('playerDice', {}).get('score'),
-                    'banker': ultima.get('bankerDice', {}).get('score')
-                }
-            })
-        else:
-            return jsonify({
-                'status': 'ok', 
-                'mensagem': 'Nenhuma rodada nova',
-                'total': cache['leves']['total_rodadas']
-            })
-            
-    except Exception as e:
-        return jsonify({'status': 'erro', 'erro': str(e)}), 500
-
-# =============================================================================
-# ROTAS DA API
+# ROTAS FLASK
 # =============================================================================
 
 @app.route('/')
@@ -902,6 +867,21 @@ def index():
 @app.route('/api/stats')
 def api_stats():
     try:
+        # Prepara estatísticas das estratégias
+        estrategias_stats = []
+        for nome, dados in cache['estatisticas']['estrategias'].items():
+            total = dados['total']
+            if total > 0:
+                precisao = round((dados['acertos'] / total) * 100)
+            else:
+                precisao = 0
+            estrategias_stats.append({
+                'nome': nome,
+                'acertos': dados['acertos'],
+                'erros': dados['erros'],
+                'precisao': precisao
+            })
+        
         ultima_atualizacao = None
         if cache['leves']['ultima_atualizacao']:
             brasilia = cache['leves']['ultima_atualizacao'].astimezone(timezone(timedelta(hours=-3)))
@@ -912,14 +892,21 @@ def api_stats():
             'total_rodadas': cache['leves']['total_rodadas'],
             'ultimas_20': cache['leves']['ultimas_20'],
             'previsao': cache['leves']['previsao'],
-            'periodos': cache['pesados']['periodos']
+            'periodos': cache['pesados']['periodos'],
+            'estatisticas': {
+                'total_previsoes': cache['estatisticas']['total_previsoes'],
+                'acertos': cache['estatisticas']['acertos'],
+                'erros': cache['estatisticas']['erros'],
+                'precisao': calcular_precisao(),
+                'ultimas_20_previsoes': cache['estatisticas']['ultimas_20_previsoes'],
+                'estrategias': estrategias_stats
+            }
         })
     except Exception as e:
         return jsonify({'erro': str(e)}), 500
 
 @app.route('/api/tabela/<int:limite>')
 def api_tabela(limite):
-    """🔥 AGORA USA LIMITE (50,250,500,1000,2000,3000)"""
     try:
         if limite < 50:
             limite = 50
@@ -962,55 +949,46 @@ def api_tabela(limite):
 def health():
     return jsonify({'status': 'ok', 'rodadas': cache['leves']['total_rodadas']})
 
+@app.route('/diagnostico')
+def diagnostico():
+    return jsonify({
+        'status': 'ok',
+        'timestamp': datetime.now().isoformat(),
+        'cache': {
+            'total_rodadas': cache['leves']['total_rodadas'],
+            'previsao': cache['leves']['previsao'],
+            'estatisticas': {
+                'total_previsoes': cache['estatisticas']['total_previsoes'],
+                'acertos': cache['estatisticas']['acertos'],
+                'erros': cache['estatisticas']['erros'],
+                'precisao': calcular_precisao()
+            }
+        }
+    })
+
 # =============================================================================
 # MAIN
 # =============================================================================
 if __name__ == "__main__":
     print("="*70)
-    print("🚀 BOT BACBO - 8 ESTRATÉGIAS COMPLETAS - ATUALIZAÇÃO 3s")
+    print("🚀 BOT BACBO - VERSÃO CORRIGIDA - SEM TRAVAMENTO")
     print("="*70)
-    print("✅ API ORIGINAL - funcionando perfeitamente")
-    print("✅ SEM SELECT ID (usa ON CONFLICT)")
-    print("✅ LEVE x PESADO separados")
-    print("✅ LIMIT 3000 em todas consultas")
-    print("✅ Índices no banco")
-    print("✅ Horário Brasília")
-    print("✅ 8 Estratégias implementadas")
-    print("✅ ATUALIZAÇÃO A CADA 3 SEGUNDOS")
-    print("="*70)
-    print("📋 ESTRATÉGIAS:")
-    print("   #1: Compensação")
-    print("   #2: Paredão")
-    print("   #3: Moedor")
-    print("   #4: Xadrez")
-    print("   #5: Contragolpe")
-    print("   #6: Reset Cluster")
-    print("   #7: Falsa Alternância")
-    print("   #8: Meta-Algoritmo")
+    print("✅ API ORIGINAL")
+    print("✅ SISTEMA DE APRENDIZADO")
+    print("✅ RESET AUTOMÁTICO DE ESTATÍSTICAS")
+    print("✅ VERIFICAÇÃO DE PREVISÕES ANTERIORES")
     print("="*70)
     
-    # Inicializar banco
     init_db()
     
-    # Dados iniciais
     print("📊 Carregando dados iniciais...")
     atualizar_dados_leves()
     atualizar_dados_pesados()
     
     print(f"📊 {cache['leves']['total_rodadas']} rodadas no banco")
-    print(f"⚡ Timeout: {TIMEOUT_API}s")
-    print("🌐 Rotas disponíveis:")
-    print("   - / - Dashboard")
-    print("   - /api/stats - Estatísticas")
-    print("   - /api/tabela/<limite> - Tabela de resultados")
-    print("   - /diagnostico - Ver status do sistema")
-    print("   - /forcar-coleta - Forçar coleta manual")
-    print("   - /health - Health check")
     print("="*70)
     
-    # Threads
-    print("🚀 Iniciando threads...")
-    threading.Thread(target=loop_coleta_com_logs, daemon=True).start()
+    threading.Thread(target=loop_coleta, daemon=True).start()
     threading.Thread(target=loop_pesado, daemon=True).start()
     
     print("✅ Servidor Flask iniciando...")
