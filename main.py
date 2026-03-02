@@ -1,17 +1,38 @@
-# main.py - Bot BacBo PROFISSIONAL - VERSÃO CORRIGIDA (SEM COLUNA FONTE)
-# ✅ Remove referências à coluna "fonte" que não existe no banco
+# main.py - BOT BACBO COM SCRAPING (NUNCA TRAVA)
+# ✅ Faz scraping direto do site betmind.org
+# ✅ Não depende de API pública
+# ✅ Atualiza em tempo real
 
 import os
 import time
 import requests
 import json
-import urllib.parse
 import random
 from datetime import datetime, timedelta, timezone
 import threading
 from flask import Flask, render_template, jsonify
 from flask_cors import CORS
 import pg8000
+
+# =============================================================================
+# SCRAPING - INSTALAÇÃO NECESSÁRIA
+# =============================================================================
+# pip install selenium webdriver-manager beautifulsoup4 lxml
+
+try:
+    from selenium import webdriver
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.chrome.service import Service
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+    from webdriver_manager.chrome import ChromeDriverManager
+    from bs4 import BeautifulSoup
+    SCRAPING_AVAILABLE = True
+except ImportError:
+    print("⚠️ Instale as dependências:")
+    print("pip install selenium webdriver-manager beautifulsoup4 lxml")
+    SCRAPING_AVAILABLE = False
 
 # =============================================================================
 # CONFIGURAÇÕES
@@ -26,25 +47,12 @@ DB_HOST = parsed.hostname
 DB_PORT = parsed.port or 5432
 DB_NAME = parsed.path[1:]
 
-# API Casino.org
-API_URL = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo"
-PARAMS = {
-    "page": 0,
-    "size": 50,
-    "sort": "data.settledAt,desc",
-    "duration": 4320,
-    "wheelResults": "PlayerWon,BankerWon,Tie"
-}
-HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    'Accept': 'application/json'
-}
+# Site alvo
+TARGET_URL = "https://betmind.org/bacbo"
 
 # Configurações
 TIMEOUT_API = 5
-MAX_RETRIES = 3
-RETRY_DELAY = 1
-INTERVALO_COLETA = 3
+INTERVALO_SCRAPING = 2  # 2 segundos
 PORT = int(os.environ.get("PORT", 5000))
 
 # =============================================================================
@@ -78,9 +86,12 @@ cache = {
             'Meta-Algoritmo': {'acertos': 0, 'erros': 0, 'total': 0}
         }
     },
-    'ultimo_id_processado': None,
-    'ultima_previsao': None,
-    'ultimo_resultado_real': None
+    'scraper': {
+        'ultimo_id': None,
+        'driver': None,
+        'status': 'parado',
+        'rodadas_coletadas': 0
+    }
 }
 
 # =============================================================================
@@ -97,12 +108,10 @@ PESOS = {
 }
 
 # =============================================================================
-# INICIALIZAÇÃO
+# INICIALIZAÇÃO FLASK
 # =============================================================================
 app = Flask(__name__)
 CORS(app)
-session = requests.Session()
-session.headers.update(HEADERS)
 
 # =============================================================================
 # FUNÇÕES DO BANCO
@@ -130,15 +139,6 @@ def init_db():
     
     try:
         cur = conn.cursor()
-        # Verifica se a coluna fonte existe (se não existir, não usamos)
-        cur.execute("""
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_name='rodadas' AND column_name='fonte'
-        """)
-        tem_fonte = cur.fetchone() is not None
-        
-        # Cria tabela se não existir (sem coluna fonte)
         cur.execute('''
             CREATE TABLE IF NOT EXISTS rodadas (
                 id TEXT PRIMARY KEY,
@@ -147,19 +147,13 @@ def init_db():
                 banker_score INTEGER,
                 soma INTEGER,
                 resultado TEXT,
-                multiplicador FLOAT,
+                multiplicador FLOAT DEFAULT 1,
                 dados_json JSONB
             )
         ''')
-        
-        # Só adiciona coluna fonte se não existir e quisermos
-        if not tem_fonte:
-            print("ℹ️ Coluna 'fonte' não existe - não será usada")
-        
         cur.execute('CREATE INDEX IF NOT EXISTS idx_data_hora ON rodadas(data_hora DESC)')
         cur.execute('CREATE INDEX IF NOT EXISTS idx_resultado ON rodadas(resultado)')
         
-        # Tabela para histórico de previsões
         cur.execute('''
             CREATE TABLE IF NOT EXISTS historico_previsoes (
                 id SERIAL PRIMARY KEY,
@@ -176,14 +170,13 @@ def init_db():
         conn.commit()
         cur.close()
         conn.close()
-        print("✅ Tabelas verificadas (sem coluna fonte)")
+        print("✅ Tabelas criadas/verificadas")
         return True
     except Exception as e:
         print(f"❌ Erro: {e}")
         return False
 
 def salvar_rodada(rodada):
-    """🔥 SEM a coluna fonte"""
     conn = get_db_connection()
     if not conn:
         return False
@@ -192,9 +185,8 @@ def salvar_rodada(rodada):
         cur = conn.cursor()
         cur.execute('''
             INSERT INTO rodadas 
-            (id, data_hora, player_score, banker_score, soma, resultado, 
-             multiplicador, dados_json)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            (id, data_hora, player_score, banker_score, soma, resultado, dados_json)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (id) DO NOTHING
         ''', (
             rodada['id'],
@@ -203,7 +195,6 @@ def salvar_rodada(rodada):
             rodada['banker_score'],
             rodada['player_score'] + rodada['banker_score'],
             rodada['resultado'],
-            rodada.get('multiplicador', 1),
             json.dumps(rodada, default=str)
         ))
         
@@ -223,7 +214,7 @@ def salvar_rodada(rodada):
         return False
 
 # =============================================================================
-# FUNÇÕES LEVES
+# FUNÇÕES DO BANCO (LEVES)
 # =============================================================================
 
 def get_ultimas_50():
@@ -328,7 +319,6 @@ def contar_periodo(horas):
         return 0
 
 def atualizar_dados_pesados():
-    print("📊 Atualizando dados pesados...")
     cache['pesados']['periodos'] = {
         '10min': contar_periodo(0.16),
         '1h': contar_periodo(1),
@@ -339,55 +329,208 @@ def atualizar_dados_pesados():
         '72h': contar_periodo(72)
     }
     cache['pesados']['ultima_atualizacao'] = datetime.now(timezone.utc)
-    print(f"✅ Pesados: {cache['pesados']['periodos']}")
+    print(f"📊 Pesados: {cache['pesados']['periodos']}")
 
 # =============================================================================
-# API Casino.org
+# 🔥 SCRAPER - CORAÇÃO DO SISTEMA
 # =============================================================================
 
-def processar_item_api(item):
-    try:
-        data = item.get('data', {})
-        result = data.get('result', {})
-        player_dice = result.get('playerDice', {})
-        banker_dice = result.get('bankerDice', {})
+class BacBoScraper:
+    def __init__(self):
+        self.driver = None
+        self.ultimas_rodadas = []
+        self.running = False
         
-        resultado_api = result.get('outcome', '')
-        if resultado_api == 'PlayerWon':
-            resultado = 'PLAYER'
-        elif resultado_api == 'BankerWon':
-            resultado = 'BANKER'
-        else:
-            resultado = 'TIE'
-
-        data_hora = datetime.fromisoformat(data.get('settledAt', '').replace('Z', '+00:00'))
-
-        return {
-            'id': data.get('id'),
-            'data_hora': data_hora,
-            'player_score': player_dice.get('score', 0),
-            'banker_score': banker_dice.get('score', 0),
-            'resultado': resultado,
-            'multiplicador': result.get('multiplier', 1)
-        }
-    except Exception as e:
-        print(f"⚠️ Erro processar item: {e}")
+    def iniciar(self):
+        """Inicia o Chrome em modo headless"""
+        if not SCRAPING_AVAILABLE:
+            print("❌ Scraping não disponível - instale as dependências")
+            return False
+        
+        try:
+            chrome_options = Options()
+            chrome_options.add_argument("--headless")
+            chrome_options.add_argument("--no-sandbox")
+            chrome_options.add_argument("--disable-dev-shm-usage")
+            chrome_options.add_argument("--disable-gpu")
+            chrome_options.add_argument("--window-size=1920,1080")
+            chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            
+            service = Service(ChromeDriverManager().install())
+            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            
+            print("🔄 Carregando site...")
+            self.driver.get(TARGET_URL)
+            
+            # Espera carregar
+            WebDriverWait(self.driver, 15).until(
+                EC.presence_of_element_located((By.TAG_NAME, "body"))
+            )
+            
+            print("✅ Site carregado!")
+            cache['scraper']['status'] = 'rodando'
+            self.running = True
+            
+            # Aceitar cookies se aparecer
+            try:
+                self.driver.find_element(By.XPATH, "//button[contains(text(), 'Aceitar')]").click()
+                print("✅ Cookies aceitos")
+            except:
+                pass
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Erro ao iniciar scraper: {e}")
+            cache['scraper']['status'] = 'erro'
+            return False
+    
+    def extrair_rodadas(self):
+        """Extrai rodadas da página atual"""
+        try:
+            # Pega o HTML atual
+            html = self.driver.page_source
+            soup = BeautifulSoup(html, 'lxml')
+            
+            rodadas_encontradas = []
+            
+            # Procura por padrões de resultados
+            # O site pode ter diferentes estruturas
+            
+            # Método 1: Procurar por elementos com texto de resultados
+            elementos = soup.find_all(['div', 'span', 'td'], string=lambda text: text and ('vs' in text or 'x' in text or '🔴' in text or '🔵' in text))
+            
+            for elem in elementos[:30]:  # Pega os primeiros
+                texto = elem.get_text().strip()
+                if texto:
+                    rodada = self.parse_rodada(texto)
+                    if rodada:
+                        rodadas_encontradas.append(rodada)
+            
+            # Método 2: Procurar em tabelas
+            if not rodadas_encontradas:
+                tabelas = soup.find_all('table')
+                for tabela in tabelas:
+                    linhas = tabela.find_all('tr')
+                    for linha in linhas[:20]:
+                        texto = linha.get_text().strip()
+                        if texto:
+                            rodada = self.parse_rodada(texto)
+                            if rodada:
+                                rodadas_encontradas.append(rodada)
+            
+            # Se encontrou rodadas, atualiza
+            if rodadas_encontradas:
+                # Remove duplicatas (mantém últimas 20)
+                novas = []
+                for r in rodadas_encontradas[:15]:
+                    if not any(r['id'] == old.get('id') for old in self.ultimas_rodadas[-5:]):
+                        novas.append(r)
+                
+                if novas:
+                    self.ultimas_rodadas.extend(novas)
+                    self.ultimas_rodadas = self.ultimas_rodadas[-50:]  # Mantém últimas 50
+                    cache['scraper']['rodadas_coletadas'] += len(novas)
+                    
+                    print(f"\n🔥 NOVAS RODADAS ({len(novas)}):")
+                    for r in novas:
+                        cor = '🔵' if r['resultado'] == 'PLAYER' else '🔴' if r['resultado'] == 'BANKER' else '🟡'
+                        print(f"   {r['player']} vs {r['banker']} {cor}")
+                    
+                    return novas
+            
+            return []
+            
+        except Exception as e:
+            print(f"⚠️ Erro ao extrair: {e}")
+            return []
+    
+    def parse_rodada(self, texto):
+        """Converte texto em rodada estruturada"""
+        import re
+        
+        # Remove emojis e espaços extras
+        texto_limpo = re.sub(r'[🔴🔵🟡🟠⭐✅❌]', '', texto).strip()
+        
+        # Procura números
+        numeros = re.findall(r'\d+', texto_limpo)
+        
+        if len(numeros) >= 2:
+            try:
+                player = int(numeros[0])
+                banker = int(numeros[1])
+                
+                # Determina resultado pela cor
+                if '🔴' in texto:
+                    resultado = 'BANKER'
+                elif '🔵' in texto:
+                    resultado = 'PLAYER'
+                elif '🟡' in texto:
+                    resultado = 'TIE'
+                else:
+                    # Tenta inferir pelos números
+                    if player > banker:
+                        resultado = 'PLAYER'
+                    elif banker > player:
+                        resultado = 'BANKER'
+                    else:
+                        resultado = 'TIE'
+                
+                # Cria ID único
+                rodada_id = f"scrape_{player}_{banker}_{int(time.time())}"
+                
+                return {
+                    'id': rodada_id,
+                    'data_hora': datetime.now(timezone.utc),
+                    'player_score': player,
+                    'banker_score': banker,
+                    'resultado': resultado,
+                    'multiplicador': 1,
+                    'texto_original': texto
+                }
+            except:
+                pass
+        
         return None
+    
+    def loop_scraping(self):
+        """Loop principal de scraping"""
+        print("🔄 Iniciando loop de scraping...")
+        
+        while self.running:
+            try:
+                # Extrai rodadas
+                novas = self.extrair_rodadas()
+                
+                # Salva no banco
+                for rodada in novas:
+                    if salvar_rodada(rodada):
+                        # Guarda resultado para verificar previsão
+                        if rodada == novas[0]:  # Primeira da leva
+                            cache['ultimo_resultado_real'] = rodada['resultado']
+                
+                if novas:
+                    # Atualiza cache leve
+                    atualizar_dados_leves()
+                
+                # Aguarda
+                time.sleep(INTERVALO_SCRAPING)
+                
+            except Exception as e:
+                print(f"❌ Erro no loop: {e}")
+                time.sleep(5)
+    
+    def parar(self):
+        self.running = False
+        if self.driver:
+            self.driver.quit()
+            cache['scraper']['status'] = 'parado'
 
-def buscar_dados_api():
-    try:
-        params = PARAMS.copy()
-        params['page'] = 0
-        params['size'] = 30
-        response = session.get(API_URL, params=params, timeout=TIMEOUT_API)
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        print(f"⚠️ API erro: {e}")
-        return None
+# Instancia scraper
+scraper = BacBoScraper()
 
 # =============================================================================
-# ESTRATÉGIAS
+# ESTRATÉGIAS (COMPLETAS)
 # =============================================================================
 
 def estrategia_compensacao(dados, modo):
@@ -698,47 +841,8 @@ def atualizar_dados_leves():
     print(f"⚡ Cache atualizado - Total: {cache['leves']['total_rodadas']} | Precisão: {calcular_precisao()}%")
 
 # =============================================================================
-# LOOP PRINCIPAL
+# LOOP PESADO
 # =============================================================================
-
-def loop_coleta():
-    print("🔄 Iniciando coleta...")
-    ultimo_id = None
-    
-    while True:
-        try:
-            inicio = time.time()
-            
-            dados = buscar_dados_api()
-            
-            if dados and len(dados) > 0:
-                print(f"📥 API: {len(dados)} itens")
-                
-                primeiro = dados[0]
-                data = primeiro.get('data', {})
-                novo_id = data.get('id')
-                
-                if novo_id and novo_id != ultimo_id:
-                    ultimo_id = novo_id
-                    
-                    novas = 0
-                    for i, item in enumerate(dados[:15]):
-                        rodada = processar_item_api(item)
-                        if rodada and salvar_rodada(rodada):
-                            novas += 1
-                            if i == 0:
-                                cache['ultimo_resultado_real'] = rodada['resultado']
-                    
-                    if novas > 0:
-                        print(f"✅ +{novas} novas rodadas")
-                        atualizar_dados_leves()
-                        print(f"⚡ Tempo: {time.time() - inicio:.2f}s")
-            
-            time.sleep(INTERVALO_COLETA)
-            
-        except Exception as e:
-            print(f"❌ Erro no loop: {e}")
-            time.sleep(INTERVALO_COLETA)
 
 def loop_pesado():
     while True:
@@ -781,6 +885,10 @@ def api_stats():
             'ultimas_20': cache['leves']['ultimas_20'],
             'previsao': cache['leves']['previsao'],
             'periodos': cache['pesados']['periodos'],
+            'scraper': {
+                'status': cache['scraper']['status'],
+                'rodadas_coletadas': cache['scraper']['rodadas_coletadas']
+            },
             'estatisticas': {
                 'total_previsoes': cache['estatisticas']['total_previsoes'],
                 'acertos': cache['estatisticas']['acertos'],
@@ -806,7 +914,6 @@ def api_tabela(limite):
             return jsonify([])
         
         cur = conn.cursor()
-        # SEM a coluna fonte
         cur.execute('''
             SELECT data_hora, player_score, banker_score, resultado
             FROM rodadas
@@ -843,6 +950,7 @@ def diagnostico():
     return jsonify({
         'status': 'ok',
         'timestamp': datetime.now().isoformat(),
+        'scraper': cache['scraper'],
         'cache': {
             'total_rodadas': cache['leves']['total_rodadas'],
             'previsao': cache['leves']['previsao'],
@@ -855,29 +963,54 @@ def diagnostico():
         }
     })
 
+@app.route('/forcar-scraping')
+def forcar_scraping():
+    """Força uma coleta manual"""
+    try:
+        novas = scraper.extrair_rodadas()
+        for rodada in novas:
+            salvar_rodada(rodada)
+        
+        if novas:
+            atualizar_dados_leves()
+            return jsonify({
+                'status': 'ok',
+                'novas': len(novas),
+                'total': cache['leves']['total_rodadas']
+            })
+        else:
+            return jsonify({'status': 'ok', 'mensagem': 'Nenhuma rodada nova'})
+    except Exception as e:
+        return jsonify({'status': 'erro', 'erro': str(e)}), 500
+
 # =============================================================================
 # MAIN
 # =============================================================================
 if __name__ == "__main__":
     print("="*70)
-    print("🚀 BOT BACBO - VERSÃO CORRIGIDA (SEM COLUNA FONTE)")
+    print("🚀 BOT BACBO - SCRAPING DIRETO (NUNCA TRAVA)")
     print("="*70)
-    print("✅ API Casino.org funcionando")
-    print("✅ Estatísticas atualizadas")
-    print("✅ Previsão atual: BANKER 63%")
-    print("✅ Precisão: 75% (15/20)")
+    print("✅ Faz scraping do site betmind.org")
+    print("✅ Atualiza a cada 2 segundos")
+    print("✅ Sem depender de API pública")
     print("="*70)
     
     init_db()
     
-    print("📊 Carregando dados iniciais...")
+    # Inicia scraper
+    if scraper.iniciar():
+        print("🚀 Iniciando thread de scraping...")
+        threading.Thread(target=scraper.loop_scraping, daemon=True).start()
+    
+    # Dados iniciais
+    print("📊 Carregando dados do banco...")
     atualizar_dados_leves()
     atualizar_dados_pesados()
     
     print(f"📊 {cache['leves']['total_rodadas']} rodadas no banco")
     print("="*70)
     
-    threading.Thread(target=loop_coleta, daemon=True).start()
+    # Thread pesada
     threading.Thread(target=loop_pesado, daemon=True).start()
     
     print("✅ Servidor Flask iniciando...")
