@@ -1,6 +1,10 @@
 # main.py - Bot BacBo PROFISSIONAL - 8 ESTRATÉGIAS COMPLETAS
-# ✅ USANDO TIPMINER API (SEM TRAVAMENTOS)
-# ⚡ INTERVALO DE COLETA: 3 SEGUNDOS
+# ✅ SEM SELECT ID (usa ON CONFLICT)
+# ✅ LEVE x PESADO separados
+# ✅ LIMIT 3000 em todas consultas
+# ✅ Índices no banco
+# ✅ Horário Brasília
+# ✅ TODAS AS 8 ESTRATÉGIAS IMPLEMENTADAS
 
 import os
 import time
@@ -29,27 +33,25 @@ DB_HOST = parsed.hostname
 DB_PORT = parsed.port or 5432
 DB_NAME = parsed.path[1:]
 
-# =============================================================================
-# 🎯 NOVA API TIPMINER (descoberta hoje!)
-# =============================================================================
-TIPMINER_API = "https://api.tipminer.com/api/v3/types-per-hour/bac_bo/0194b476-0e88-740c-a957-87be3bc3aa55/2026-03-01?timezone=America/Sao_Paulo"
-
-# Token de autenticação (extraído do site)
-TIPMINER_TOKEN = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzZXNzaW9uIjoiMDE5Y2FiNDItMGM2My03MTM1LTkxNGQtOGY0MjU4NTNiZTkzIiwiYWNjb3VudCI6eyJ1dWlkIjoiMDE5YzAxNTctMDZkMS03N2RkLWEyNmItMjhlNmM2MDc3ZDc1IiwibmFtZSI6ImhmdCIsInR5cGUiOiJERUZBVUxUIiwiZW1haWwiOiJnY3Jpc3RlMjY4QGdtYWlsLmNvbSIsInBob25lIjoiKzU1NjE5MjAwNjA2NCIsImF2YXRhciI6bnVsbCwib3JpZ2luIjpudWxsLCJ2ZXJzaW9uIjoxLCJsZWdhY3lJZCI6IjY5NzkyY2NlMzI1MmEzZWRiYWU1N2U2YyIsInRpbWVzdGFtcHMiOnsiaW5zZXJ0IjoiMjAyNi0wMS0yN1QyMToyMzoyNi41OTJaIiwidXBkYXRlIjoiMjAyNi0wMS0yN1QyMToyMzozOS41MjlaIn0sImNvbmZpcm1hdGlvbiI6bnVsbH0sImZlYXR1cmVzIjp7ImJvdCI6MCwicm91bmRzIjoyMDAwLCJncm91cEJvdCI6MCwidmlwIjpmYWxzZSwibm9BZCI6ZmFsc2UsInJhbmtpbmciOmZhbHNlLCJzdXBwb3J0IjpmYWxzZSwidmFsaWRhdG9yIjpmYWxzZSwiYW5hbHl0aWNhbE1vZGUiOmZhbHNlLCJwYXN0Q29sb3JzQnlEYXlBbmRIb3VyIjpmYWxzZX0sImlhdCI6MTc3MjM5OTc1OCwiZXhwIjoxNzc0OTkxNzU4fQ.SryzdmX1BZdRfuRlw_0JmFJV9EbQMHhCpEw4ur8PSlg"
-
-TIPMINER_HEADERS = {
-    'Authorization': TIPMINER_TOKEN,
+# API
+API_URL = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo"
+PARAMS = {
+    "page": 0,
+    "size": 50,
+    "sort": "data.settledAt,desc",
+    "duration": 4320,
+    "wheelResults": "PlayerWon,BankerWon,Tie"
+}
+HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    'Accept': 'application/json',
-    'Referer': 'https://www.casino.org/',
-    'Origin': 'https://www.casino.org'
+    'Accept': 'application/json'
 }
 
 # Configurações
 TIMEOUT_API = 5
 MAX_RETRIES = 3
 RETRY_DELAY = 1
-INTERVALO_COLETA = 3  # ⚡ 3 SEGUNDOS
+INTERVALO_COLETA = 10
 INTERVALO_PAGINAS = 0.5
 PORT = int(os.environ.get("PORT", 5000))
 
@@ -66,8 +68,7 @@ cache = {
         'periodos': {},
         'ultima_atualizacao': None
     },
-    'falhas_consecutivas': 0,
-    'ultimo_id': None
+    'falhas_consecutivas': 0
 }
 
 # =============================================================================
@@ -89,7 +90,7 @@ PESOS = {
 app = Flask(__name__)
 CORS(app)
 session = requests.Session()
-session.headers.update(TIPMINER_HEADERS)
+session.headers.update(HEADERS)
 
 # =============================================================================
 # FUNÇÕES DO BANCO
@@ -170,6 +171,7 @@ def salvar_rodada(rodada):
             json.dumps(rodada, default=str)
         ))
         
+        # Verificar se inseriu
         if cur.rowcount > 0:
             conn.commit()
             cur.close()
@@ -184,119 +186,6 @@ def salvar_rodada(rodada):
     except Exception as e:
         print(f"❌ Erro ao salvar: {e}")
         return False
-
-# =============================================================================
-# FUNÇÕES DE COLETA DA TIPMINER API
-# =============================================================================
-
-def decodificar_dados_tipminer(dados_criptografados):
-    """
-    Tenta decodificar os dados criptografados da TipMiner
-    Nota: Os dados vêm em formato Fe2 (Framework Encrypted 2)
-    Por enquanto, retornamos dados simulados baseados no padrão
-    """
-    # TODO: Implementar decodificação real do Fe2
-    # Por enquanto, vamos extrair do HTML ou usar dados simulados
-    return None
-
-def buscar_dados_tipminer():
-    """Busca dados da nova API TipMiner"""
-    for tentativa in range(MAX_RETRIES):
-        try:
-            print(f"📡 Buscando dados da TipMiner API...")
-            
-            # Primeiro, tentar a API direta
-            response = session.get(TIPMINER_API, timeout=TIMEOUT_API)
-            
-            if response.status_code == 200:
-                dados = response.json()
-                
-                # Os dados vêm criptografados no formato Fe2
-                if 'data' in dados:
-                    print("📦 Dados recebidos (criptografados)")
-                    # TODO: Decodificar dados
-                    return processar_dados_tipminer(dados)
-                else:
-                    print("⚠️ Formato inesperado:", dados.keys())
-                    return None
-            else:
-                print(f"⚠️ TipMiner API retornou {response.status_code}")
-                
-        except Exception as e:
-            print(f"⚠️ Erro tentativa {tentativa + 1}: {e}")
-            time.sleep(RETRY_DELAY)
-    
-    # Fallback: Se a API falhar, tentar extrair do HTML
-    return buscar_do_html()
-
-def buscar_do_html():
-    """Fallback: Extrair dados diretamente do HTML do site"""
-    try:
-        print("🔄 Tentando extrair dados do HTML...")
-        html_url = "https://www.casino.org/casinoscores/pt-br/bac-bo/"
-        
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'text/html'
-        }
-        
-        response = requests.get(html_url, headers=headers, timeout=10)
-        
-        if response.status_code == 200:
-            # Extrair dados da tabela HTML
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Encontrar a tabela de resultados
-            tabela = soup.find('table', class_='table')
-            if tabela:
-                resultados = []
-                linhas = tabela.find_all('tr')[1:20]  # Pular cabeçalho
-                
-                for linha in linhas:
-                    colunas = linha.find_all('td')
-                    if len(colunas) >= 3:
-                        # Extrair números (ex: "P:10" -> 10)
-                        player_text = colunas[1].text
-                        banker_text = colunas[2].text
-                        
-                        player = int(''.join(filter(str.isdigit, player_text)) or 0)
-                        banker = int(''.join(filter(str.isdigit, banker_text)) or 0)
-                        
-                        if player > 0 or banker > 0:
-                            if player > banker:
-                                resultado = 'PLAYER'
-                            elif banker > player:
-                                resultado = 'BANKER'
-                            else:
-                                resultado = 'TIE'
-                            
-                            # Gerar ID único baseado nos dados
-                            import hashlib
-                            id_str = f"{player}{banker}{time.time()}"
-                            id_hash = hashlib.md5(id_str.encode()).hexdigest()
-                            
-                            resultados.append({
-                                'id': id_hash,
-                                'data_hora': datetime.now(timezone.utc),
-                                'player_score': player,
-                                'banker_score': banker,
-                                'resultado': resultado
-                            })
-                
-                if resultados:
-                    print(f"✅ Extraídos {len(resultados)} resultados do HTML")
-                    return resultados
-                    
-    except Exception as e:
-        print(f"⚠️ Erro no fallback HTML: {e}")
-    
-    return None
-
-def processar_dados_tipminer(dados):
-    """Processa os dados da TipMiner (quando decodificados)"""
-    # Por enquanto, retornar None para usar o fallback HTML
-    return None
 
 # =============================================================================
 # FUNÇÕES LEVES
@@ -405,6 +294,7 @@ def contar_periodo(horas):
 
 def atualizar_dados_pesados():
     """📊 Atualiza dados pesados (a cada 30s)"""
+    print("📊 Iniciando atualização pesada...")
     cache['pesados']['periodos'] = {
         '10min': contar_periodo(0.16),
         '1h': contar_periodo(1),
@@ -415,12 +305,13 @@ def atualizar_dados_pesados():
         '72h': contar_periodo(72)
     }
     cache['pesados']['ultima_atualizacao'] = datetime.now(timezone.utc)
+    print(f"✅ Pesados: {cache['pesados']['periodos']}")
 
 # =============================================================================
-# ESTRATÉGIAS (mantidas iguais)
+# ESTRATÉGIA #1: COMPENSAÇÃO
 # =============================================================================
-
 def estrategia_compensacao(dados, modo):
+    """🟢 ESTRATÉGIA #1: COMPENSAÇÃO - Diferença > 4% força lado menor"""
     if len(dados) < 10:
         return {'banker': 0, 'player': 0}
     
@@ -435,13 +326,17 @@ def estrategia_compensacao(dados, modo):
     if diff > 4:
         peso = PESOS['compensacao'][modo]
         if banker > player:
-            return {'banker': 0, 'player': peso}
+            return {'banker': 0, 'player': peso}  # Player precisa subir
         else:
-            return {'banker': peso, 'player': 0}
+            return {'banker': peso, 'player': 0}  # Banker precisa subir
     
     return {'banker': 0, 'player': 0}
 
+# =============================================================================
+# ESTRATÉGIA #2: PAREDÃO
+# =============================================================================
 def estrategia_paredao(dados, modo):
+    """🔴 ESTRATÉGIA #2: PAREDÃO - 4+ vitórias seguidas"""
     if len(dados) < 4:
         return {'banker': 0, 'player': 0}
     
@@ -454,14 +349,21 @@ def estrategia_paredao(dados, modo):
     
     return {'banker': 0, 'player': 0}
 
+# =============================================================================
+# ESTRATÉGIA #3: MOEDOR (Cluster de Empates)
+# =============================================================================
 def estrategia_moedor(dados, modo):
+    """🟡 ESTRATÉGIA #3: MOEDOR - Cluster de Empates"""
     if len(dados) < 5:
         return {'banker': 0, 'player': 0}
     
+    # Contar empates nas últimas 5 rodadas
     ties = sum(1 for r in dados[:5] if r['resultado'] == 'TIE')
-    tie_pct = (ties / 5) * 100
     
+    # Tie > 13% ou 2+ empates em 5 rodadas
+    tie_pct = (ties / 5) * 100
     if tie_pct >= 13 or ties >= 2:
+        # Encontrar última cor não-empate
         ultima_nao_tie = next((r for r in dados if r['resultado'] != 'TIE'), None)
         if ultima_nao_tie:
             peso = PESOS['moedor'][modo]
@@ -472,7 +374,11 @@ def estrategia_moedor(dados, modo):
     
     return {'banker': 0, 'player': 0}
 
+# =============================================================================
+# ESTRATÉGIA #4: XADREZ (Alternância)
+# =============================================================================
 def estrategia_xadrez(dados, modo):
+    """🔵 ESTRATÉGIA #4: XADREZ - Alternância B-P-B-P"""
     if len(dados) < 4:
         return {'banker': 0, 'player': 0}
     
@@ -481,18 +387,24 @@ def estrategia_xadrez(dados, modo):
     if (seq[0] != seq[1] and seq[1] != seq[2] and seq[2] != seq[3]):
         peso = PESOS['xadrez'][modo]
         if seq[3] == 'BANKER':
-            return {'banker': 0, 'player': peso}
+            return {'banker': 0, 'player': peso}  # Próximo PLAYER
         else:
-            return {'banker': peso, 'player': 0}
+            return {'banker': peso, 'player': 0}  # Próximo BANKER
     
     return {'banker': 0, 'player': 0}
 
+# =============================================================================
+# ESTRATÉGIA #5: CONTRAGOLPE
+# =============================================================================
 def estrategia_contragolpe(dados, modo):
+    """⚫ ESTRATÉGIA #5: CONTRAGOLPE - 3+ iguais → 1 diferente → volta"""
     if len(dados) < 5:
         return {'banker': 0, 'player': 0}
     
+    # Pega últimas 5 rodadas
     seq = [r['resultado'] for r in dados[:5]]
     
+    # Padrão: B,B,B,P,B ou P,P,P,B,P
     if (seq[0] == seq[1] == seq[2] and 
         seq[2] != seq[3] and 
         seq[3] != seq[4] and 
@@ -506,22 +418,36 @@ def estrategia_contragolpe(dados, modo):
     
     return {'banker': 0, 'player': 0}
 
+# =============================================================================
+# ESTRATÉGIA #6: RESET PÓS-CLUSTER
+# =============================================================================
 def estrategia_reset_cluster(dados, modo):
+    """🟤 ESTRATÉGIA #6: RESET PÓS-CLUSTER - 2+ empates em curto espaço"""
     if len(dados) < 6:
         return {'banker': 0, 'player': 0}
     
+    # Contar empates nas últimas 6 rodadas
     ties = sum(1 for r in dados[:6] if r['resultado'] == 'TIE')
     
     if ties >= 2:
-        antes_cluster = next((r for r in dados if r['resultado'] != 'TIE'), None)
+        # Encontrar cor antes do cluster
+        antes_cluster = None
+        for r in dados:
+            if r['resultado'] != 'TIE':
+                antes_cluster = r
+                break
+        
         if antes_cluster:
+            # 70% volta à dominante, 30% vai à oposta
             peso = PESOS['reset_cluster'][modo]
             if random.random() < 0.7:
+                # Volta à dominante
                 if antes_cluster['resultado'] == 'BANKER':
                     return {'banker': peso, 'player': 0}
                 else:
                     return {'banker': 0, 'player': peso}
             else:
+                # Vai à oposta
                 if antes_cluster['resultado'] == 'BANKER':
                     return {'banker': 0, 'player': peso}
                 else:
@@ -529,7 +455,11 @@ def estrategia_reset_cluster(dados, modo):
     
     return {'banker': 0, 'player': 0}
 
+# =============================================================================
+# ESTRATÉGIA #7: FALSA ALTERNÂNCIA (Números Extremos)
+# =============================================================================
 def estrategia_falsa_alternancia(dados, modo):
+    """🟠 ESTRATÉGIA #7: FALSA ALTERNÂNCIA - Números extremos (10,11,12)"""
     if not dados:
         return {'banker': 0, 'player': 0}
     
@@ -543,7 +473,12 @@ def estrategia_falsa_alternancia(dados, modo):
     
     return {'banker': 0, 'player': 0}
 
+# =============================================================================
+# ESTRATÉGIA #8: META-ALGORITMO (aplicado no final)
+# =============================================================================
+
 def identificar_modo(player_pct, banker_pct, dados):
+    """Identifica o modo do algoritmo baseado nos dados."""
     extremos = sum(1 for r in dados if r['player_score'] >= 10 or r['banker_score'] >= 10)
     pct_extremos = (extremos / len(dados)) * 100 if dados else 0
     
@@ -554,7 +489,11 @@ def identificar_modo(player_pct, banker_pct, dados):
     else:
         return "EQUILIBRADO"
 
+# =============================================================================
+# FUNÇÃO PRINCIPAL DE PREVISÃO (COM TODAS AS 8 ESTRATÉGIAS)
+# =============================================================================
 def calcular_previsao():
+    """🎯 Calcula previsão com TODAS as 8 estratégias"""
     dados = cache['leves']['ultimas_50']
     if len(dados) < 10:
         return None
@@ -572,48 +511,56 @@ def calcular_previsao():
     votos_player = 0
     estrategias = []
     
+    # ✅ ESTRATÉGIA 1: Compensação
     e1 = estrategia_compensacao(dados, modo)
     votos_banker += e1.get('banker', 0)
     votos_player += e1.get('player', 0)
     if e1.get('banker') or e1.get('player'):
         estrategias.append('Compensação')
     
+    # ✅ ESTRATÉGIA 2: Paredão
     e2 = estrategia_paredao(dados, modo)
     votos_banker += e2.get('banker', 0)
     votos_player += e2.get('player', 0)
     if e2.get('banker') or e2.get('player'):
         estrategias.append('Paredão')
     
+    # ✅ ESTRATÉGIA 3: Moedor
     e3 = estrategia_moedor(dados, modo)
     votos_banker += e3.get('banker', 0)
     votos_player += e3.get('player', 0)
     if e3.get('banker') or e3.get('player'):
         estrategias.append('Moedor')
     
+    # ✅ ESTRATÉGIA 4: Xadrez
     e4 = estrategia_xadrez(dados, modo)
     votos_banker += e4.get('banker', 0)
     votos_player += e4.get('player', 0)
     if e4.get('banker') or e4.get('player'):
         estrategias.append('Xadrez')
     
+    # ✅ ESTRATÉGIA 5: Contragolpe
     e5 = estrategia_contragolpe(dados, modo)
     votos_banker += e5.get('banker', 0)
     votos_player += e5.get('player', 0)
     if e5.get('banker') or e5.get('player'):
         estrategias.append('Contragolpe')
     
+    # ✅ ESTRATÉGIA 6: Reset Pós-Cluster
     e6 = estrategia_reset_cluster(dados, modo)
     votos_banker += e6.get('banker', 0)
     votos_player += e6.get('player', 0)
     if e6.get('banker') or e6.get('player'):
         estrategias.append('Reset Cluster')
     
+    # ✅ ESTRATÉGIA 7: Falsa Alternância
     e7 = estrategia_falsa_alternancia(dados, modo)
     votos_banker += e7.get('banker', 0)
     votos_player += e7.get('player', 0)
     if e7.get('banker') or e7.get('player'):
         estrategias.append('Falsa Alternância')
     
+    # ✅ ESTRATÉGIA 8: Meta-Algoritmo
     if modo == "AGRESSIVO":
         if banker_pct > player_pct:
             votos_banker = int(votos_banker * 1.5)
@@ -622,6 +569,7 @@ def calcular_previsao():
             votos_player = int(votos_player * 1.5)
             estrategias.append('Meta AGRESSIVO')
     elif modo == "PREDATORIO":
+        # No modo predatório, dar peso extra para contragolpe e falsa alternância
         if any(s in estrategias for s in ['Contragolpe', 'Falsa Alternância']):
             if banker_pct > player_pct:
                 votos_banker = int(votos_banker * 1.3)
@@ -629,6 +577,7 @@ def calcular_previsao():
                 votos_player = int(votos_player * 1.3)
             estrategias.append('Meta PREDATÓRIO')
     
+    # ✅ DECISÃO FINAL
     total_votos = votos_banker + votos_player
     
     if votos_banker > votos_player:
@@ -638,6 +587,7 @@ def calcular_previsao():
         previsao = 'PLAYER'
         confianca = round((votos_player / total_votos) * 100) if total_votos > 0 else 50
     else:
+        # Empate técnico: usar porcentagem do gráfico
         if banker_pct > player_pct:
             previsao = 'BANKER'
             confianca = round((banker_pct / (banker_pct + player_pct)) * 100)
@@ -654,7 +604,7 @@ def calcular_previsao():
         'simbolo': '🔴' if previsao == 'BANKER' else '🔵' if previsao == 'PLAYER' else '🟡',
         'confianca': confianca,
         'delay_ativo': (ultimo_resultado == 'TIE'),
-        'estrategias': estrategias[:4]
+        'estrategias': estrategias[:4]  # Mostra até 4 estratégias
     }
 
 # =============================================================================
@@ -662,6 +612,7 @@ def calcular_previsao():
 # =============================================================================
 
 def atualizar_dados_leves():
+    """⚡ Atualiza apenas dados leves (a cada nova rodada)"""
     cache['leves']['ultimas_50'] = get_ultimas_50()
     cache['leves']['ultimas_20'] = get_ultimas_20()
     cache['leves']['total_rodadas'] = get_total_rapido()
@@ -669,26 +620,127 @@ def atualizar_dados_leves():
     cache['leves']['ultima_atualizacao'] = datetime.now(timezone.utc)
 
 # =============================================================================
-# 🔥 LOOP DE COLETA COM NOVA API
+# PROCESSAMENTO DA API
+# =============================================================================
+
+def processar_item_api(item):
+    try:
+        data = item.get('data', {})
+        result = data.get('result', {})
+        player_dice = result.get('playerDice', {})
+        banker_dice = result.get('bankerDice', {})
+        
+        resultado_api = result.get('outcome', '')
+        if resultado_api == 'PlayerWon':
+            resultado = 'PLAYER'
+        elif resultado_api == 'BankerWon':
+            resultado = 'BANKER'
+        else:
+            resultado = 'TIE'
+
+        data_hora = datetime.fromisoformat(data.get('settledAt', '').replace('Z', '+00:00'))
+
+        return {
+            'id': data.get('id'),
+            'data_hora': data_hora,
+            'player_score': player_dice.get('score', 0),
+            'banker_score': banker_dice.get('score', 0),
+            'resultado': resultado,
+            'multiplicador': result.get('multiplier', 1),
+            'total_winners': item.get('totalWinners', 0),
+            'total_amount': item.get('totalAmount', 0)
+        }
+    except Exception as e:
+        print(f"⚠️ Erro processar item: {e}")
+        return None
+
+def buscar_dados_api_com_retry():
+    for tentativa in range(MAX_RETRIES):
+        try:
+            params = PARAMS.copy()
+            params['page'] = 0
+            params['size'] = 50
+            response = session.get(API_URL, params=params, timeout=TIMEOUT_API)
+            response.raise_for_status()
+            cache['falhas_consecutivas'] = 0
+            return response.json()
+        except requests.exceptions.Timeout:
+            print(f"⏱️ Timeout tentativa {tentativa + 1}")
+            time.sleep(RETRY_DELAY)
+        except Exception as e:
+            print(f"⚠️ Erro tentativa {tentativa + 1}: {e}")
+            time.sleep(RETRY_DELAY)
+    
+    cache['falhas_consecutivas'] += 1
+    print(f"❌ Todas as {MAX_RETRIES} tentativas falharam")
+    return None
+
+# =============================================================================
+# 🔥 LOOP DE COLETA COM LOGS DETALHADOS
 # =============================================================================
 
 def loop_coleta_com_logs():
-    print("🔄 Iniciando loop de coleta com TipMiner API...")
+    """Loop principal com logs detalhados"""
+    print("🔄 Iniciando loop de coleta com logs...")
+    ultimo_id = None
+    ciclo = 0
     
     while True:
         try:
-            dados = buscar_dados_tipminer()
+            ciclo += 1
+            print(f"\n{'='*50}")
+            print(f"📊 CICLO #{ciclo} - {datetime.now().strftime('%H:%M:%S')}")
+            print(f"{'='*50}")
+            
+            inicio_ciclo = time.time()
+            dados = buscar_dados_api_com_retry()
             
             if dados:
+                print(f"📥 API retornou {len(dados)} itens")
+                
+                # Mostrar primeiro item
+                if len(dados) > 0:
+                    primeiro = dados[0]
+                    data = primeiro.get('data', {})
+                    result = data.get('result', {})
+                    novo_id = data.get('id')
+                    player = result.get('playerDice', {}).get('score')
+                    banker = result.get('bankerDice', {}).get('score')
+                    outcome = result.get('outcome', '')
+                    
+                    print(f"   📌 Primeiro ID: {novo_id}")
+                    print(f"   🎲 Resultado: {outcome} - {player} vs {banker}")
+                    
+                    if novo_id and novo_id != ultimo_id:
+                        print(f"   ✅ NOVA RODADA DETECTADA!")
+                        ultimo_id = novo_id
+                    else:
+                        print(f"   ⏳ Mesmo ID do ciclo anterior")
+                
                 novas_rodadas = 0
-                for rodada in dados:
-                    if rodada and rodada.get('id'):
+                for i, item in enumerate(dados):
+                    rodada = processar_item_api(item)
+                    if rodada and rodada['id']:
                         if salvar_rodada(rodada):
                             novas_rodadas += 1
+                            print(f"      ✓ Item {i+1} salvo (ID: {rodada['id'][-8:]})")
                 
                 if novas_rodadas > 0:
-                    print(f"✅ +{novas_rodadas} novas rodadas")
+                    print(f"✅ +{novas_rodadas} novas rodadas salvas")
+                    # ⚡ Atualiza apenas dados leves
                     atualizar_dados_leves()
+                    print(f"📊 Cache atualizado: {cache['leves']['total_rodadas']} rodadas")
+                else:
+                    print("⏳ Nenhuma rodada nova (já existiam)")
+            else:
+                print("⚠️ API não retornou dados")
+            
+            tempo_gasto = time.time() - inicio_ciclo
+            print(f"⏱️ Tempo do ciclo: {tempo_gasto:.2f}s")
+            
+            # Mostrar resumo do cache
+            print(f"📈 Total no banco: {cache['leves']['total_rodadas']}")
+            print(f"💾 Últimas 50: {len(cache['leves']['ultimas_50'])}")
             
             time.sleep(INTERVALO_COLETA)
             
@@ -696,14 +748,147 @@ def loop_coleta_com_logs():
             print(f"❌ Erro no loop: {e}")
             time.sleep(INTERVALO_COLETA)
 
+# =============================================================================
+# 🔥 LOOP PESADO SEPARADO (a cada 30s)
+# =============================================================================
+
 def loop_pesado():
+    """Loop separado para estatísticas pesadas"""
     print("📊 Iniciando loop pesado (30s)...")
     while True:
         time.sleep(30)
         atualizar_dados_pesados()
+        print("📊 Estatísticas pesadas atualizadas")
 
 # =============================================================================
-# ROTAS DA API
+# 🔥 ROTA DE DIAGNÓSTICO
+# =============================================================================
+
+@app.route('/diagnostico')
+def diagnostico():
+    """Mostra o status do sistema"""
+    try:
+        # Testar conexão com banco
+        conn = get_db_connection()
+        banco_ok = conn is not None
+        if banco_ok:
+            cur = conn.cursor()
+            cur.execute('SELECT COUNT(*) FROM rodadas')
+            total_banco = cur.fetchone()[0]
+            
+            # Pegar última rodada
+            cur.execute('''
+                SELECT data_hora, player_score, banker_score, resultado
+                FROM rodadas
+                ORDER BY data_hora DESC
+                LIMIT 1
+            ''')
+            ultima = cur.fetchone()
+            cur.close()
+            conn.close()
+            
+            ultima_rodada = {
+                'data': str(ultima[0]),
+                'player': ultima[1],
+                'banker': ultima[2],
+                'resultado': ultima[3]
+            } if ultima else None
+        else:
+            total_banco = 0
+            ultima_rodada = None
+
+        # Testar API externa
+        api_ok = False
+        ultima_api = None
+        try:
+            params = PARAMS.copy()
+            params['size'] = 1
+            response = session.get(API_URL, params=params, timeout=5)
+            api_ok = response.status_code == 200
+            if api_ok:
+                dados = response.json()
+                if dados and len(dados) > 0:
+                    data = dados[0].get('data', {})
+                    result = data.get('result', {})
+                    ultima_api = {
+                        'id': data.get('id'),
+                        'outcome': result.get('outcome'),
+                        'player': result.get('playerDice', {}).get('score'),
+                        'banker': result.get('bankerDice', {}).get('score')
+                    }
+        except Exception as e:
+            print(f"⚠️ Erro testando API: {e}")
+
+        return jsonify({
+            'status': 'ok',
+            'timestamp': datetime.now().isoformat(),
+            'banco': {
+                'conectado': banco_ok,
+                'total_rodadas': total_banco,
+                'cache': cache['leves']['total_rodadas'],
+                'ultima_rodada': ultima_rodada
+            },
+            'api_externa': {
+                'funcionando': api_ok,
+                'ultimo_resultado': ultima_api
+            },
+            'cache': {
+                'ultimas_50': len(cache['leves']['ultimas_50']),
+                'ultimas_20': len(cache['leves']['ultimas_20']),
+                'ultima_atualizacao': str(cache['leves']['ultima_atualizacao']),
+                'previsao': cache['leves']['previsao']
+            }
+        })
+    except Exception as e:
+        return jsonify({'erro': str(e)}), 500
+
+# =============================================================================
+# 🔥 ROTA PARA FORÇAR COLETA
+# =============================================================================
+
+@app.route('/forcar-coleta')
+def forcar_coleta():
+    """Força coleta manual IMEDIATA"""
+    try:
+        dados = buscar_dados_api_com_retry()
+        if not dados:
+            return jsonify({'status': 'erro', 'mensagem': 'Sem dados da API'})
+        
+        novas = 0
+        for item in dados:
+            rodada = processar_item_api(item)
+            if rodada and rodada['id']:
+                if salvar_rodada(rodada):
+                    novas += 1
+        
+        if novas > 0:
+            atualizar_dados_leves()
+            
+            # Pegar última rodada salva
+            ultima = dados[0].get('data', {}).get('result', {})
+            
+            return jsonify({
+                'status': 'ok', 
+                'novas_rodadas': novas,
+                'total_agora': cache['leves']['total_rodadas'],
+                'ultima': {
+                    'outcome': ultima.get('outcome'),
+                    'player': ultima.get('playerDice', {}).get('score'),
+                    'banker': ultima.get('bankerDice', {}).get('score')
+                }
+            })
+        else:
+            return jsonify({
+                'status': 'ok', 
+                'mensagem': 'Nenhuma rodada nova',
+                'total': cache['leves']['total_rodadas']
+            })
+            
+    except Exception as e:
+        return jsonify({'status': 'erro', 'erro': str(e)}), 500
+
+# =============================================================================
+# ROTAS DA API (originais)
 # =============================================================================
 
 @app.route('/')
@@ -730,6 +915,7 @@ def api_stats():
 
 @app.route('/api/tabela/<int:limite>')
 def api_tabela(limite):
+    """🔥 AGORA USA LIMITE (50,250,500,1000,2000,3000)"""
     try:
         if limite < 50:
             limite = 50
@@ -765,6 +951,7 @@ def api_tabela(limite):
         
         return jsonify(resultado)
     except Exception as e:
+        print(f"❌ Erro api_tabela: {e}")
         return jsonify([]), 500
 
 @app.route('/health')
@@ -776,46 +963,42 @@ def health():
 # =============================================================================
 if __name__ == "__main__":
     print("="*70)
-    print("🚀 BOT BACBO - TIPMINER API")
+    print("🚀 BOT BACBO - 8 ESTRATÉGIAS COMPLETAS (COM DIAGNÓSTICO)")
     print("="*70)
-    print("✅ Usando TipMiner API (descoberta em 01/03/2026)")
     print("✅ SEM SELECT ID (usa ON CONFLICT)")
     print("✅ LEVE x PESADO separados")
     print("✅ LIMIT 3000 em todas consultas")
     print("✅ Índices no banco")
     print("✅ Horário Brasília")
-    print("✅ TODAS AS 8 ESTRATÉGIAS")
-    print(f"⚡ INTERVALO DE COLETA: {INTERVALO_COLETA}s")
+    print("✅ Estratégia #1: Compensação")
+    print("✅ Estratégia #2: Paredão")
+    print("✅ Estratégia #3: Moedor")
+    print("✅ Estratégia #4: Xadrez")
+    print("✅ Estratégia #5: Contragolpe")
+    print("✅ Estratégia #6: Reset Cluster")
+    print("✅ Estratégia #7: Falsa Alternância")
+    print("✅ Estratégia #8: Meta-Algoritmo")
     print("="*70)
     
     init_db()
     
+    # Dados iniciais
+    print("📊 Carregando dados iniciais...")
     atualizar_dados_leves()
     atualizar_dados_pesados()
     
     print(f"📊 {cache['leves']['total_rodadas']} rodadas no banco")
+    print(f"⚡ Timeout: {TIMEOUT_API}s")
+    print("🌐 Rotas disponíveis:")
+    print("   - /diagnostico - Ver status do sistema")
+    print("   - /forcar-coleta - Forçar coleta manual")
+    print("   - /health - Health check")
     print("="*70)
     
+    # Threads separadas
+    print("🚀 Iniciando threads...")
     threading.Thread(target=loop_coleta_com_logs, daemon=True).start()
     threading.Thread(target=loop_pesado, daemon=True).start()
     
+    print("✅ Servidor Flask iniciando...")
     app.run(host='0.0.0.0', port=PORT, debug=False)
-
-
-# Adicione no final do main.py, antes do app.run()
-import atexit
-import signal
-
-def graceful_shutdown():
-    print("\n🛑 Desligamento gracioso...")
-    # Salvar dados se necessário
-    salvar_dados()
-
-atexit.register(graceful_shutdown)
-
-def signal_handler(sig, frame):
-    print("\n🛑 Recebido sinal para parar")
-    sys.exit(0)
-
-signal.signal(signal.SIGINT, signal_handler)
-signal.signal(signal.SIGTERM, signal_handler)
