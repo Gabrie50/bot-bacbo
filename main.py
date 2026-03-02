@@ -1,13 +1,17 @@
-# main.py - BOT BACBO COM SCRAPING (NUNCA TRAVA)
+# main.py - BOT BACBO COM SCRAPING (NUNCA TRAVA) - VERSÃO COMPLETA
 # ✅ Faz scraping direto do site betmind.org
 # ✅ Não depende de API pública
-# ✅ Atualiza em tempo real
+# ✅ Atualiza em tempo real a cada 2 segundos
+# ✅ 8 estratégias funcionando perfeitamente
+# ✅ Estatísticas e aprendizado automático
 
 import os
 import time
 import requests
 import json
+import urllib.parse
 import random
+import re
 from datetime import datetime, timedelta, timezone
 import threading
 from flask import Flask, render_template, jsonify
@@ -90,8 +94,11 @@ cache = {
         'ultimo_id': None,
         'driver': None,
         'status': 'parado',
-        'rodadas_coletadas': 0
-    }
+        'rodadas_coletadas': 0,
+        'ultima_rodada': None
+    },
+    'ultima_previsao': None,
+    'ultimo_resultado_real': None
 }
 
 # =============================================================================
@@ -394,43 +401,64 @@ class BacBoScraper:
             
             rodadas_encontradas = []
             
-            # Procura por padrões de resultados
-            # O site pode ter diferentes estruturas
+            # Procura por padrões de resultados em elementos de histórico
+            selectors = [
+                'div.history-item',
+                'div.game-result',
+                'tr.result-row',
+                'div[class*="history"]',
+                'span[class*="result"]',
+                'td.result'
+            ]
             
-            # Método 1: Procurar por elementos com texto de resultados
-            elementos = soup.find_all(['div', 'span', 'td'], string=lambda text: text and ('vs' in text or 'x' in text or '🔴' in text or '🔵' in text))
+            for selector in selectors:
+                elementos = soup.select(selector)
+                for elem in elementos[:20]:
+                    texto = elem.get_text().strip()
+                    if texto and ('vs' in texto or 'x' in texto or '🔴' in texto or '🔵' in texto or '🟡' in texto):
+                        rodada = self.parse_rodada(texto)
+                        if rodada:
+                            rodadas_encontradas.append(rodada)
+                
+                if rodadas_encontradas:
+                    break
             
-            for elem in elementos[:30]:  # Pega os primeiros
-                texto = elem.get_text().strip()
-                if texto:
-                    rodada = self.parse_rodada(texto)
-                    if rodada:
-                        rodadas_encontradas.append(rodada)
-            
-            # Método 2: Procurar em tabelas
+            # Método 2: Procurar em tabelas se não encontrou
             if not rodadas_encontradas:
                 tabelas = soup.find_all('table')
                 for tabela in tabelas:
                     linhas = tabela.find_all('tr')
                     for linha in linhas[:20]:
                         texto = linha.get_text().strip()
-                        if texto:
+                        if texto and any(c in texto for c in ['vs', 'x', '🔴', '🔵', '🟡']):
                             rodada = self.parse_rodada(texto)
                             if rodada:
                                 rodadas_encontradas.append(rodada)
             
-            # Se encontrou rodadas, atualiza
+            # Se encontrou rodadas, processa
             if rodadas_encontradas:
-                # Remove duplicatas (mantém últimas 20)
+                # Remove duplicatas baseado no score
+                rodadas_unicas = []
+                seen = set()
+                for r in rodadas_encontradas[:10]:
+                    key = f"{r['player']}_{r['banker']}"
+                    if key not in seen:
+                        seen.add(key)
+                        rodadas_unicas.append(r)
+                
+                # Verifica quais são novas
                 novas = []
-                for r in rodadas_encontradas[:15]:
-                    if not any(r['id'] == old.get('id') for old in self.ultimas_rodadas[-5:]):
+                for r in rodadas_unicas:
+                    if not any(r['player'] == old.get('player') and 
+                              r['banker'] == old.get('banker') 
+                              for old in self.ultimas_rodadas[-3:]):
                         novas.append(r)
                 
                 if novas:
                     self.ultimas_rodadas.extend(novas)
                     self.ultimas_rodadas = self.ultimas_rodadas[-50:]  # Mantém últimas 50
                     cache['scraper']['rodadas_coletadas'] += len(novas)
+                    cache['scraper']['ultima_rodada'] = novas[0]
                     
                     print(f"\n🔥 NOVAS RODADAS ({len(novas)}):")
                     for r in novas:
@@ -447,12 +475,10 @@ class BacBoScraper:
     
     def parse_rodada(self, texto):
         """Converte texto em rodada estruturada"""
-        import re
-        
-        # Remove emojis e espaços extras
+        # Remove espaços extras e emojis
         texto_limpo = re.sub(r'[🔴🔵🟡🟠⭐✅❌]', '', texto).strip()
         
-        # Procura números
+        # Procura números (scores)
         numeros = re.findall(r'\d+', texto_limpo)
         
         if len(numeros) >= 2:
@@ -460,7 +486,7 @@ class BacBoScraper:
                 player = int(numeros[0])
                 banker = int(numeros[1])
                 
-                # Determina resultado pela cor
+                # Determina resultado pela cor no texto original
                 if '🔴' in texto:
                     resultado = 'BANKER'
                 elif '🔵' in texto:
@@ -476,8 +502,9 @@ class BacBoScraper:
                     else:
                         resultado = 'TIE'
                 
-                # Cria ID único
-                rodada_id = f"scrape_{player}_{banker}_{int(time.time())}"
+                # Cria ID único baseado nos scores e timestamp
+                timestamp = int(time.time() * 1000)
+                rodada_id = f"scrape_{player}_{banker}_{timestamp}"
                 
                 return {
                     'id': rodada_id,
@@ -499,6 +526,8 @@ class BacBoScraper:
         
         while self.running:
             try:
+                inicio_ciclo = time.time()
+                
                 # Extrai rodadas
                 novas = self.extrair_rodadas()
                 
@@ -506,12 +535,13 @@ class BacBoScraper:
                 for rodada in novas:
                     if salvar_rodada(rodada):
                         # Guarda resultado para verificar previsão
-                        if rodada == novas[0]:  # Primeira da leva
+                        if rodada == novas[0]:
                             cache['ultimo_resultado_real'] = rodada['resultado']
                 
                 if novas:
                     # Atualiza cache leve
                     atualizar_dados_leves()
+                    print(f"⚡ Tempo de ciclo: {time.time() - inicio_ciclo:.2f}s")
                 
                 # Aguarda
                 time.sleep(INTERVALO_SCRAPING)
@@ -776,7 +806,7 @@ def calcular_previsao():
 # =============================================================================
 
 def verificar_previsoes_anteriores():
-    if cache['ultima_previsao'] and cache['ultimo_resultado_real']:
+    if cache.get('ultima_previsao') and cache.get('ultimo_resultado_real'):
         ultima = cache['ultima_previsao']
         resultado_real = cache['ultimo_resultado_real']
         
@@ -887,7 +917,8 @@ def api_stats():
             'periodos': cache['pesados']['periodos'],
             'scraper': {
                 'status': cache['scraper']['status'],
-                'rodadas_coletadas': cache['scraper']['rodadas_coletadas']
+                'rodadas_coletadas': cache['scraper']['rodadas_coletadas'],
+                'ultima_rodada': cache['scraper']['ultima_rodada']
             },
             'estatisticas': {
                 'total_previsoes': cache['estatisticas']['total_previsoes'],
@@ -976,7 +1007,8 @@ def forcar_scraping():
             return jsonify({
                 'status': 'ok',
                 'novas': len(novas),
-                'total': cache['leves']['total_rodadas']
+                'total': cache['leves']['total_rodadas'],
+                'ultima': novas[0]
             })
         else:
             return jsonify({'status': 'ok', 'mensagem': 'Nenhuma rodada nova'})
@@ -988,19 +1020,34 @@ def forcar_scraping():
 # =============================================================================
 if __name__ == "__main__":
     print("="*70)
-    print("🚀 BOT BACBO - SCRAPING DIRETO (NUNCA TRAVA)")
+    print("🚀 BOT BACBO - SCRAPING DIRETO (NUNCA TRAVA) - VERSÃO COMPLETA")
     print("="*70)
     print("✅ Faz scraping do site betmind.org")
     print("✅ Atualiza a cada 2 segundos")
     print("✅ Sem depender de API pública")
+    print("✅ 8 estratégias implementadas")
+    print("✅ Sistema de aprendizado automático")
+    print("="*70)
+    print("📋 ESTRATÉGIAS:")
+    print("   #1: Compensação")
+    print("   #2: Paredão")
+    print("   #3: Moedor")
+    print("   #4: Xadrez")
+    print("   #5: Contragolpe")
+    print("   #6: Reset Cluster")
+    print("   #7: Falsa Alternância")
+    print("   #8: Meta-Algoritmo")
     print("="*70)
     
+    # Inicializar banco
     init_db()
     
     # Inicia scraper
     if scraper.iniciar():
         print("🚀 Iniciando thread de scraping...")
         threading.Thread(target=scraper.loop_scraping, daemon=True).start()
+    else:
+        print("⚠️ Scraper não iniciado - verifique as dependências")
     
     # Dados iniciais
     print("📊 Carregando dados do banco...")
@@ -1008,6 +1055,13 @@ if __name__ == "__main__":
     atualizar_dados_pesados()
     
     print(f"📊 {cache['leves']['total_rodadas']} rodadas no banco")
+    print("🌐 Rotas disponíveis:")
+    print("   - / - Dashboard")
+    print("   - /api/stats - Estatísticas")
+    print("   - /api/tabela/<limite> - Tabela de resultados")
+    print("   - /diagnostico - Status do sistema")
+    print("   - /forcar-scraping - Forçar coleta manual")
+    print("   - /health - Health check")
     print("="*70)
     
     # Thread pesada
