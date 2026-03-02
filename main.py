@@ -1,4 +1,5 @@
 # main.py - Bot BacBo PROFISSIONAL - 8 ESTRATÉGIAS COMPLETAS
+# ✅ ATUALIZAÇÃO INSTANTÂNEA - SEM TRAVAMENTO
 # ✅ NOVA API: Supabase + WebSocket
 # ✅ SEM SELECT ID (usa ON CONFLICT)
 # ✅ LEVE x PESADO separados
@@ -57,7 +58,7 @@ SUPABASE_HEADERS = {
 TIMEOUT_API = 5
 MAX_RETRIES = 3
 RETRY_DELAY = 1
-INTERVALO_COLETA = 10
+INTERVALO_COLETA = 3  # ⚡ REDUZIDO PARA 3 SEGUNDOS
 INTERVALO_PAGINAS = 0.5
 PORT = int(os.environ.get("PORT", 5000))
 
@@ -74,7 +75,8 @@ cache = {
         'periodos': {},
         'ultima_atualizacao': None
     },
-    'falhas_consecutivas': 0
+    'falhas_consecutivas': 0,
+    'ultimo_id_processado': None  # 🔥 NOVO: Guarda último ID
 }
 
 # =============================================================================
@@ -431,7 +433,9 @@ def processar_mensagem_jogo(data):
         # Salvar no banco
         if salvar_rodada(rodada):
             print(f"✅ Nova rodada via WebSocket: {rodada['resultado']}")
+            # 🔥 ATUALIZA INSTANTANEAMENTE
             atualizar_dados_leves()
+            print(f"⚡ Cache atualizado instantaneamente!")
             
     except Exception as e:
         print(f"❌ Erro processando mensagem: {e}")
@@ -735,13 +739,14 @@ def atualizar_dados_leves():
     cache['leves']['total_rodadas'] = get_total_rapido()
     cache['leves']['previsao'] = calcular_previsao()
     cache['leves']['ultima_atualizacao'] = datetime.now(timezone.utc)
+    print(f"⚡ Cache LEVE atualizado - Total: {cache['leves']['total_rodadas']} rodadas")
 
 # =============================================================================
-# 🔥 LOOP DE COLETA SUPABASE
+# 🔥 LOOP DE COLETA SUPABASE - OTIMIZADO
 # =============================================================================
 
 def loop_coleta_supabase():
-    """Loop principal coletando do Supabase"""
+    """Loop principal coletando do Supabase - OTIMIZADO"""
     print("🔄 Iniciando coleta do Supabase...")
     ultimo_id = None
     ciclo = 0
@@ -749,6 +754,8 @@ def loop_coleta_supabase():
     while True:
         try:
             ciclo += 1
+            inicio_ciclo = time.time()
+            
             print(f"\n{'='*50}")
             print(f"📊 CICLO #{ciclo} - {datetime.now().strftime('%H:%M:%S')}")
             
@@ -768,39 +775,60 @@ def loop_coleta_supabase():
                 if novo_id and novo_id != ultimo_id:
                     print(f"   ✅ NOVA RODADA DETECTADA!")
                     ultimo_id = novo_id
-                
-                novas_rodadas = 0
-                for i, item in enumerate(dados[:10]):  # Processa só os 10 primeiros
-                    rodada = {
-                        'id': item.get('id') or item.get('game_id') or f"game_{time.time()}_{i}",
-                        'data_hora': datetime.now(timezone.utc),
-                        'player_score': item.get('player_score', 0) or item.get('playerScore', 0),
-                        'banker_score': item.get('banker_score', 0) or item.get('bankerScore', 0),
-                        'resultado': item.get('result', '') or item.get('outcome', ''),
-                        'multiplicador': item.get('multiplier', 1),
-                        'total_winners': item.get('winners', 0),
-                        'total_amount': item.get('amount', 0)
-                    }
                     
-                    # Normalizar resultado
-                    if 'player' in str(rodada['resultado']).lower():
-                        rodada['resultado'] = 'PLAYER'
-                    elif 'banker' in str(rodada['resultado']).lower():
-                        rodada['resultado'] = 'BANKER'
+                    # 🔥 PROCESSAR TODOS OS ITENS NOVOS (não só os 10 primeiros)
+                    novas_rodadas = 0
+                    for i, item in enumerate(dados):
+                        # Pega o ID do item
+                        item_id = item.get('id') or item.get('game_id')
+                        
+                        # Se for o mesmo que já processamos, para
+                        if item_id == cache['ultimo_id_processado']:
+                            break
+                        
+                        rodada = {
+                            'id': item_id or f"game_{time.time()}_{i}",
+                            'data_hora': datetime.now(timezone.utc),
+                            'player_score': item.get('player_score', 0) or item.get('playerScore', 0),
+                            'banker_score': item.get('banker_score', 0) or item.get('bankerScore', 0),
+                            'resultado': item.get('result', '') or item.get('outcome', ''),
+                            'multiplicador': item.get('multiplier', 1),
+                            'total_winners': item.get('winners', 0),
+                            'total_amount': item.get('amount', 0)
+                        }
+                        
+                        # Normalizar resultado
+                        if 'player' in str(rodada['resultado']).lower():
+                            rodada['resultado'] = 'PLAYER'
+                        elif 'banker' in str(rodada['resultado']).lower():
+                            rodada['resultado'] = 'BANKER'
+                        else:
+                            rodada['resultado'] = 'TIE'
+                        
+                        if salvar_rodada(rodada):
+                            novas_rodadas += 1
+                            print(f"      ✓ Item {i+1} salvo (ID: {rodada['id'][-8:]})")
+                            
+                            # 🔥 ATUALIZA O ÚLTIMO ID PROCESSADO
+                            if i == 0:
+                                cache['ultimo_id_processado'] = item_id
+                    
+                    if novas_rodadas > 0:
+                        print(f"✅ +{novas_rodadas} novas rodadas salvas")
+                        # 🔥 ATUALIZA INSTANTANEAMENTE
+                        atualizar_dados_leves()
+                        print(f"⚡ Cache atualizado em {time.time() - inicio_ciclo:.2f}s!")
                     else:
-                        rodada['resultado'] = 'TIE'
-                    
-                    if salvar_rodada(rodada):
-                        novas_rodadas += 1
-                        print(f"      ✓ Item {i+1} salvo")
-                
-                if novas_rodadas > 0:
-                    print(f"✅ +{novas_rodadas} novas rodadas salvas")
-                    atualizar_dados_leves()
-                    print(f"📊 Cache atualizado: {cache['leves']['total_rodadas']} rodadas")
+                        print("⏳ Nenhuma rodada nova (duplicadas)")
                 else:
-                    print("⏳ Nenhuma rodada nova")
+                    print("⏳ Mesmo ID do ciclo anterior")
             
+            # Mostra tempo do ciclo
+            tempo_ciclo = time.time() - inicio_ciclo
+            print(f"⏱️ Tempo do ciclo: {tempo_ciclo:.2f}s")
+            print(f"📈 Total no banco: {cache['leves']['total_rodadas']}")
+            
+            # 🔥 INTERVALO REDUZIDO PARA 3 SEGUNDOS
             time.sleep(INTERVALO_COLETA)
             
         except Exception as e:
@@ -956,7 +984,7 @@ def diagnostico():
 # =============================================================================
 if __name__ == "__main__":
     print("="*70)
-    print("🚀 BOT BACBO - NOVA API SUPABASE + WEBSOCKET")
+    print("🚀 BOT BACBO - ATUALIZAÇÃO INSTANTÂNEA")
     print("="*70)
     print("✅ API: Supabase + WebSocket")
     print("✅ SEM SELECT ID (usa ON CONFLICT)")
@@ -965,6 +993,7 @@ if __name__ == "__main__":
     print("✅ Índices no banco")
     print("✅ Horário Brasília")
     print("✅ 8 Estratégias implementadas")
+    print("✅ ATUALIZAÇÃO INSTANTÂNEA - SEM TRAVAMENTO")
     print("="*70)
     
     # Inicializar banco
