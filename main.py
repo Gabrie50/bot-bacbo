@@ -1,6 +1,6 @@
 # main.py - Bot BacBo PROFISSIONAL - 8 ESTRATÉGIAS COMPLETAS
-# ✅ ATUALIZAÇÃO INSTANTÂNEA - SEM TRAVAMENTO
-# ✅ NOVA API: Supabase + WebSocket
+# ✅ ATUALIZAÇÃO INSTANTÂNEA - 3 SEGUNDOS
+# ✅ API ORIGINAL FUNCIONANDO PERFEITAMENTE
 # ✅ SEM SELECT ID (usa ON CONFLICT)
 # ✅ LEVE x PESADO separados
 # ✅ LIMIT 3000 em todas consultas
@@ -14,8 +14,6 @@ import requests
 import json
 import urllib.parse
 import random
-import hashlib
-import hmac
 from datetime import datetime, timedelta, timezone
 import sys
 import threading
@@ -23,8 +21,6 @@ from flask import Flask, render_template, jsonify
 from flask_cors import CORS
 import pg8000
 import pg8000.native
-import websocket
-import base64
 
 # =============================================================================
 # CONFIGURAÇÕES
@@ -39,19 +35,18 @@ DB_HOST = parsed.hostname
 DB_PORT = parsed.port or 5432
 DB_NAME = parsed.path[1:]
 
-# 🔥 NOVA API - Supabase
-SUPABASE_URL = "https://tahubjfdprwwwcqghcec.supabase.co"
-SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRhaHViamZkcHJ3d3djcWdoY2VjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzMwOTQ3NTAsImV4cCI6MjA0ODY3MDc1MH0.3Np1QQR8hNwQ2XQx9Lm8Y5k7kR8z2X9Lm8Y5k7kR8z2X9Lm8Y5k7kR8"
-
-# WebSocket
-WS_URL = "wss://ws.betmind.org"
-
-# Headers para Supabase
-SUPABASE_HEADERS = {
-    'apikey': SUPABASE_ANON_KEY,
-    'Authorization': f'Bearer {SUPABASE_ANON_KEY}',
-    'Content-Type': 'application/json',
-    'Prefer': 'return=minimal'
+# API ORIGINAL (funcionando perfeitamente)
+API_URL = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo"
+PARAMS = {
+    "page": 0,
+    "size": 50,
+    "sort": "data.settledAt,desc",
+    "duration": 4320,
+    "wheelResults": "PlayerWon,BankerWon,Tie"
+}
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Accept': 'application/json'
 }
 
 # Configurações
@@ -76,7 +71,7 @@ cache = {
         'ultima_atualizacao': None
     },
     'falhas_consecutivas': 0,
-    'ultimo_id_processado': None  # 🔥 NOVO: Guarda último ID
+    'ultimo_id_processado': None  # 🔥 Guarda último ID para não reprocessar
 }
 
 # =============================================================================
@@ -98,7 +93,7 @@ PESOS = {
 app = Flask(__name__)
 CORS(app)
 session = requests.Session()
-session.headers.update(SUPABASE_HEADERS)
+session.headers.update(HEADERS)
 
 # =============================================================================
 # FUNÇÕES DO BANCO
@@ -315,130 +310,60 @@ def atualizar_dados_pesados():
     print(f"✅ Pesados: {cache['pesados']['periodos']}")
 
 # =============================================================================
-# 🔥 NOVA FUNÇÃO: Buscar da Supabase
+# FUNÇÕES DE PROCESSAMENTO DA API ORIGINAL
 # =============================================================================
 
-def buscar_historico_supabase(limite=50):
-    """Busca histórico de jogos do Supabase"""
+def processar_item_api(item):
     try:
-        # Tenta diferentes tabelas que podem conter os dados
-        tabelas = ['game_results', 'bacbo_games', 'results', 'game_history']
+        data = item.get('data', {})
+        result = data.get('result', {})
+        player_dice = result.get('playerDice', {})
+        banker_dice = result.get('bankerDice', {})
         
-        for tabela in tabelas:
-            url = f"{SUPABASE_URL}/rest/v1/{tabela}"
-            params = {
-                'select': '*',
-                'order': 'created_at.desc',
-                'limit': limite
-            }
-            
-            response = session.get(url, params=params, timeout=TIMEOUT_API)
-            
-            if response.status_code == 200:
-                dados = response.json()
-                if dados and len(dados) > 0:
-                    print(f"✅ Dados encontrados na tabela: {tabela}")
-                    return dados
-        
-        print("⚠️ Nenhuma tabela encontrada")
-        return None
-        
-    except Exception as e:
-        print(f"❌ Erro ao buscar Supabase: {e}")
-        return None
-
-# =============================================================================
-# 🔥 WEBSOCKET HANDLER
-# =============================================================================
-
-def on_ws_message(ws, message):
-    """Processa mensagens do WebSocket"""
-    try:
-        data = json.loads(message)
-        
-        # Mensagens criptografadas
-        if 'encrypted' in data:
-            print(f"🔐 Mensagem criptografada recebida")
-            # Aqui você implementaria a descriptografia
-            # Por enquanto, só loga
-            return
-            
-        # Se for mensagem de jogo
-        if 'game' in data or 'result' in data:
-            processar_mensagem_jogo(data)
-            
-    except Exception as e:
-        print(f"❌ Erro processando WebSocket: {e}")
-
-def on_ws_error(ws, error):
-    print(f"⚠️ WebSocket error: {error}")
-
-def on_ws_close(ws, close_status_code, close_msg):
-    print(f"🔌 WebSocket fechado: {close_status_code} - {close_msg}")
-    # Reconecta após 5 segundos
-    time.sleep(5)
-    iniciar_websocket()
-
-def on_ws_open(ws):
-    print("✅ WebSocket conectado!")
-    # Envia mensagem de identificação
-    ws.send(json.dumps({
-        "type": "subscribe",
-        "channel": "bacbo"
-    }))
-
-def iniciar_websocket():
-    """Inicia conexão WebSocket"""
-    try:
-        ws = websocket.WebSocketApp(
-            WS_URL,
-            on_open=on_ws_open,
-            on_message=on_ws_message,
-            on_error=on_ws_error,
-            on_close=on_ws_close
-        )
-        
-        # Roda em thread separada
-        wst = threading.Thread(target=ws.run_forever, daemon=True)
-        wst.start()
-        return ws
-        
-    except Exception as e:
-        print(f"❌ Erro ao iniciar WebSocket: {e}")
-        return None
-
-def processar_mensagem_jogo(data):
-    """Processa mensagem de jogo e salva no banco"""
-    try:
-        # Extrair dados da rodada
-        rodada = {
-            'id': data.get('id') or data.get('game_id') or str(time.time()),
-            'data_hora': datetime.now(timezone.utc),
-            'player_score': data.get('player_score', 0),
-            'banker_score': data.get('banker_score', 0),
-            'resultado': data.get('result', '').upper(),
-            'multiplicador': data.get('multiplier', 1),
-            'total_winners': data.get('winners', 0),
-            'total_amount': data.get('amount', 0)
-        }
-        
-        # Mapear resultado
-        if 'player' in rodada['resultado'].lower():
-            rodada['resultado'] = 'PLAYER'
-        elif 'banker' in rodada['resultado'].lower():
-            rodada['resultado'] = 'BANKER'
+        resultado_api = result.get('outcome', '')
+        if resultado_api == 'PlayerWon':
+            resultado = 'PLAYER'
+        elif resultado_api == 'BankerWon':
+            resultado = 'BANKER'
         else:
-            rodada['resultado'] = 'TIE'
-        
-        # Salvar no banco
-        if salvar_rodada(rodada):
-            print(f"✅ Nova rodada via WebSocket: {rodada['resultado']}")
-            # 🔥 ATUALIZA INSTANTANEAMENTE
-            atualizar_dados_leves()
-            print(f"⚡ Cache atualizado instantaneamente!")
-            
+            resultado = 'TIE'
+
+        data_hora = datetime.fromisoformat(data.get('settledAt', '').replace('Z', '+00:00'))
+
+        return {
+            'id': data.get('id'),
+            'data_hora': data_hora,
+            'player_score': player_dice.get('score', 0),
+            'banker_score': banker_dice.get('score', 0),
+            'resultado': resultado,
+            'multiplicador': result.get('multiplier', 1),
+            'total_winners': item.get('totalWinners', 0),
+            'total_amount': item.get('totalAmount', 0)
+        }
     except Exception as e:
-        print(f"❌ Erro processando mensagem: {e}")
+        print(f"⚠️ Erro processar item: {e}")
+        return None
+
+def buscar_dados_api_com_retry():
+    for tentativa in range(MAX_RETRIES):
+        try:
+            params = PARAMS.copy()
+            params['page'] = 0
+            params['size'] = 50
+            response = session.get(API_URL, params=params, timeout=TIMEOUT_API)
+            response.raise_for_status()
+            cache['falhas_consecutivas'] = 0
+            return response.json()
+        except requests.exceptions.Timeout:
+            print(f"⏱️ Timeout tentativa {tentativa + 1}")
+            time.sleep(RETRY_DELAY)
+        except Exception as e:
+            print(f"⚠️ Erro tentativa {tentativa + 1}: {e}")
+            time.sleep(RETRY_DELAY)
+    
+    cache['falhas_consecutivas'] += 1
+    print(f"❌ Todas as {MAX_RETRIES} tentativas falharam")
+    return None
 
 # =============================================================================
 # ESTRATÉGIA #1: COMPENSAÇÃO
@@ -613,7 +538,7 @@ def identificar_modo(player_pct, banker_pct, dados):
         return "EQUILIBRADO"
 
 # =============================================================================
-# FUNÇÃO PRINCIPAL DE PREVISÃO
+# FUNÇÃO PRINCIPAL DE PREVISÃO (COM TODAS AS 8 ESTRATÉGIAS)
 # =============================================================================
 def calcular_previsao():
     """🎯 Calcula previsão com TODAS as 8 estratégias"""
@@ -709,6 +634,7 @@ def calcular_previsao():
         previsao = 'PLAYER'
         confianca = round((votos_player / total_votos) * 100) if total_votos > 0 else 50
     else:
+        # Empate técnico: usar porcentagem do gráfico
         if banker_pct > player_pct:
             previsao = 'BANKER'
             confianca = round((banker_pct / (banker_pct + player_pct)) * 100)
@@ -739,15 +665,15 @@ def atualizar_dados_leves():
     cache['leves']['total_rodadas'] = get_total_rapido()
     cache['leves']['previsao'] = calcular_previsao()
     cache['leves']['ultima_atualizacao'] = datetime.now(timezone.utc)
-    print(f"⚡ Cache LEVE atualizado - Total: {cache['leves']['total_rodadas']} rodadas")
+    print(f"⚡ Cache LEVE atualizado - Total: {cache['leves']['total_rodadas']} rodadas | Previsão: {cache['leves']['previsao']['previsao'] if cache['leves']['previsao'] else 'N/A'}")
 
 # =============================================================================
-# 🔥 LOOP DE COLETA SUPABASE - OTIMIZADO
+# 🔥 LOOP DE COLETA COM ATUALIZAÇÃO INSTANTÂNEA
 # =============================================================================
 
-def loop_coleta_supabase():
-    """Loop principal coletando do Supabase - OTIMIZADO"""
-    print("🔄 Iniciando coleta do Supabase...")
+def loop_coleta_com_logs():
+    """Loop principal com logs detalhados - ATUALIZAÇÃO A CADA 3 SEGUNDOS"""
+    print("🔄 Iniciando loop de coleta com logs...")
     ultimo_id = None
     ciclo = 0
     
@@ -758,75 +684,65 @@ def loop_coleta_supabase():
             
             print(f"\n{'='*50}")
             print(f"📊 CICLO #{ciclo} - {datetime.now().strftime('%H:%M:%S')}")
+            print(f"{'='*50}")
             
-            dados = buscar_historico_supabase(limite=50)
+            dados = buscar_dados_api_com_retry()
             
-            if dados and len(dados) > 0:
-                print(f"📥 Supabase retornou {len(dados)} itens")
+            if dados:
+                print(f"📥 API retornou {len(dados)} itens")
                 
                 # Mostrar primeiro item
-                primeiro = dados[0]
-                novo_id = primeiro.get('id') or primeiro.get('game_id')
-                resultado = primeiro.get('result') or primeiro.get('outcome', '')
-                
-                print(f"   📌 Primeiro ID: {novo_id}")
-                print(f"   🎲 Resultado: {resultado}")
-                
-                if novo_id and novo_id != ultimo_id:
-                    print(f"   ✅ NOVA RODADA DETECTADA!")
-                    ultimo_id = novo_id
+                if len(dados) > 0:
+                    primeiro = dados[0]
+                    data = primeiro.get('data', {})
+                    result = data.get('result', {})
+                    novo_id = data.get('id')
+                    player = result.get('playerDice', {}).get('score')
+                    banker = result.get('bankerDice', {}).get('score')
+                    outcome = result.get('outcome', '')
                     
-                    # 🔥 PROCESSAR TODOS OS ITENS NOVOS (não só os 10 primeiros)
-                    novas_rodadas = 0
-                    for i, item in enumerate(dados):
-                        # Pega o ID do item
-                        item_id = item.get('id') or item.get('game_id')
+                    print(f"   📌 Primeiro ID: {novo_id}")
+                    print(f"   🎲 Resultado: {outcome} - {player} vs {banker}")
+                    
+                    if novo_id and novo_id != ultimo_id:
+                        print(f"   ✅ NOVA RODADA DETECTADA!")
+                        ultimo_id = novo_id
                         
-                        # Se for o mesmo que já processamos, para
-                        if item_id == cache['ultimo_id_processado']:
-                            break
+                        # 🔥 PROCESSAR TODOS OS ITENS NOVOS
+                        novas_rodadas = 0
+                        for i, item in enumerate(dados):
+                            # Se já processamos esse ID, para de processar
+                            item_id = item.get('data', {}).get('id')
+                            if item_id == cache['ultimo_id_processado']:
+                                print(f"      ⏹️ Parando no item {i+1} (já processado)")
+                                break
+                                
+                            rodada = processar_item_api(item)
+                            if rodada and rodada['id']:
+                                if salvar_rodada(rodada):
+                                    novas_rodadas += 1
+                                    print(f"      ✓ Item {i+1} salvo (ID: {rodada['id'][-8:]})")
+                                    
+                                    # 🔥 Atualiza último ID processado (primeiro item)
+                                    if i == 0:
+                                        cache['ultimo_id_processado'] = item_id
                         
-                        rodada = {
-                            'id': item_id or f"game_{time.time()}_{i}",
-                            'data_hora': datetime.now(timezone.utc),
-                            'player_score': item.get('player_score', 0) or item.get('playerScore', 0),
-                            'banker_score': item.get('banker_score', 0) or item.get('bankerScore', 0),
-                            'resultado': item.get('result', '') or item.get('outcome', ''),
-                            'multiplicador': item.get('multiplier', 1),
-                            'total_winners': item.get('winners', 0),
-                            'total_amount': item.get('amount', 0)
-                        }
-                        
-                        # Normalizar resultado
-                        if 'player' in str(rodada['resultado']).lower():
-                            rodada['resultado'] = 'PLAYER'
-                        elif 'banker' in str(rodada['resultado']).lower():
-                            rodada['resultado'] = 'BANKER'
+                        if novas_rodadas > 0:
+                            print(f"✅ +{novas_rodadas} novas rodadas salvas")
+                            # 🔥 ATUALIZA INSTANTANEAMENTE
+                            atualizar_dados_leves()
+                            print(f"⚡ Cache atualizado em {time.time() - inicio_ciclo:.2f}s!")
                         else:
-                            rodada['resultado'] = 'TIE'
-                        
-                        if salvar_rodada(rodada):
-                            novas_rodadas += 1
-                            print(f"      ✓ Item {i+1} salvo (ID: {rodada['id'][-8:]})")
-                            
-                            # 🔥 ATUALIZA O ÚLTIMO ID PROCESSADO
-                            if i == 0:
-                                cache['ultimo_id_processado'] = item_id
-                    
-                    if novas_rodadas > 0:
-                        print(f"✅ +{novas_rodadas} novas rodadas salvas")
-                        # 🔥 ATUALIZA INSTANTANEAMENTE
-                        atualizar_dados_leves()
-                        print(f"⚡ Cache atualizado em {time.time() - inicio_ciclo:.2f}s!")
+                            print("⏳ Nenhuma rodada nova (já existiam)")
                     else:
-                        print("⏳ Nenhuma rodada nova (duplicadas)")
+                        print(f"   ⏳ Mesmo ID do ciclo anterior")
                 else:
-                    print("⏳ Mesmo ID do ciclo anterior")
+                    print("⚠️ API não retornou dados")
             
-            # Mostra tempo do ciclo
-            tempo_ciclo = time.time() - inicio_ciclo
-            print(f"⏱️ Tempo do ciclo: {tempo_ciclo:.2f}s")
+            tempo_gasto = time.time() - inicio_ciclo
+            print(f"⏱️ Tempo do ciclo: {tempo_gasto:.2f}s")
             print(f"📈 Total no banco: {cache['leves']['total_rodadas']}")
+            print(f"💾 Últimas 50: {len(cache['leves']['ultimas_50'])}")
             
             # 🔥 INTERVALO REDUZIDO PARA 3 SEGUNDOS
             time.sleep(INTERVALO_COLETA)
@@ -836,7 +752,7 @@ def loop_coleta_supabase():
             time.sleep(INTERVALO_COLETA)
 
 # =============================================================================
-# LOOP PESADO SEPARADO
+# LOOP PESADO SEPARADO (a cada 30s)
 # =============================================================================
 
 def loop_pesado():
@@ -846,6 +762,134 @@ def loop_pesado():
         time.sleep(30)
         atualizar_dados_pesados()
         print("📊 Estatísticas pesadas atualizadas")
+
+# =============================================================================
+# 🔥 ROTA DE DIAGNÓSTICO
+# =============================================================================
+
+@app.route('/diagnostico')
+def diagnostico():
+    """Mostra o status do sistema"""
+    try:
+        # Testar conexão com banco
+        conn = get_db_connection()
+        banco_ok = conn is not None
+        if banco_ok:
+            cur = conn.cursor()
+            cur.execute('SELECT COUNT(*) FROM rodadas')
+            total_banco = cur.fetchone()[0]
+            
+            # Pegar última rodada
+            cur.execute('''
+                SELECT data_hora, player_score, banker_score, resultado
+                FROM rodadas
+                ORDER BY data_hora DESC
+                LIMIT 1
+            ''')
+            ultima = cur.fetchone()
+            cur.close()
+            conn.close()
+            
+            ultima_rodada = {
+                'data': str(ultima[0]),
+                'player': ultima[1],
+                'banker': ultima[2],
+                'resultado': ultima[3]
+            } if ultima else None
+        else:
+            total_banco = 0
+            ultima_rodada = None
+
+        # Testar API externa
+        api_ok = False
+        ultima_api = None
+        try:
+            params = PARAMS.copy()
+            params['size'] = 1
+            response = session.get(API_URL, params=params, timeout=5)
+            api_ok = response.status_code == 200
+            if api_ok:
+                dados = response.json()
+                if dados and len(dados) > 0:
+                    data = dados[0].get('data', {})
+                    result = data.get('result', {})
+                    ultima_api = {
+                        'id': data.get('id'),
+                        'outcome': result.get('outcome'),
+                        'player': result.get('playerDice', {}).get('score'),
+                        'banker': result.get('bankerDice', {}).get('score')
+                    }
+        except Exception as e:
+            print(f"⚠️ Erro testando API: {e}")
+
+        return jsonify({
+            'status': 'ok',
+            'timestamp': datetime.now().isoformat(),
+            'banco': {
+                'conectado': banco_ok,
+                'total_rodadas': total_banco,
+                'cache': cache['leves']['total_rodadas'],
+                'ultima_rodada': ultima_rodada
+            },
+            'api_externa': {
+                'funcionando': api_ok,
+                'ultimo_resultado': ultima_api
+            },
+            'cache': {
+                'ultimas_50': len(cache['leves']['ultimas_50']),
+                'ultimas_20': len(cache['leves']['ultimas_20']),
+                'ultima_atualizacao': str(cache['leves']['ultima_atualizacao']),
+                'previsao': cache['leves']['previsao'],
+                'ultimo_id_processado': cache['ultimo_id_processado']
+            }
+        })
+    except Exception as e:
+        return jsonify({'erro': str(e)}), 500
+
+# =============================================================================
+# 🔥 ROTA PARA FORÇAR COLETA
+# =============================================================================
+
+@app.route('/forcar-coleta')
+def forcar_coleta():
+    """Força coleta manual IMEDIATA"""
+    try:
+        dados = buscar_dados_api_com_retry()
+        if not dados:
+            return jsonify({'status': 'erro', 'mensagem': 'Sem dados da API'})
+        
+        novas = 0
+        for item in dados:
+            rodada = processar_item_api(item)
+            if rodada and rodada['id']:
+                if salvar_rodada(rodada):
+                    novas += 1
+        
+        if novas > 0:
+            atualizar_dados_leves()
+            
+            # Pegar última rodada salva
+            ultima = dados[0].get('data', {}).get('result', {})
+            
+            return jsonify({
+                'status': 'ok', 
+                'novas_rodadas': novas,
+                'total_agora': cache['leves']['total_rodadas'],
+                'ultima': {
+                    'outcome': ultima.get('outcome'),
+                    'player': ultima.get('playerDice', {}).get('score'),
+                    'banker': ultima.get('bankerDice', {}).get('score')
+                }
+            })
+        else:
+            return jsonify({
+                'status': 'ok', 
+                'mensagem': 'Nenhuma rodada nova',
+                'total': cache['leves']['total_rodadas']
+            })
+            
+    except Exception as e:
+        return jsonify({'status': 'erro', 'erro': str(e)}), 500
 
 # =============================================================================
 # ROTAS DA API
@@ -918,82 +962,31 @@ def api_tabela(limite):
 def health():
     return jsonify({'status': 'ok', 'rodadas': cache['leves']['total_rodadas']})
 
-@app.route('/diagnostico')
-def diagnostico():
-    """Mostra o status do sistema"""
-    try:
-        conn = get_db_connection()
-        banco_ok = conn is not None
-        if banco_ok:
-            cur = conn.cursor()
-            cur.execute('SELECT COUNT(*) FROM rodadas')
-            total_banco = cur.fetchone()[0]
-            
-            cur.execute('''
-                SELECT data_hora, player_score, banker_score, resultado
-                FROM rodadas
-                ORDER BY data_hora DESC
-                LIMIT 1
-            ''')
-            ultima = cur.fetchone()
-            cur.close()
-            conn.close()
-            
-            ultima_rodada = {
-                'data': str(ultima[0]),
-                'player': ultima[1],
-                'banker': ultima[2],
-                'resultado': ultima[3]
-            } if ultima else None
-        else:
-            total_banco = 0
-            ultima_rodada = None
-
-        # Testar Supabase
-        supabase_ok = False
-        try:
-            response = session.get(f"{SUPABASE_URL}/rest/v1/", timeout=5)
-            supabase_ok = response.status_code == 200
-        except:
-            pass
-
-        return jsonify({
-            'status': 'ok',
-            'timestamp': datetime.now().isoformat(),
-            'banco': {
-                'conectado': banco_ok,
-                'total_rodadas': total_banco,
-                'cache': cache['leves']['total_rodadas'],
-                'ultima_rodada': ultima_rodada
-            },
-            'supabase': {
-                'conectado': supabase_ok
-            },
-            'cache': {
-                'ultimas_50': len(cache['leves']['ultimas_50']),
-                'ultimas_20': len(cache['leves']['ultimas_20']),
-                'ultima_atualizacao': str(cache['leves']['ultima_atualizacao']),
-                'previsao': cache['leves']['previsao']
-            }
-        })
-    except Exception as e:
-        return jsonify({'erro': str(e)}), 500
-
 # =============================================================================
 # MAIN
 # =============================================================================
 if __name__ == "__main__":
     print("="*70)
-    print("🚀 BOT BACBO - ATUALIZAÇÃO INSTANTÂNEA")
+    print("🚀 BOT BACBO - 8 ESTRATÉGIAS COMPLETAS - ATUALIZAÇÃO 3s")
     print("="*70)
-    print("✅ API: Supabase + WebSocket")
+    print("✅ API ORIGINAL - funcionando perfeitamente")
     print("✅ SEM SELECT ID (usa ON CONFLICT)")
     print("✅ LEVE x PESADO separados")
     print("✅ LIMIT 3000 em todas consultas")
     print("✅ Índices no banco")
     print("✅ Horário Brasília")
     print("✅ 8 Estratégias implementadas")
-    print("✅ ATUALIZAÇÃO INSTANTÂNEA - SEM TRAVAMENTO")
+    print("✅ ATUALIZAÇÃO A CADA 3 SEGUNDOS")
+    print("="*70)
+    print("📋 ESTRATÉGIAS:")
+    print("   #1: Compensação")
+    print("   #2: Paredão")
+    print("   #3: Moedor")
+    print("   #4: Xadrez")
+    print("   #5: Contragolpe")
+    print("   #6: Reset Cluster")
+    print("   #7: Falsa Alternância")
+    print("   #8: Meta-Algoritmo")
     print("="*70)
     
     # Inicializar banco
@@ -1005,14 +998,19 @@ if __name__ == "__main__":
     atualizar_dados_pesados()
     
     print(f"📊 {cache['leves']['total_rodadas']} rodadas no banco")
-    
-    # Iniciar WebSocket
-    print("🔌 Iniciando WebSocket...")
-    iniciar_websocket()
+    print(f"⚡ Timeout: {TIMEOUT_API}s")
+    print("🌐 Rotas disponíveis:")
+    print("   - / - Dashboard")
+    print("   - /api/stats - Estatísticas")
+    print("   - /api/tabela/<limite> - Tabela de resultados")
+    print("   - /diagnostico - Ver status do sistema")
+    print("   - /forcar-coleta - Forçar coleta manual")
+    print("   - /health - Health check")
+    print("="*70)
     
     # Threads
     print("🚀 Iniciando threads...")
-    threading.Thread(target=loop_coleta_supabase, daemon=True).start()
+    threading.Thread(target=loop_coleta_com_logs, daemon=True).start()
     threading.Thread(target=loop_pesado, daemon=True).start()
     
     print("✅ Servidor Flask iniciando...")
