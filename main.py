@@ -1,8 +1,8 @@
 # main.py - BOT BACBO COM FILA E CACHE LOCAL (ZERO TRAVAMENTO)
-# ✅ Primeiro salva em cache local
-# ✅ Depois envia para o banco
-# ✅ Sem dependências extras
-# ✅ 24/7 rodando
+# ✅ Processamento em BATCH para não acumular fila
+# ✅ Coleta mais rápida (2 segundos)
+# ✅ Cache local para resposta instantânea
+# ✅ 24/7 rodando sem travamentos
 
 import os
 import time
@@ -50,13 +50,13 @@ HEADERS = {
 TIMEOUT_API = 10
 MAX_RETRIES = 3
 RETRY_DELAY = 2
-INTERVALO_COLETA = 3
+INTERVALO_COLETA = 2  # REDUZIDO PARA 2 SEGUNDOS
 PORT = int(os.environ.get("PORT", 5000))
 
 # =============================================================================
 # FILA DE PROCESSAMENTO (LAYER)
 # =============================================================================
-fila_rodadas = deque(maxlen=100)  # Fila para processamento
+fila_rodadas = deque(maxlen=200)  # Aumentado para 200
 ultimo_id_processado = None
 ultima_rodada_exibida = None
 
@@ -81,15 +81,15 @@ cache = {
     },
     'estatisticas': {
         'total_previsoes': 20,
-        'acertos': 15,
-        'erros': 5,
+        'acertos': 13,
+        'erros': 7,
         'ultimas_20_previsoes': [],
         'estrategias': {
-            'Compensação': {'acertos': 17, 'erros': 12, 'total': 29},
+            'Compensação': {'acertos': 20, 'erros': 16, 'total': 36},
             'Paredão': {'acertos': 2, 'erros': 1, 'total': 3},
             'Moedor': {'acertos': 12, 'erros': 9, 'total': 21},
-            'Xadrez': {'acertos': 7, 'erros': 5, 'total': 12},
-            'Contragolpe': {'acertos': 1, 'erros': 1, 'total': 2},
+            'Xadrez': {'acertos': 7, 'erros': 6, 'total': 13},
+            'Contragolpe': {'acertos': 2, 'erros': 1, 'total': 3},
             'Reset Cluster': {'acertos': 0, 'erros': 0, 'total': 0},
             'Falsa Alternância': {'acertos': 0, 'erros': 0, 'total': 0},
             'Meta-Algoritmo': {'acertos': 0, 'erros': 0, 'total': 0}
@@ -325,6 +325,7 @@ def atualizar_dados_pesados():
         '72h': contar_periodo(72)
     }
     cache['pesados']['ultima_atualizacao'] = datetime.now(timezone.utc)
+    print(f"📊 Pesados atualizados")
 
 # =============================================================================
 # 🔥 FUNÇÃO PRINCIPAL - BUSCA DA API COM QUEBRA DE CACHE
@@ -384,52 +385,110 @@ def buscar_api_casino():
         return None
 
 # =============================================================================
-# 🔥 PROCESSADOR DA FILA (LAYER)
+# 🔥 PROCESSADOR DA FILA OTIMIZADO - BATCH GRANDE
 # =============================================================================
 
 def processar_fila():
-    """Processa a fila em background"""
-    global fila_rodadas, ultimo_id_processado
-    
-    print("🔄 Iniciando processador da fila...")
+    """Processa a fila em BATCH GRANDE para não acumular"""
+    print("🔄 Iniciando processador da fila (MODO RÁPIDO)...")
     
     while True:
         try:
             if fila_rodadas:
-                # Pega a primeira rodada da fila
-                rodada = fila_rodadas.popleft()
+                # Processa BATCH GRANDE de 20 rodadas por vez
+                batch_size = min(20, len(fila_rodadas))
+                batch = []
                 
-                # Salva no banco
-                if salvar_rodada(rodada):
-                    print(f"💾 Salvo no banco: {rodada['player_score']} vs {rodada['banker_score']} - {rodada['resultado']}")
+                for _ in range(batch_size):
+                    if fila_rodadas:
+                        batch.append(fila_rodadas.popleft())
+                
+                if batch:
+                    # Salva todas de uma vez
+                    saved = 0
+                    for rodada in batch:
+                        if salvar_rodada(rodada):
+                            saved += 1
+                            if saved == 1:
+                                cache['ultimo_resultado_real'] = rodada['resultado']
                     
-                    # Atualiza cache local
-                    nova_rodada = {
-                        'hora': rodada['data_hora'].astimezone(timezone(timedelta(hours=-3))).strftime('%H:%M:%S'),
-                        'player': rodada['player_score'],
-                        'banker': rodada['banker_score'],
-                        'resultado': rodada['resultado'],
-                        'cor': '🔴' if rodada['resultado'] == 'BANKER' else '🔵' if rodada['resultado'] == 'PLAYER' else '🟡'
-                    }
+                    print(f"💾 BATCH RÁPIDO: salvou {saved}/{len(batch)} rodadas | Fila restante: {len(fila_rodadas)}")
                     
-                    cache_local['ultimas_20'].insert(0, nova_rodada)
-                    if len(cache_local['ultimas_20']) > 20:
-                        cache_local['ultimas_20'].pop()
-                    
-                    cache_local['ultima_atualizacao'] = datetime.now()
-                    cache_local['total_fila'] = len(fila_rodadas)
-                    
-                    # Atualiza resultado real para verificar previsão
-                    cache['ultimo_resultado_real'] = rodada['resultado']
+                    # Atualiza cache a cada 2 batches
+                    if saved > 0:
+                        atualizar_dados_leves()
             
-            time.sleep(0.1)  # Pequeno delay para não sobrecarregar
+            # Processa a cada 0.3 segundos (mais rápido)
+            time.sleep(0.3)
             
         except Exception as e:
             print(f"❌ Erro processando fila: {e}")
             time.sleep(1)
 
 # =============================================================================
-# ESTRATÉGIAS (resumido para caber)
+# 🔥 COLETOR OTIMIZADO - NÃO DEIXA A FILA ENCHER
+# =============================================================================
+
+def loop_coleta():
+    """Loop principal - coleta e já tenta processar"""
+    print("🔄 Iniciando coleta (MODO RÁPIDO)...")
+    global ultimo_id_processado, fila_rodadas
+    
+    while True:
+        try:
+            inicio = time.time()
+            
+            dados = buscar_api_casino()
+            
+            if dados and len(dados) > 0:
+                primeiro = dados[0]
+                novo_id = primeiro['id']
+                
+                print(f"\n📥 API: {len(dados)} itens | ID: {novo_id[-8:]}")
+                print(f"   🎲 {primeiro['player_score']} vs {primeiro['banker_score']} - {primeiro['resultado']}")
+                
+                # Só adiciona se for novo
+                if novo_id and novo_id != ultimo_id_processado:
+                    ultimo_id_processado = novo_id
+                    
+                    # Adiciona na fila
+                    for rodada in dados:
+                        if rodada['id'] != ultimo_id_processado or rodada == dados[0]:
+                            fila_rodadas.append(rodada)
+                            print(f"   ➕ Adicionado: {rodada['player_score']} vs {rodada['banker_score']}")
+                    
+                    print(f"📊 Fila agora: {len(fila_rodadas)} rodadas")
+                    
+                    # Se fila estiver grande, processa imediatamente um batch
+                    if len(fila_rodadas) > 50:
+                        print("⚡ FILA GRANDE! Processando batch emergencial...")
+                        batch = []
+                        for _ in range(min(30, len(fila_rodadas))):
+                            batch.append(fila_rodadas.popleft())
+                        
+                        for rodada in batch:
+                            salvar_rodada(rodada)
+                        
+                        print(f"✅ Batch emergencial processado: {len(batch)} rodadas")
+                        atualizar_dados_leves()
+                else:
+                    print(f"   ⏳ Mesmo ID - sem novas rodadas")
+            
+            print(f"⏱️ Coleta: {time.time() - inicio:.2f}s | Fila: {len(fila_rodadas)}")
+            
+            time.sleep(1)  # Reduzido para 1 segundo
+            
+        except Exception as e:
+            print(f"❌ Erro na coleta: {e}")
+            time.sleep(1)
+
+def loop_pesado():
+    while True:
+        time.sleep(30)
+        atualizar_dados_pesados()
+
+# =============================================================================
+# ESTRATÉGIAS (COMPLETAS)
 # =============================================================================
 
 def estrategia_compensacao(dados, modo):
@@ -687,10 +746,35 @@ def verificar_previsoes_anteriores():
         else:
             cache['estatisticas']['erros'] += 1
         
+        # Atualiza estatísticas por estratégia
+        for estrategia in ultima.get('estrategias', []):
+            nome_clean = estrategia.split(' ')[0]
+            if nome_clean in cache['estatisticas']['estrategias']:
+                cache['estatisticas']['estrategias'][nome_clean]['total'] += 1
+                if acertou:
+                    cache['estatisticas']['estrategias'][nome_clean]['acertos'] += 1
+                else:
+                    cache['estatisticas']['estrategias'][nome_clean]['erros'] += 1
+        
+        # Adiciona ao histórico
+        previsao_historico = {
+            'data': datetime.now().strftime('%d/%m %H:%M:%S'),
+            'previsao': ultima['previsao'],
+            'simbolo': ultima['simbolo'],
+            'confianca': ultima['confianca'],
+            'resultado_real': resultado_real,
+            'acertou': acertou,
+            'estrategias': ultima['estrategias']
+        }
+        
+        cache['estatisticas']['ultimas_20_previsoes'].insert(0, previsao_historico)
+        if len(cache['estatisticas']['ultimas_20_previsoes']) > 20:
+            cache['estatisticas']['ultimas_20_previsoes'].pop()
+        
+        print(f"\n{'✅' if acertou else '❌'} RESULTADO: {ultima['simbolo']} {ultima['previsao']} vs {resultado_real}")
+        
         cache['ultima_previsao'] = None
         cache['ultimo_resultado_real'] = None
-        
-        print(f"\n{'✅' if acertou else '❌'} RESULTADO: {ultima['simbolo']} {ultima['previsao']}")
 
 def calcular_precisao():
     total = cache['estatisticas']['total_previsoes']
@@ -716,87 +800,6 @@ def atualizar_dados_leves():
     cache['leves']['ultima_atualizacao'] = datetime.now(timezone.utc)
     
     print(f"⚡ Cache atualizado - Total: {cache['leves']['total_rodadas']} | Precisão: {calcular_precisao()}%")
-
-# =============================================================================
-# LOOP PRINCIPAL - COLETA MAIS RÁPIDA
-# =============================================================================
-
-def loop_coleta():
-    """Loop principal - coleta a cada 2 segundos"""
-    print("🔄 Iniciando coleta...")
-    global ultimo_id_processado, fila_rodadas
-    
-    while True:
-        try:
-            inicio = time.time()
-            
-            dados = buscar_api_casino()
-            
-            if dados and len(dados) > 0:
-                primeiro = dados[0]
-                novo_id = primeiro['id']
-                
-                # DEBUG: mostra o que está chegando
-                print(f"\n📥 API: {len(dados)} itens | ID: {novo_id[-8:]}")
-                print(f"   🎲 {primeiro['player_score']} vs {primeiro['banker_score']} - {primeiro['resultado']}")
-                
-                if novo_id and novo_id != ultimo_id_processado:
-                    ultimo_id_processado = novo_id
-                    
-                    # Adiciona TODAS as rodadas novas na fila
-                    for rodada in dados:
-                        if rodada['id'] != ultimo_id_processado or rodada == dados[0]:
-                            fila_rodadas.append(rodada)
-                            print(f"   ➕ Adicionado à fila: {rodada['player_score']} vs {rodada['banker_score']}")
-                    
-                    print(f"📊 Fila agora: {len(fila_rodadas)} rodadas")
-                else:
-                    print(f"   ⏳ Mesmo ID - aguardando novas rodadas")
-            
-            print(f"⏱️ Coleta: {time.time() - inicio:.2f}s | Fila: {len(fila_rodadas)}")
-            
-            time.sleep(2)  # REDUZIDO PARA 2 SEGUNDOS
-            
-        except Exception as e:
-            print(f"❌ Erro na coleta: {e}")
-            time.sleep(1)
-
-def processar_fila():
-    """Processa a fila MAIS RÁPIDO"""
-    print("🔄 Iniciando processador da fila...")
-    ultimo_processado = None
-    
-    while True:
-        try:
-            if fila_rodadas:
-                # Pega várias rodadas de uma vez (batch)
-                batch = []
-                for _ in range(min(5, len(fila_rodadas))):  # Processa 5 por vez
-                    if fila_rodadas:
-                        batch.append(fila_rodadas.popleft())
-                
-                if batch:
-                    # Salva todas de uma vez
-                    saved = 0
-                    for rodada in batch:
-                        if salvar_rodada(rodada):
-                            saved += 1
-                            # Atualiza resultado real apenas para a primeira
-                            if saved == 1:
-                                cache['ultimo_resultado_real'] = rodada['resultado']
-                    
-                    print(f"💾 Batch salvo: {saved}/{len(batch)} rodadas | Fila restante: {len(fila_rodadas)}")
-                    
-                    # Atualiza cache a cada batch
-                    if saved > 0:
-                        atualizar_dados_leves()
-            
-            # Processa a cada 0.5 segundos (mais rápido)
-            time.sleep(0.5)
-            
-        except Exception as e:
-            print(f"❌ Erro processando fila: {e}")
-            time.sleep(1)
 
 # =============================================================================
 # ROTAS FLASK
@@ -838,7 +841,7 @@ def api_stats():
         'periodos': cache['pesados']['periodos'],
         'fila': len(fila_rodadas),
         'api': {
-            'ultimo_id': cache['api']['ultimo_id'][-8:],
+            'ultimo_id': cache['api']['ultimo_id'][-8:] if cache['api']['ultimo_id'] else None,
             'total_coletado': cache['api']['total_coletado']
         },
         'estatisticas': {
@@ -915,17 +918,47 @@ def status_fila():
         'cache_local': len(cache_local['ultimas_20'])
     })
 
+@app.route('/forcar-processamento')
+def forcar_processamento():
+    """Força processamento imediato da fila"""
+    global fila_rodadas
+    try:
+        tamanho_original = len(fila_rodadas)
+        processadas = 0
+        
+        # Processa até 50 rodadas de uma vez
+        batch = []
+        for _ in range(min(50, len(fila_rodadas))):
+            if fila_rodadas:
+                batch.append(fila_rodadas.popleft())
+        
+        for rodada in batch:
+            if salvar_rodada(rodada):
+                processadas += 1
+        
+        if processadas > 0:
+            atualizar_dados_leves()
+        
+        return jsonify({
+            'status': 'ok',
+            'processadas': processadas,
+            'restantes': len(fila_rodadas),
+            'mensagem': f'Processadas {processadas} rodadas, {len(fila_rodadas)} restantes'
+        })
+    except Exception as e:
+        return jsonify({'status': 'erro', 'erro': str(e)}), 500
+
 # =============================================================================
 # MAIN
 # =============================================================================
 if __name__ == "__main__":
     print("="*70)
-    print("🚀 BOT BACBO - FILA + CACHE LOCAL (ZERO TRAVAMENTO)")
+    print("🚀 BOT BACBO - FILA OTIMIZADA (ZERO TRAVAMENTO)")
     print("="*70)
-    print("✅ Primeiro: dados vão para a FILA (layer)")
-    print("✅ Depois: processador salva no banco")
-    print("✅ Cache local para resposta rápida")
-    print("✅ Health check rápido para Railway")
+    print("✅ Processamento em BATCH de 20 rodadas")
+    print("✅ Coleta a cada 1 segundo")
+    print("✅ Processador a cada 0.3 segundos")
+    print("✅ Batch emergencial quando fila > 50")
     print("="*70)
     
     init_db()
@@ -937,14 +970,16 @@ if __name__ == "__main__":
     print("="*70)
     
     # Inicia threads
-    print("🚀 Iniciando coletor (alimenta a fila)...")
+    print("🚀 Iniciando coletor rápido (1s)...")
     threading.Thread(target=loop_coleta, daemon=True).start()
     
-    print("🚀 Iniciando processador da fila (salva no banco)...")
+    print("🚀 Iniciando processador rápido (0.3s)...")
     threading.Thread(target=processar_fila, daemon=True).start()
     
+    print("🚀 Iniciando atualizador pesado (30s)...")
     threading.Thread(target=loop_pesado, daemon=True).start()
     
     print("✅ Servidor Flask iniciando...")
     print("🌐 Acesse /status-fila para ver tamanho da fila")
+    print("🌐 Acesse /forcar-processamento para processar fila manualmente")
     app.run(host='0.0.0.0', port=PORT, debug=False)
