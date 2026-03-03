@@ -924,10 +924,10 @@ def status_fila():
 # =============================================================================
 
 def loop_pesado():
-    """Loop para atualizar estatísticas pesadas a cada 30 segundos"""
-    print("🔄 Loop pesado iniciado 05s)...")
+    """Loop para atualizar estatísticas pesadas a cada 10 segundos"""
+    print("🔄 Loop pesado iniciado 10s)...")
     while True:
-        time.sleep(05)
+        time.sleep(10)
         try:
             atualizar_dados_pesados()
             print(f"📊 Estatísticas pesadas atualizadas: {cache['pesados']['periodos']}")
