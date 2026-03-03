@@ -920,6 +920,21 @@ def status_fila():
     })
 
 # =============================================================================
+# 🔥 LOOP PESADO - ATUALIZA ESTATÍSTICAS (CORRIGIDO!)
+# =============================================================================
+
+def loop_pesado():
+    """Loop para atualizar estatísticas pesadas a cada 30 segundos"""
+    print("🔄 Loop pesado iniciado (30s)...")
+    while True:
+        time.sleep(30)
+        try:
+            atualizar_dados_pesados()
+            print(f"📊 Estatísticas pesadas atualizadas: {cache['pesados']['periodos']}")
+        except Exception as e:
+            print(f"❌ Erro no loop pesado: {e}")
+
+# =============================================================================
 # MAIN
 # =============================================================================
 if __name__ == "__main__":
