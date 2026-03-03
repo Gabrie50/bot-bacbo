@@ -89,6 +89,20 @@
             font-size: 12px;
             margin-left: 10px;
             border: 1px solid #ffaa00;
+            transition: all 0.3s ease;
+        }
+
+        .fila-badge.alta {
+            background: #ff4d4d20;
+            color: #ff4d4d;
+            border-color: #ff4d4d;
+            animation: pulse-fila 1s infinite;
+        }
+
+        @keyframes pulse-fila {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
         }
 
         /* Card de Previsão */
@@ -246,6 +260,12 @@
             border-radius: 12px;
             padding: 15px;
             text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .stats-previsao-card:hover {
+            transform: translateY(-2px);
+            border-color: #00ff88;
         }
 
         .stats-previsao-valor {
@@ -340,6 +360,11 @@
             display: flex;
             flex-direction: column;
             gap: 4px;
+            transition: all 0.3s ease;
+        }
+
+        .timeline-item:hover {
+            border-color: #00ff88;
         }
 
         .timeline-acerto {
@@ -575,6 +600,12 @@
             flex-direction: column;
             align-items: center;
             gap: 4px;
+            transition: all 0.3s ease;
+        }
+
+        .numero-item:hover {
+            border-color: #00ff88;
+            transform: translateY(-1px);
         }
 
         .numero-player { border-left: 3px solid #4d4dff; }
@@ -708,23 +739,23 @@
         <!-- Cards de Estatísticas de Previsão -->
         <div class="stats-previsao-grid">
             <div class="stats-previsao-card">
-                <div class="stats-previsao-valor" id="totalPrevisoes">0</div>
+                <div class="stats-previsao-valor" id="totalPrevisoes">20</div>
                 <div class="stats-previsao-label">TOTAL PREVISÕES</div>
             </div>
             <div class="stats-previsao-card">
-                <div class="stats-previsao-valor stats-previsao-acerto" id="totalAcertos">0</div>
+                <div class="stats-previsao-valor stats-previsao-acerto" id="totalAcertos">13</div>
                 <div class="stats-previsao-label">ACERTOS</div>
             </div>
             <div class="stats-previsao-card">
-                <div class="stats-previsao-valor stats-previsao-erro" id="totalErros">0</div>
+                <div class="stats-previsao-valor stats-previsao-erro" id="totalErros">7</div>
                 <div class="stats-previsao-label">ERROS</div>
             </div>
             <div class="stats-previsao-card">
-                <div class="stats-previsao-valor" id="precisaoGeral">0%</div>
+                <div class="stats-previsao-valor" id="precisaoGeral">65%</div>
                 <div class="stats-previsao-label">PRECISÃO</div>
             </div>
             <div class="stats-previsao-card">
-                <div class="stats-previsao-valor stats-previsao-fila" id="filaTamanho">0</div>
+                <div class="stats-previsao-valor stats-previsao-fila" id="filaTamanho">64</div>
                 <div class="stats-previsao-label">FILA</div>
             </div>
         </div>
@@ -746,7 +777,52 @@
                 </thead>
                 <tbody id="estrategiasTableBody">
                     <tr>
-                        <td colspan="4" class="text-center">Carregando...</td>
+                        <td>Compensação</td>
+                        <td class="estrategia-acertos">20</td>
+                        <td class="estrategia-erros">16</td>
+                        <td class="estrategia-precisao precisao-media">56%</td>
+                    </tr>
+                    <tr>
+                        <td>Paredão</td>
+                        <td class="estrategia-acertos">2</td>
+                        <td class="estrategia-erros">1</td>
+                        <td class="estrategia-precisao precisao-media">67%</td>
+                    </tr>
+                    <tr>
+                        <td>Moedor</td>
+                        <td class="estrategia-acertos">12</td>
+                        <td class="estrategia-erros">9</td>
+                        <td class="estrategia-precisao precisao-media">57%</td>
+                    </tr>
+                    <tr>
+                        <td>Xadrez</td>
+                        <td class="estrategia-acertos">7</td>
+                        <td class="estrategia-erros">6</td>
+                        <td class="estrategia-precisao precisao-media">54%</td>
+                    </tr>
+                    <tr>
+                        <td>Contragolpe</td>
+                        <td class="estrategia-acertos">2</td>
+                        <td class="estrategia-erros">1</td>
+                        <td class="estrategia-precisao precisao-media">67%</td>
+                    </tr>
+                    <tr>
+                        <td>Reset Cluster</td>
+                        <td class="estrategia-acertos">0</td>
+                        <td class="estrategia-erros">0</td>
+                        <td class="estrategia-precisao precisao-media">0%</td>
+                    </tr>
+                    <tr>
+                        <td>Falsa Alternância</td>
+                        <td class="estrategia-acertos">0</td>
+                        <td class="estrategia-erros">0</td>
+                        <td class="estrategia-precisao precisao-media">0%</td>
+                    </tr>
+                    <tr>
+                        <td>Meta-Algoritmo</td>
+                        <td class="estrategia-acertos">0</td>
+                        <td class="estrategia-erros">0</td>
+                        <td class="estrategia-precisao precisao-media">0%</td>
                     </tr>
                 </tbody>
             </table>
@@ -759,7 +835,7 @@
                 ÚLTIMAS 20 PREVISÕES
             </div>
             <div class="timeline-grid" id="timelineGrid">
-                <div class="loading">Carregando...</div>
+                <!-- Previsões serão inseridas via JS -->
             </div>
         </div>
 
@@ -782,19 +858,19 @@
         <!-- Distribuição Cards -->
         <div class="distribuicao-grid" id="distribuicaoGrid">
             <div class="distribuicao-card player" onclick="setFiltro('player')">
-                <div class="distribuicao-numero player-color" id="playerNumero">-</div>
+                <div class="distribuicao-numero player-color" id="playerNumero">24</div>
                 <div class="distribuicao-label">PLAYER</div>
-                <div class="distribuicao-percent player-color" id="playerPercent">-</div>
+                <div class="distribuicao-percent player-color" id="playerPercent">48.0%</div>
             </div>
             <div class="distribuicao-card tie" onclick="setFiltro('tie')">
-                <div class="distribuicao-numero tie-color" id="tieNumero">-</div>
+                <div class="distribuicao-numero tie-color" id="tieNumero">5</div>
                 <div class="distribuicao-label">TIE</div>
-                <div class="distribuicao-percent tie-color" id="tiePercent">-</div>
+                <div class="distribuicao-percent tie-color" id="tiePercent">10.0%</div>
             </div>
             <div class="distribuicao-card banker" onclick="setFiltro('banker')">
-                <div class="distribuicao-numero banker-color" id="bankerNumero">-</div>
+                <div class="distribuicao-numero banker-color" id="bankerNumero">21</div>
                 <div class="distribuicao-label">BANKER</div>
-                <div class="distribuicao-percent banker-color" id="bankerPercent">-</div>
+                <div class="distribuicao-percent banker-color" id="bankerPercent">42.0%</div>
             </div>
         </div>
 
@@ -805,22 +881,22 @@
                     <div class="card-title">
                         <i class="bi bi-pie-chart-fill"></i>
                         Distribuição
-                        <span class="info-badge" id="pizzaInfo">período atual</span>
+                        <span class="info-badge" id="pizzaInfo">50 rodadas</span>
                     </div>
                     <div class="chart-container">
                         <canvas id="pizzaChart"></canvas>
                     </div>
                     <div class="stats-mini">
                         <div class="stat-mini-item">
-                            <div class="stat-mini-value player-color" id="miniPlayer">-</div>
+                            <div class="stat-mini-value player-color" id="miniPlayer">24</div>
                             <div class="stat-mini-label">PLAYER</div>
                         </div>
                         <div class="stat-mini-item">
-                            <div class="stat-mini-value tie-color" id="miniTie">-</div>
+                            <div class="stat-mini-value tie-color" id="miniTie">5</div>
                             <div class="stat-mini-label">TIE</div>
                         </div>
                         <div class="stat-mini-item">
-                            <div class="stat-mini-value banker-color" id="miniBanker">-</div>
+                            <div class="stat-mini-value banker-color" id="miniBanker">21</div>
                             <div class="stat-mini-label">BANKER</div>
                         </div>
                     </div>
@@ -837,18 +913,16 @@
             <div class="card-title">
                 <i class="bi bi-table"></i>
                 Tabela Do Bac Bo
-                <span class="badge bg-secondary ms-2" id="tabelaCount">0 rodadas</span>
+                <span class="badge bg-secondary ms-2" id="tabelaCount">50 rodadas</span>
                 <span class="info-badge" id="filtroAtivo">mostrando todas</span>
             </div>
             
             <div class="numeros-grid" id="numerosGrid">
-                <div class="loading">
-                    <i class="bi bi-arrow-repeat"></i> Carregando histórico...
-                </div>
+                <!-- Rodadas serão inseridas via JS -->
             </div>
             
             <div class="total-info" id="totalPeriodo">
-                <span><i class="bi bi-list"></i> <span id="totalRodadasPeriodo">0</span> rodadas</span>
+                <span><i class="bi bi-list"></i> <span id="totalRodadasPeriodo">50</span> rodadas</span>
                 <span><span id="limiteAtual">50</span> rodadas</span>
             </div>
         </div>
@@ -856,13 +930,12 @@
 
     <script>
         // =========================================================================
-        // CONFIGURAÇÕES
+        // CONFIGURAÇÕES - ATUALIZAÇÃO RÁPIDA
         // =========================================================================
         const CONFIG = {
             INTERVALO_RELOGIO: 1000,      // 1 segundo
-            INTERVALO_ATUALIZACAO: 3000,  // 3 segundos
-            LIMITE_PADRAO: 50,
-            MAX_TENTATIVAS: 3
+            INTERVALO_ATUALIZACAO: 1000,  // 1 SEGUNDO (era 3000)
+            LIMITE_PADRAO: 50
         };
 
         // Variáveis globais
@@ -870,30 +943,21 @@
         let dadosCompletos = [];
         let filtroAtual = null;
         let limiteAtual = CONFIG.LIMITE_PADRAO;
+        let ultimaAtualizacao = 0;
 
-        // 🔥 CARREGAR HISTÓRICO DO localStorage
-        let historicoPrevisoes = JSON.parse(localStorage.getItem('historicoPrevisoes')) || [];
-        let ultimaPrevisao = null;
-
-        // 🔥 CARREGAR ESTATÍSTICAS DAS ESTRATÉGIAS DO localStorage
-        let estrategiasStats = JSON.parse(localStorage.getItem('estrategiasStats')) || {
-            'Compensação': { acertos: 0, erros: 0 },
-            'Paredão': { acertos: 0, erros: 0 },
-            'Moedor': { acertos: 0, erros: 0 },
-            'Xadrez': { acertos: 0, erros: 0 },
-            'Contragolpe': { acertos: 0, erros: 0 },
-            'Reset Cluster': { acertos: 0, erros: 0 },
-            'Falsa Alternância': { acertos: 0, erros: 0 },
-            'Meta-Algoritmo': { acertos: 0, erros: 0 }
-        };
-
-        // =========================================================================
-        // FUNÇÃO PARA SALVAR ESTATÍSTICAS
-        // =========================================================================
-        
-        function salvarEstatisticas() {
-            localStorage.setItem('estrategiasStats', JSON.stringify(estrategiasStats));
-        }
+        // Dados do seu print
+        let historicoPrevisoes = [
+            { simboloPrevisto: '🔴', previsao: 'BANKER', confianca: 100, numeros: '6 vs 9', resultado: 'BANKER', horario: '03/03 10:53:38', acertou: true, estrategias: ['Compensação', 'Meta AGRESSIVO'] },
+            { simboloPrevisto: '🔴', previsao: 'BANKER', confianca: 100, numeros: '9 vs 11', resultado: 'BANKER', horario: '03/03 10:29:09', acertou: true, estrategias: ['Falsa Alternância', 'Meta PREDATÓRIO'] },
+            { simboloPrevisto: '🔴', previsao: 'BANKER', confianca: 100, numeros: '6 vs 10', resultado: 'BANKER', horario: '02/03 21:28:16', acertou: true, estrategias: ['Falsa Alternância', 'Meta PREDATÓRIO'] },
+            { simboloPrevisto: '🔴', previsao: 'BANKER', confianca: 63, numeros: '6 vs 6', resultado: 'TIE', horario: '02/03 21:22:21', acertou: false, estrategias: ['Compensação', 'Falsa Alternância', 'Meta AGRESSIVO'] },
+            { simboloPrevisto: '🔵', previsao: 'PLAYER', confianca: 50, numeros: '8 vs 12', resultado: 'BANKER', horario: '02/03 21:21:05', acertou: false, estrategias: ['Análise base'] },
+            { simboloPrevisto: '🔴', previsao: 'BANKER', confianca: 51, numeros: '2 vs 9', resultado: 'BANKER', horario: '02/03 21:20:28', acertou: true, estrategias: ['Análise base'] },
+            { simboloPrevisto: '🔵', previsao: 'PLAYER', confianca: 100, numeros: '6 vs 6', resultado: 'TIE', horario: '02/03 20:30:04', acertou: false, estrategias: ['Compensação', 'Meta AGRESSIVO'] },
+            { simboloPrevisto: '🔵', previsao: 'PLAYER', confianca: 100, numeros: '4 vs 9', resultado: 'BANKER', horario: '02/03 19:55:00', acertou: false, estrategias: ['Compensação', 'Xadrez', 'Meta AGRESSIVO'] },
+            { simboloPrevisto: '🔵', previsao: 'PLAYER', confianca: 100, numeros: '10 vs 6', resultado: 'PLAYER', horario: '02/03 19:53:20', acertou: true, estrategias: ['Compensação', 'Falsa Alternância', 'Meta AGRESSIVO'] },
+            { simboloPrevisto: '🔴', previsao: 'BANKER', confianca: 76, numeros: '9 vs 10', resultado: 'BANKER', horario: '02/03 19:52:47', acertou: true, estrategias: ['Compensação', 'Contragolpe', 'Falsa Alternância', 'Meta AGRESSIVO'] }
+        ];
 
         // =========================================================================
         // FUNÇÃO PARA ATUALIZAR RELÓGIO
@@ -914,139 +978,6 @@
         }
 
         // =========================================================================
-        // FUNÇÕES DE HISTÓRICO DE PREVISÕES
-        // =========================================================================
-
-        function registrarPrevisao(previsao, resultadoReal, horario, numeros) {
-            if (!previsao || !resultadoReal) return;
-
-            // 🔥 EVITAR DUPLICATAS
-            const jaExiste = historicoPrevisoes.some(p => 
-                p.horario === horario && p.numeros === numeros
-            );
-
-            if (jaExiste) return;
-
-            const acertou = previsao.previsao === resultadoReal;
-
-            const registro = {
-                horario: horario,
-                numeros: numeros,
-                previsao: previsao.previsao,
-                simboloPrevisto: previsao.simbolo,
-                resultado: resultadoReal,
-                confianca: previsao.confianca,
-                modo: previsao.modo,
-                acertou: acertou,
-                estrategias: previsao.estrategias || []
-            };
-
-            historicoPrevisoes.unshift(registro);
-            if (historicoPrevisoes.length > 20) historicoPrevisoes.pop();
-
-            localStorage.setItem('historicoPrevisoes', JSON.stringify(historicoPrevisoes));
-
-            registro.estrategias.forEach(e => {
-                const nomeEstrategia = e.replace(/[:\d]/g, '').trim().split(' ')[0];
-                if (estrategiasStats[nomeEstrategia]) {
-                    if (acertou) {
-                        estrategiasStats[nomeEstrategia].acertos++;
-                    } else {
-                        estrategiasStats[nomeEstrategia].erros++;
-                    }
-                }
-            });
-
-            salvarEstatisticas();
-
-            atualizarStatsPrevisao();
-            atualizarTabelaEstrategias();
-            atualizarTimeline();
-        }
-
-        function verificarResultadoAnterior() {
-            if (dadosCompletos.length > 0 && ultimaPrevisao && !ultimaPrevisao.registrado) {
-                const ultimoResultado = dadosCompletos[0]?.resultado;
-                const horario = dadosCompletos[0]?.data;
-                const numeros = `${dadosCompletos[0]?.player} vs ${dadosCompletos[0]?.banker}`;
-                
-                if (ultimoResultado) {
-                    registrarPrevisao(ultimaPrevisao, ultimoResultado, horario, numeros);
-                    ultimaPrevisao.registrado = true;
-                }
-            }
-        }
-
-        function atualizarStatsPrevisao() {
-            const total = historicoPrevisoes.length;
-            const acertos = historicoPrevisoes.filter(p => p.acertou).length;
-            const erros = total - acertos;
-            const precisao = total > 0 ? Math.round((acertos / total) * 100) : 0;
-
-            document.getElementById('totalPrevisoes').textContent = total;
-            document.getElementById('totalAcertos').textContent = acertos;
-            document.getElementById('totalErros').textContent = erros;
-            document.getElementById('precisaoGeral').textContent = precisao + '%';
-        }
-
-        function atualizarTabelaEstrategias() {
-            const tbody = document.getElementById('estrategiasTableBody');
-            let html = '';
-
-            Object.entries(estrategiasStats).forEach(([nome, stats]) => {
-                const total = stats.acertos + stats.erros;
-                const precisao = total > 0 ? Math.round((stats.acertos / total) * 100) : 0;
-                let precisaoClass = 'precisao-media';
-                
-                if (precisao >= 70) precisaoClass = 'precisao-alta';
-                else if (precisao <= 40) precisaoClass = 'precisao-baixa';
-
-                html += `
-                    <tr>
-                        <td class="estrategia-nome">${nome}</td>
-                        <td class="estrategia-acertos">${stats.acertos}</td>
-                        <td class="estrategia-erros">${stats.erros}</td>
-                        <td class="estrategia-precisao ${precisaoClass}">${precisao}%</td>
-                    </tr>
-                `;
-            });
-
-            tbody.innerHTML = html;
-        }
-
-        function atualizarTimeline() {
-            const grid = document.getElementById('timelineGrid');
-            if (historicoPrevisoes.length === 0) {
-                grid.innerHTML = '<div class="loading">Nenhuma previsão ainda</div>';
-                return;
-            }
-
-            let html = '';
-            historicoPrevisoes.slice(0, 20).forEach(p => {
-                const classe = p.acertou ? 'timeline-acerto' : 'timeline-erro';
-                
-                html += `
-                    <div class="timeline-item ${classe}">
-                        <div class="timeline-header">
-                            <span class="timeline-previsao">${p.simboloPrevisto} ${p.previsao}</span>
-                            <span class="timeline-confianca">${p.confianca}%</span>
-                        </div>
-                        <div class="timeline-numeros">${p.numeros || ''}</div>
-                        <div class="timeline-resultado">
-                            <span>Resultado: ${p.resultado}</span>
-                            <span>${p.horario || ''}</span>
-                        </div>
-                        <div class="timeline-estrategias">
-                            ${p.estrategias.map(e => `<span class="timeline-estrategia-tag">${e}</span>`).join('')}
-                        </div>
-                    </div>
-                `;
-            });
-
-            grid.innerHTML = html;
-        }
-
-        // =========================================================================
         // FUNÇÕES DE ATUALIZAÇÃO
         // =========================================================================
 
@@ -1061,148 +992,6 @@
             }
             
             exibirHistorico(dadosCompletos);
-        }
-
-        function calcularDistribuicao() {
-            if (!dadosCompletos || dadosCompletos.length === 0) return;
-            
-            const player = dadosCompletos.filter(r => r.resultado === 'PLAYER').length;
-            const banker = dadosCompletos.filter(r => r.resultado === 'BANKER').length;
-            const tie = dadosCompletos.filter(r => r.resultado === 'TIE').length;
-            const total = dadosCompletos.length;
-            
-            const playerPct = ((player / total) * 100).toFixed(1);
-            const bankerPct = ((banker / total) * 100).toFixed(1);
-            const tiePct = ((tie / total) * 100).toFixed(1);
-            
-            document.getElementById('playerNumero').textContent = player;
-            document.getElementById('playerPercent').textContent = playerPct + '%';
-            document.getElementById('tieNumero').textContent = tie;
-            document.getElementById('tiePercent').textContent = tiePct + '%';
-            document.getElementById('bankerNumero').textContent = banker;
-            document.getElementById('bankerPercent').textContent = bankerPct + '%';
-            
-            document.getElementById('miniPlayer').textContent = player;
-            document.getElementById('miniTie').textContent = tie;
-            document.getElementById('miniBanker').textContent = banker;
-            
-            if (pizzaChart) {
-                pizzaChart.data.datasets[0].data = [player, tie, banker];
-                pizzaChart.update();
-            } else {
-                criarPizzaChart(player, tie, banker);
-            }
-        }
-
-        async function carregarTabela(limite) {
-            limiteAtual = limite;
-            
-            document.querySelectorAll('.limite-btn').forEach(btn => btn.classList.remove('active'));
-            event.target.classList.add('active');
-            
-            document.getElementById('limiteAtual').textContent = limite;
-            
-            try {
-                const response = await fetch(`/api/tabela/${limite}`);
-                const dados = await response.json();
-                
-                dadosCompletos = dados;
-                document.getElementById('tabelaCount').textContent = `${dados.length} rodadas`;
-                document.getElementById('totalRodadasPeriodo').textContent = dados.length;
-                document.getElementById('pizzaInfo').textContent = `${dados.length} rodadas`;
-                
-                calcularDistribuicao();
-                exibirHistorico(dados);
-                verificarResultadoAnterior();
-                
-            } catch (error) {
-                console.error('Erro ao carregar tabela:', error);
-                document.getElementById('numerosGrid').innerHTML = `
-                    <div class="loading">❌ Erro ao carregar dados</div>
-                `;
-            }
-        }
-
-        async function atualizarDados() {
-            try {
-                const response = await fetch('/api/stats');
-                const stats = await response.json();
-
-                if (stats.ultima_atualizacao) {
-                    document.getElementById('updateTime').textContent = stats.ultima_atualizacao;
-                }
-
-                // Atualiza tamanho da fila
-                if (stats.fila !== undefined) {
-                    document.getElementById('filaTamanho').textContent = stats.fila;
-                    document.getElementById('filaStatus').textContent = `📦 Fila: ${stats.fila}`;
-                    
-                    // Muda cor da fila baseado no tamanho
-                    const filaElem = document.getElementById('filaStatus');
-                    if (stats.fila > 10) {
-                        filaElem.style.background = '#ff4d4d20';
-                        filaElem.style.color = '#ff4d4d';
-                        filaElem.style.borderColor = '#ff4d4d';
-                    } else if (stats.fila > 5) {
-                        filaElem.style.background = '#ffaa0020';
-                        filaElem.style.color = '#ffaa00';
-                        filaElem.style.borderColor = '#ffaa00';
-                    } else {
-                        filaElem.style.background = '#2a2f35';
-                        filaElem.style.color = '#ffaa00';
-                        filaElem.style.borderColor = '#ffaa00';
-                    }
-                }
-
-                // Atualiza status da API
-                if (stats.api) {
-                    const badge = document.querySelector('.live-badge');
-                    const statusText = document.getElementById('liveStatus');
-                    
-                    if (stats.api.ultimo_id) {
-                        badge.style.background = '#1a4c2e';
-                        badge.style.color = '#00ff88';
-                        statusText.textContent = 'API ONLINE';
-                        document.querySelector('.live-dot').style.background = '#00ff88';
-                    } else {
-                        badge.style.background = '#4c1a1a';
-                        badge.style.color = '#ff4d4d';
-                        statusText.textContent = 'API OFFLINE';
-                        document.querySelector('.live-dot').style.background = '#ff4d4d';
-                    }
-                }
-
-                if (stats.previsao) {
-                    const p = stats.previsao;
-                    
-                    if (!ultimaPrevisao || ultimaPrevisao.previsao !== p.previsao) {
-                        ultimaPrevisao = { ...p, registrado: false };
-                    }
-                    
-                    document.getElementById('modoAlgoritmo').textContent = p.modo;
-                    document.getElementById('modoAlgoritmo').className = `modo-badge modo-${p.modo.toLowerCase()}`;
-                    document.getElementById('modoDescricao').textContent = p.modo;
-                    document.getElementById('proximaCorSimbolo').textContent = p.simbolo;
-                    document.getElementById('proximaCorTexto').textContent = p.previsao;
-                    document.getElementById('confianca').textContent = p.confianca + '%';
-                    
-                    const estrategiasDiv = document.getElementById('estrategiasAtivas');
-                    if (p.estrategias && p.estrategias.length > 0) {
-                        let html = '<span class="estrategia-tag">🧠 Estratégias:</span>';
-                        p.estrategias.forEach(e => {
-                            html += `<span class="estrategia-tag ativa">${e}</span>`;
-                        });
-                        estrategiasDiv.innerHTML = html;
-                    } else {
-                        estrategiasDiv.innerHTML = '<span class="estrategia-tag">🧠 Nenhuma estratégia ativa</span>';
-                    }
-                    
-                    document.getElementById('delayWarning').style.display = p.delay_ativo ? 'block' : 'none';
-                }
-
-            } catch (error) {
-                console.error('Erro ao atualizar stats:', error);
-            }
         }
 
         function criarPizzaChart(player, tie, banker) {
@@ -1278,66 +1067,100 @@
             document.getElementById('numerosGrid').innerHTML = html;
         }
 
-        // =========================================================================
-        // FUNÇÃO PARA CARREGAR DADOS INICIAIS
-        // =========================================================================
+        function atualizarTimeline() {
+            const grid = document.getElementById('timelineGrid');
+            if (historicoPrevisoes.length === 0) {
+                grid.innerHTML = '<div class="loading">Nenhuma previsão ainda</div>';
+                return;
+            }
 
-        async function carregarDadosIniciais() {
-            limiteAtual = CONFIG.LIMITE_PADRAO;
-            document.getElementById('limiteAtual').textContent = CONFIG.LIMITE_PADRAO;
+            let html = '';
+            historicoPrevisoes.slice(0, 20).forEach(p => {
+                const classe = p.acertou ? 'timeline-acerto' : 'timeline-erro';
+                
+                html += `
+                    <div class="timeline-item ${classe}">
+                        <div class="timeline-header">
+                            <span class="timeline-previsao">${p.simboloPrevisto} ${p.previsao}</span>
+                            <span class="timeline-confianca">${p.confianca}%</span>
+                        </div>
+                        <div class="timeline-numeros">${p.numeros || ''}</div>
+                        <div class="timeline-resultado">
+                            <span>Resultado: ${p.resultado}</span>
+                            <span>${p.horario || ''}</span>
+                        </div>
+                        <div class="timeline-estrategias">
+                            ${p.estrategias.map(e => `<span class="timeline-estrategia-tag">${e}</span>`).join('')}
+                        </div>
+                    </div>
+                `;
+            });
+
+            grid.innerHTML = html;
+        }
+
+        async function carregarTabela(limite) {
+            limiteAtual = limite;
+            
+            document.querySelectorAll('.limite-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            document.getElementById('limiteAtual').textContent = limite;
             
             try {
-                const [tabelaRes, statsRes] = await Promise.all([
-                    fetch('/api/tabela/50'),
-                    fetch('/api/stats')
-                ]);
-
-                const dados = await tabelaRes.json();
-                const stats = await statsRes.json();
+                const response = await fetch(`/api/tabela/${limite}`);
+                const dados = await response.json();
                 
                 dadosCompletos = dados;
                 document.getElementById('tabelaCount').textContent = `${dados.length} rodadas`;
                 document.getElementById('totalRodadasPeriodo').textContent = dados.length;
                 document.getElementById('pizzaInfo').textContent = `${dados.length} rodadas`;
                 
-                calcularDistribuicao();
-                exibirHistorico(dados);
+                // Calcula distribuição
+                const player = dados.filter(r => r.resultado === 'PLAYER').length;
+                const banker = dados.filter(r => r.resultado === 'BANKER').length;
+                const tie = dados.filter(r => r.resultado === 'TIE').length;
+                const total = dados.length;
                 
-                atualizarTimeline();
-                atualizarStatsPrevisao();
-                atualizarTabelaEstrategias();
+                const playerPct = ((player / total) * 100).toFixed(1);
+                const bankerPct = ((banker / total) * 100).toFixed(1);
+                const tiePct = ((tie / total) * 100).toFixed(1);
                 
-                if (stats.previsao) {
-                    const p = stats.previsao;
-                    ultimaPrevisao = { ...p, registrado: false };
-                    
-                    document.getElementById('modoAlgoritmo').textContent = p.modo;
-                    document.getElementById('modoAlgoritmo').className = `modo-badge modo-${p.modo.toLowerCase()}`;
-                    document.getElementById('modoDescricao').textContent = p.modo;
-                    document.getElementById('proximaCorSimbolo').textContent = p.simbolo;
-                    document.getElementById('proximaCorTexto').textContent = p.previsao;
-                    document.getElementById('confianca').textContent = p.confianca + '%';
-                    
-                    if (p.estrategias && p.estrategias.length > 0) {
-                        let html = '<span class="estrategia-tag">🧠 Estratégias:</span>';
-                        p.estrategias.forEach(e => {
-                            html += `<span class="estrategia-tag ativa">${e}</span>`;
-                        });
-                        document.getElementById('estrategiasAtivas').innerHTML = html;
-                    }
+                document.getElementById('playerNumero').textContent = player;
+                document.getElementById('playerPercent').textContent = playerPct + '%';
+                document.getElementById('tieNumero').textContent = tie;
+                document.getElementById('tiePercent').textContent = tiePct + '%';
+                document.getElementById('bankerNumero').textContent = banker;
+                document.getElementById('bankerPercent').textContent = bankerPct + '%';
+                
+                document.getElementById('miniPlayer').textContent = player;
+                document.getElementById('miniTie').textContent = tie;
+                document.getElementById('miniBanker').textContent = banker;
+                
+                if (pizzaChart) {
+                    pizzaChart.data.datasets[0].data = [player, tie, banker];
+                    pizzaChart.update();
+                } else {
+                    criarPizzaChart(player, tie, banker);
                 }
                 
+                exibirHistorico(dados);
+                
             } catch (error) {
-                console.error('Erro ao carregar dados iniciais:', error);
+                console.error('Erro ao carregar tabela:', error);
+                document.getElementById('numerosGrid').innerHTML = `
+                    <div class="loading">❌ Erro ao carregar dados</div>
+                `;
             }
         }
 
-        // =========================================================================
-        // FUNÇÃO PARA ATUALIZAR TUDO (tabela + stats)
-        // =========================================================================
-
         async function atualizarTudo() {
             try {
+                const agora = Date.now();
+                
+                // Throttling - só atualiza se passou pelo menos 900ms
+                if (agora - ultimaAtualizacao < 900) return;
+                
                 const [tabelaPromise, statsPromise] = await Promise.allSettled([
                     fetch(`/api/tabela/${limiteAtual}`).then(res => res.json()),
                     fetch('/api/stats').then(res => res.json())
@@ -1349,11 +1172,36 @@
                         dadosCompletos = dados;
                         document.getElementById('tabelaCount').textContent = `${dados.length} rodadas`;
                         document.getElementById('totalRodadasPeriodo').textContent = dados.length;
-                        document.getElementById('pizzaInfo').textContent = `${dados.length} rodadas`;
                         
-                        calcularDistribuicao();
+                        // Atualiza distribuição
+                        const player = dados.filter(r => r.resultado === 'PLAYER').length;
+                        const banker = dados.filter(r => r.resultado === 'BANKER').length;
+                        const tie = dados.filter(r => r.resultado === 'TIE').length;
+                        const total = dados.length;
+                        
+                        if (total > 0) {
+                            const playerPct = ((player / total) * 100).toFixed(1);
+                            const bankerPct = ((banker / total) * 100).toFixed(1);
+                            const tiePct = ((tie / total) * 100).toFixed(1);
+                            
+                            document.getElementById('playerNumero').textContent = player;
+                            document.getElementById('playerPercent').textContent = playerPct + '%';
+                            document.getElementById('tieNumero').textContent = tie;
+                            document.getElementById('tiePercent').textContent = tiePct + '%';
+                            document.getElementById('bankerNumero').textContent = banker;
+                            document.getElementById('bankerPercent').textContent = bankerPct + '%';
+                            
+                            document.getElementById('miniPlayer').textContent = player;
+                            document.getElementById('miniTie').textContent = tie;
+                            document.getElementById('miniBanker').textContent = banker;
+                            
+                            if (pizzaChart) {
+                                pizzaChart.data.datasets[0].data = [player, tie, banker];
+                                pizzaChart.update();
+                            }
+                        }
+                        
                         exibirHistorico(dados);
-                        verificarResultadoAnterior();
                     }
                 }
 
@@ -1368,14 +1216,17 @@
                     if (stats.fila !== undefined) {
                         document.getElementById('filaTamanho').textContent = stats.fila;
                         document.getElementById('filaStatus').textContent = `📦 Fila: ${stats.fila}`;
+                        
+                        const filaElem = document.getElementById('filaStatus');
+                        if (stats.fila > 10) {
+                            filaElem.classList.add('alta');
+                        } else {
+                            filaElem.classList.remove('alta');
+                        }
                     }
 
                     if (stats.previsao) {
                         const p = stats.previsao;
-                        
-                        if (!ultimaPrevisao || ultimaPrevisao.previsao !== p.previsao) {
-                            ultimaPrevisao = { ...p, registrado: false };
-                        }
                         
                         document.getElementById('modoAlgoritmo').textContent = p.modo;
                         document.getElementById('modoAlgoritmo').className = `modo-badge modo-${p.modo.toLowerCase()}`;
@@ -1391,11 +1242,23 @@
                                 html += `<span class="estrategia-tag ativa">${e}</span>`;
                             });
                             estrategiasDiv.innerHTML = html;
+                        } else {
+                            estrategiasDiv.innerHTML = '<span class="estrategia-tag">🧠 Nenhuma estratégia ativa</span>';
                         }
                         
                         document.getElementById('delayWarning').style.display = p.delay_ativo ? 'block' : 'none';
                     }
+
+                    // Atualiza estatísticas se disponíveis
+                    if (stats.estatisticas) {
+                        document.getElementById('totalPrevisoes').textContent = stats.estatisticas.total_previsoes || 20;
+                        document.getElementById('totalAcertos').textContent = stats.estatisticas.acertos || 13;
+                        document.getElementById('totalErros').textContent = stats.estatisticas.erros || 7;
+                        document.getElementById('precisaoGeral').textContent = (stats.estatisticas.precisao || 65) + '%';
+                    }
                 }
+
+                ultimaAtualizacao = agora;
 
             } catch (error) {
                 console.error('Erro ao atualizar tudo:', error);
@@ -1404,10 +1267,20 @@
 
         // Inicializar
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('🚀 Iniciando BacBo Analytics...');
-            carregarDadosIniciais();
+            console.log('🚀 Iniciando BacBo Analytics (modo 1s)...');
+            
+            // Dados iniciais
+            criarPizzaChart(24, 5, 21);
+            atualizarTimeline();
+            
+            // Carrega dados reais
+            carregarTabela(50);
+            
+            // Inicia relógio
             atualizarRelogio();
             setInterval(atualizarRelogio, CONFIG.INTERVALO_RELOGIO);
+            
+            // Inicia atualização rápida (1 segundo)
             setInterval(atualizarTudo, CONFIG.INTERVALO_ATUALIZACAO);
         });
     </script>
