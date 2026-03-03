@@ -335,7 +335,7 @@ def buscar_api_casino():
     try:
         # Adiciona timestamp para evitar cache
         params = PARAMS.copy()
-        params['_t'] = int(time.time() * 1000)  # Cache buster
+        params['_t'] = int(time.time() * 100)  # Cache buster
         params['page'] = random.randint(0, 1)  # Página aleatória
         
         response = session.get(API_URL, params=params, timeout=TIMEOUT_API)
@@ -718,11 +718,11 @@ def atualizar_dados_leves():
     print(f"⚡ Cache atualizado - Total: {cache['leves']['total_rodadas']} | Precisão: {calcular_precisao()}%")
 
 # =============================================================================
-# LOOP PRINCIPAL - COLETA + FILA
+# LOOP PRINCIPAL - COLETA MAIS RÁPIDA
 # =============================================================================
 
 def loop_coleta():
-    """Loop principal - coloca dados na fila"""
+    """Loop principal - coleta a cada 2 segundos"""
     print("🔄 Iniciando coleta...")
     global ultimo_id_processado, fila_rodadas
     
@@ -736,6 +736,7 @@ def loop_coleta():
                 primeiro = dados[0]
                 novo_id = primeiro['id']
                 
+                # DEBUG: mostra o que está chegando
                 print(f"\n📥 API: {len(dados)} itens | ID: {novo_id[-8:]}")
                 print(f"   🎲 {primeiro['player_score']} vs {primeiro['banker_score']} - {primeiro['resultado']}")
                 
@@ -748,22 +749,54 @@ def loop_coleta():
                             fila_rodadas.append(rodada)
                             print(f"   ➕ Adicionado à fila: {rodada['player_score']} vs {rodada['banker_score']}")
                     
-                    print(f"📊 Fila: {len(fila_rodadas)} rodadas aguardando")
+                    print(f"📊 Fila agora: {len(fila_rodadas)} rodadas")
                 else:
                     print(f"   ⏳ Mesmo ID - aguardando novas rodadas")
             
-            print(f"⏱️ Tempo: {time.time() - inicio:.2f}s | Fila: {len(fila_rodadas)}")
+            print(f"⏱️ Coleta: {time.time() - inicio:.2f}s | Fila: {len(fila_rodadas)}")
             
-            time.sleep(INTERVALO_COLETA)
+            time.sleep(2)  # REDUZIDO PARA 2 SEGUNDOS
             
         except Exception as e:
-            print(f"❌ Erro: {e}")
-            time.sleep(5)
+            print(f"❌ Erro na coleta: {e}")
+            time.sleep(1)
 
-def loop_pesado():
+def processar_fila():
+    """Processa a fila MAIS RÁPIDO"""
+    print("🔄 Iniciando processador da fila...")
+    ultimo_processado = None
+    
     while True:
-        time.sleep(30)
-        atualizar_dados_pesados()
+        try:
+            if fila_rodadas:
+                # Pega várias rodadas de uma vez (batch)
+                batch = []
+                for _ in range(min(5, len(fila_rodadas))):  # Processa 5 por vez
+                    if fila_rodadas:
+                        batch.append(fila_rodadas.popleft())
+                
+                if batch:
+                    # Salva todas de uma vez
+                    saved = 0
+                    for rodada in batch:
+                        if salvar_rodada(rodada):
+                            saved += 1
+                            # Atualiza resultado real apenas para a primeira
+                            if saved == 1:
+                                cache['ultimo_resultado_real'] = rodada['resultado']
+                    
+                    print(f"💾 Batch salvo: {saved}/{len(batch)} rodadas | Fila restante: {len(fila_rodadas)}")
+                    
+                    # Atualiza cache a cada batch
+                    if saved > 0:
+                        atualizar_dados_leves()
+            
+            # Processa a cada 0.5 segundos (mais rápido)
+            time.sleep(0.5)
+            
+        except Exception as e:
+            print(f"❌ Erro processando fila: {e}")
+            time.sleep(1)
 
 # =============================================================================
 # ROTAS FLASK
