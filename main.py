@@ -420,44 +420,54 @@ def buscar_api_casino():
         print(f"   ❌ API erro: {e}")
         return None 
 # =============================================================================
-# 🔥 PROCESSADOR ULTRA RÁPIDO
+# 🔥 PROCESSADOR ULTRA RÁPIDO - VERSÃO TURBO
 # =============================================================================
 
 def processar_fila():
-    """Processa a fila instantaneamente"""
-    print("🚀 Processador ultra rápido iniciado...")
+    """Processa a fila INSTANTANEAMENTE - sem delay"""
+    print("🚀 Processador TURBO iniciado...")
     
     while True:
         try:
             if fila_rodadas:
-                # Processa TUDO de uma vez
-                batch = list(fila_rodadas)
-                fila_rodadas.clear()
+                # Processa TUDO de uma vez, SEM PREGUIÇA
+                tamanho_fila = len(fila_rodadas)
+                batch = list(fila_rodadas)  # Copia tudo
+                fila_rodadas.clear()  # Limpa a fila
                 
                 saved = 0
+                inicio_batch = time.time()
+                
                 for rodada in batch:
                     if salvar_rodada(rodada):
                         saved += 1
                         if saved == 1:
                             cache['ultimo_resultado_real'] = rodada['resultado']
                 
+                tempo_gasto = time.time() - inicio_batch
+                
                 if saved > 0:
-                    print(f"💾 Processadas {saved} rodadas instantaneamente")
+                    print(f"💾 TURBO: salvou {saved}/{tamanho_fila} rodadas em {tempo_gasto:.3f}s")
                     atualizar_dados_leves()
+                    
+                    # Se ainda tem fila, processa de novo IMEDIATAMENTE
+                    if fila_rodadas:
+                        print(f"⚡ Ainda tem {len(fila_rodadas)} na fila, processando já...")
+                        continue
             
-            time.sleep(0.1)  # 100ms
+            # Delay MÍNIMO de 10ms (0.01 segundos)
+            time.sleep(0.01)
             
         except Exception as e:
-            print(f"❌ Erro: {e}")
-            time.sleep(1)
-
+            print(f"❌ Erro TURBO: {e}")
+            time.sleep(0.1)
 # =============================================================================
-# 🔥 COLETOR 1 SEGUNDO
+# 🔥 COLETOR 1 SEGUNDO - VERSÃO TURBO
 # =============================================================================
 
 def loop_coleta():
-    """Coleta a cada 1 segundo"""
-    print("📡 Coletor 1s iniciado...")
+    """Coleta a cada 1 segundo - TURBO"""
+    print("📡 Coletor TURBO 1s iniciado...")
     global ultimo_id_processado, fila_rodadas
     
     while True:
@@ -474,31 +484,40 @@ def loop_coleta():
                     ultimo_id_processado = novo_id
                     
                     # Adiciona TUDO na fila
+                    tamanho_anterior = len(fila_rodadas)
                     for rodada in dados:
                         fila_rodadas.append(rodada)
                     
                     cache['api']['total_coletado'] += len(dados)
-                    print(f"📥 +{len(dados)} novas | Fila: {len(fila_rodadas)}")
+                    print(f"📥 +{len(dados)} novas | Fila: {tamanho_anterior} → {len(fila_rodadas)}")
                     
-                    # Se fila estiver grande, força processamento
-                    if len(fila_rodadas) > 100:
-                        print("⚡ Fila grande, processando...")
-                        processar_fila()
+                    # PROCESSAMENTO IMEDIATO se fila > 20
+                    if len(fila_rodadas) > 20:
+                        print(f"⚡ Fila com {len(fila_rodadas)}, processando imediatamente...")
+                        # Chama o processador diretamente (sem thread)
+                        batch = list(fila_rodadas)
+                        fila_rodadas.clear()
+                        
+                        saved = 0
+                        for rodada in batch:
+                            if salvar_rodada(rodada):
+                                saved += 1
+                                if saved == 1:
+                                    cache['ultimo_resultado_real'] = rodada['resultado']
+                        
+                        if saved > 0:
+                            print(f"💾 Processamento imediato: {saved} rodadas")
+                            atualizar_dados_leves()
             
-            # Mostra status a cada 10 segundos
-            if int(time.time()) % 10 == 0:
-                print(f"📊 Fila: {len(fila_rodadas)} | Total: {cache['leves']['total_rodadas']}")
+            # Mostra status a cada 5 segundos
+            if int(time.time()) % 5 == 0:
+                print(f"📊 Status - Fila: {len(fila_rodadas)} | Total banco: {cache['leves']['total_rodadas']}")
             
-            time.sleep(1)  # 1 SEGUNDO!
+            time.sleep(1)
             
         except Exception as e:
             print(f"❌ Erro coleta: {e}")
             time.sleep(1)
-
-def loop_pesado():
-    while True:
-        time.sleep(30)
-        atualizar_dados_pesados()
 
 # =============================================================================
 # ESTRATÉGIAS (resumido - mantenha as suas)
