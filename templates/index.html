@@ -80,6 +80,17 @@
             font-weight: bold;
         }
 
+        /* Badge da Fila */
+        .fila-badge {
+            background: #2a2f35;
+            color: #ffaa00;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            margin-left: 10px;
+            border: 1px solid #ffaa00;
+        }
+
         /* Card de Previsão */
         .previsao-card {
             background: linear-gradient(145deg, #1a1e24 0%, #15181c 100%);
@@ -224,7 +235,7 @@
         /* Cards de Estatísticas de Previsão */
         .stats-previsao-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(5, 1fr);
             gap: 15px;
             margin-bottom: 25px;
         }
@@ -251,6 +262,7 @@
 
         .stats-previsao-acerto { color: #00ff88; }
         .stats-previsao-erro { color: #ff4d4d; }
+        .stats-previsao-fila { color: #ffaa00; }
 
         /* Tabela de Estratégias */
         .estrategias-table {
@@ -648,6 +660,7 @@
             <h1>
                 <i class="bi bi-dice-6-fill"></i>
                 Bac Bo - 8 Estratégias PRO
+                <span class="fila-badge" id="filaStatus">📦 Fila: 0</span>
             </h1>
             <div class="live-badge">
                 <span class="live-dot"></span>
@@ -709,6 +722,10 @@
             <div class="stats-previsao-card">
                 <div class="stats-previsao-valor" id="precisaoGeral">0%</div>
                 <div class="stats-previsao-label">PRECISÃO</div>
+            </div>
+            <div class="stats-previsao-card">
+                <div class="stats-previsao-valor stats-previsao-fila" id="filaTamanho">0</div>
+                <div class="stats-previsao-label">FILA</div>
             </div>
         </div>
 
@@ -1115,6 +1132,46 @@
                     document.getElementById('updateTime').textContent = stats.ultima_atualizacao;
                 }
 
+                // Atualiza tamanho da fila
+                if (stats.fila !== undefined) {
+                    document.getElementById('filaTamanho').textContent = stats.fila;
+                    document.getElementById('filaStatus').textContent = `📦 Fila: ${stats.fila}`;
+                    
+                    // Muda cor da fila baseado no tamanho
+                    const filaElem = document.getElementById('filaStatus');
+                    if (stats.fila > 10) {
+                        filaElem.style.background = '#ff4d4d20';
+                        filaElem.style.color = '#ff4d4d';
+                        filaElem.style.borderColor = '#ff4d4d';
+                    } else if (stats.fila > 5) {
+                        filaElem.style.background = '#ffaa0020';
+                        filaElem.style.color = '#ffaa00';
+                        filaElem.style.borderColor = '#ffaa00';
+                    } else {
+                        filaElem.style.background = '#2a2f35';
+                        filaElem.style.color = '#ffaa00';
+                        filaElem.style.borderColor = '#ffaa00';
+                    }
+                }
+
+                // Atualiza status da API
+                if (stats.api) {
+                    const badge = document.querySelector('.live-badge');
+                    const statusText = document.getElementById('liveStatus');
+                    
+                    if (stats.api.ultimo_id) {
+                        badge.style.background = '#1a4c2e';
+                        badge.style.color = '#00ff88';
+                        statusText.textContent = 'API ONLINE';
+                        document.querySelector('.live-dot').style.background = '#00ff88';
+                    } else {
+                        badge.style.background = '#4c1a1a';
+                        badge.style.color = '#ff4d4d';
+                        statusText.textContent = 'API OFFLINE';
+                        document.querySelector('.live-dot').style.background = '#ff4d4d';
+                    }
+                }
+
                 if (stats.previsao) {
                     const p = stats.previsao;
                     
@@ -1307,6 +1364,12 @@
                         document.getElementById('updateTime').textContent = stats.ultima_atualizacao;
                     }
 
+                    // Atualiza tamanho da fila
+                    if (stats.fila !== undefined) {
+                        document.getElementById('filaTamanho').textContent = stats.fila;
+                        document.getElementById('filaStatus').textContent = `📦 Fila: ${stats.fila}`;
+                    }
+
                     if (stats.previsao) {
                         const p = stats.previsao;
                         
@@ -1346,32 +1409,7 @@
             atualizarRelogio();
             setInterval(atualizarRelogio, CONFIG.INTERVALO_RELOGIO);
             setInterval(atualizarTudo, CONFIG.INTERVALO_ATUALIZACAO);
-        }); 
-
-      // Adicione esta função no seu script
-function verificarStatusAPI() {
-    fetch('/api/stats')
-        .then(r => r.json())
-        .then(data => {
-            const badge = document.querySelector('.live-badge');
-            const statusText = document.getElementById('liveStatus');
-            
-            if (data.api.status === 'online') {
-                badge.style.background = '#1a4c2e';
-                badge.style.color = '#00ff88';
-                statusText.textContent = 'API ONLINE';
-                document.querySelector('.live-dot').style.background = '#00ff88';
-            } else {
-                badge.style.background = '#4c1a1a';
-                badge.style.color = '#ff4d4d';
-                statusText.textContent = 'API OFFLINE';
-                document.querySelector('.live-dot').style.background = '#ff4d4d';
-            }
         });
-}
-
-// Chame a cada 3 segundos junto com as outras atualizações
-setInterval(verificarStatusAPI, 3000);
     </script>
 </body>
 </html>
