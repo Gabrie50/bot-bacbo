@@ -311,7 +311,7 @@ def atualizar_dados_pesados():
     cache['pesados']['ultima_atualizacao'] = datetime.now(timezone.utc)
 
 # =============================================================================
-# 🔥 FUNÇÃO PRINCIPAL - FORÇA NOVOS DADOS
+# 🔥 FUNÇÃO PRINCIPAL - FORÇA NOVOS DADOS (COM LOGS DE DEBUG)
 # =============================================================================
 
 def buscar_api_casino():
@@ -319,32 +319,55 @@ def buscar_api_casino():
     global ultimo_id_api
     
     try:
+        # DEBUG - mostra que está tentando
+        print(f"\n🔍 Tentando buscar API... {datetime.now().strftime('%H:%M:%S')}")
+        
         # Força página aleatória e timestamp
         params = PARAMS.copy()
         params['_t'] = int(time.time() * 1000)  # Timestamp em ms
         params['page'] = random.randint(0, 2)
         params['nocache'] = random.randint(1, 9999)
         
+        # DEBUG - mostra URL
+        print(f"   📡 URL: {API_URL}")
+        print(f"   📦 Params: page={params['page']}, _t={params['_t']}")
+        
         # Nova sessão a cada requisição
         local_session = requests.Session()
         local_session.headers.update(HEADERS)
         
         response = local_session.get(API_URL, params=params, timeout=TIMEOUT_API)
+        
+        # DEBUG - mostra status code
+        print(f"   📊 Status: {response.status_code}")
+        
         response.raise_for_status()
         dados = response.json()
+        
+        # DEBUG - mostra quantidade de dados
+        print(f"   📥 Dados recebidos: {len(dados) if dados else 0} itens")
         
         if dados and len(dados) > 0:
             primeiro = dados[0]
             data = primeiro.get('data', {})
+            result = primeiro.get('result', {})
             novo_id = data.get('id')
             
-            # Só printa se mudou
+            # Mostra o primeiro resultado
+            player = result.get('playerDice', {}).get('score', '?')
+            banker = result.get('bankerDice', {}).get('score', '?')
+            resultado_api = result.get('outcome', '?')
+            
+            print(f"   🎲 Primeiro: {player} vs {banker} - {resultado_api}")
+            print(f"   🆔 ID: {novo_id}")
+            print(f"   🆔 Último ID: {ultimo_id_api}")
+            
             if novo_id != ultimo_id_api:
                 ultimo_id_api = novo_id
-                print(f"\n🔥 NOVO ID: {novo_id[-8:]}")
+                print(f"\n🔥🔥🔥 NOVO ID DETECTADO: {novo_id[-8:] if novo_id else 'N/A'} 🔥🔥🔥")
             
             rodadas = []
-            for item in dados[:15]:  # Pega mais itens
+            for i, item in enumerate(dados[:15]):  # Pega mais itens
                 try:
                     data = item.get('data', {})
                     result = data.get('result', {})
@@ -369,16 +392,33 @@ def buscar_api_casino():
                         'resultado': resultado
                     }
                     rodadas.append(rodada)
-                except:
+                    
+                    # Mostra as primeiras 3 rodadas
+                    if i < 3:
+                        print(f"      🔹 Rodada {i+1}: {player_dice.get('score')} vs {banker_dice.get('score')} - {resultado}")
+                        
+                except Exception as e:
+                    print(f"⚠️ Erro processando item {i}: {e}")
                     continue
             
+            print(f"   ✅ Total processado: {len(rodadas)} rodadas")
             return rodadas
         
+        print("   ⚠️ API retornou lista vazia")
+        return None
+        
+    except requests.exceptions.Timeout:
+        print(f"   ⏱️ Timeout - API não respondeu em {TIMEOUT_API}s")
+        return None
+    except requests.exceptions.ConnectionError:
+        print(f"   🔌 Erro de conexão - API pode estar fora do ar")
+        return None
+    except requests.exceptions.HTTPError as e:
+        print(f"   🌐 HTTP Error: {e.response.status_code} - {e.response.reason}")
         return None
     except Exception as e:
-        print(f"⚠️ API erro: {e}")
-        return None
-
+        print(f"   ❌ API erro: {e}")
+        return None 
 # =============================================================================
 # 🔥 PROCESSADOR ULTRA RÁPIDO
 # =============================================================================
