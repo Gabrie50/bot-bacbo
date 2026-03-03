@@ -927,7 +927,7 @@ def loop_pesado():
     """Loop para atualizar estatísticas pesadas a cada 30 segundos"""
     print("🔄 Loop pesado iniciado (30s)...")
     while True:
-        time.sleep(30)
+        time.sleep(10)
         try:
             atualizar_dados_pesados()
             print(f"📊 Estatísticas pesadas atualizadas: {cache['pesados']['periodos']}")
