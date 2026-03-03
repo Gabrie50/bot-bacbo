@@ -2,6 +2,7 @@
 # ✅ Coleta a cada 1 segundo
 # ✅ Força quebra de cache
 # ✅ Processamento instantâneo
+# ✅ Rota /api/tabela corrigida com logs
 
 import os
 import time
@@ -418,7 +419,8 @@ def buscar_api_casino():
         return None
     except Exception as e:
         print(f"   ❌ API erro: {e}")
-        return None 
+        return None
+
 # =============================================================================
 # 🔥 PROCESSADOR ULTRA RÁPIDO - VERSÃO TURBO
 # =============================================================================
@@ -461,6 +463,7 @@ def processar_fila():
         except Exception as e:
             print(f"❌ Erro TURBO: {e}")
             time.sleep(0.1)
+
 # =============================================================================
 # 🔥 COLETOR 1 SEGUNDO - VERSÃO TURBO
 # =============================================================================
@@ -830,7 +833,77 @@ def atualizar_dados_leves():
     cache['leves']['ultima_atualizacao'] = datetime.now(timezone.utc)
 
 # =============================================================================
-# ROTAS FLASK
+# 🔥 ROTA TABELA CORRIGIDA COM LOGS DE DEBUG
+# =============================================================================
+
+@app.route('/api/tabela/<int:limite>')
+def api_tabela(limite):
+    limite = min(max(limite, 50), 3000)
+    print(f"\n📋 ROTA TABELA CHAMADA - limite={limite}")
+    
+    conn = get_db_connection()
+    if not conn:
+        print("❌ Sem conexão com banco")
+        return jsonify([])
+    
+    try:
+        cur = conn.cursor()
+        
+        # Primeiro, verifica quantas rodadas existem
+        cur.execute('SELECT COUNT(*) FROM rodadas')
+        total_banco = cur.fetchone()[0]
+        print(f"   📊 Total no banco: {total_banco} rodadas")
+        
+        # Agora busca as últimas {limite} rodadas
+        cur.execute('''
+            SELECT data_hora, player_score, banker_score, resultado 
+            FROM rodadas 
+            ORDER BY data_hora DESC 
+            LIMIT %s
+        ''', (limite,))
+        
+        rows = cur.fetchall()
+        print(f"   📥 Query retornou {len(rows)} linhas")
+        
+        # Se não retornou nada, tenta buscar sem ORDER BY
+        if len(rows) == 0:
+            print("   ⚠️ NENHUMA RODADA RETORNADA! Tentando query alternativa...")
+            cur.execute('SELECT data_hora, player_score, banker_score, resultado FROM rodadas LIMIT 5')
+            rows_alt = cur.fetchall()
+            print(f"   🔍 Query alternativa retornou {len(rows_alt)} linhas")
+            if len(rows_alt) > 0:
+                print(f"      Primeira: {rows_alt[0]}")
+        
+        cur.close()
+        conn.close()
+        
+        resultado = []
+        for row in rows:
+            try:
+                brasilia = row[0].astimezone(timezone(timedelta(hours=-3)))
+                resultado.append({
+                    'data': brasilia.strftime('%d/%m %H:%M:%S'),
+                    'player': row[1],
+                    'banker': row[2],
+                    'resultado': row[3],
+                    'cor': '🔴' if row[3] == 'BANKER' else '🔵' if row[3] == 'PLAYER' else '🟡'
+                })
+            except Exception as e:
+                print(f"   ⚠️ Erro processando linha: {e} | Linha: {row}")
+                continue
+        
+        print(f"   ✅ Retornando {len(resultado)} rodadas para o frontend")
+        if len(resultado) > 0:
+            print(f"   🎲 Primeira: {resultado[0]}")
+        
+        return jsonify(resultado)
+        
+    except Exception as e:
+        print(f"❌ Erro api_tabela: {e}")
+        return jsonify([]), 500
+
+# =============================================================================
+# ROTAS FLASK (mantidas)
 # =============================================================================
 
 @app.route('/')
@@ -878,32 +951,6 @@ def api_stats():
         }
     })
 
-@app.route('/api/tabela/<int:limite>')
-def api_tabela(limite):
-    limite = min(max(limite, 50), 3000)
-    conn = get_db_connection()
-    if not conn:
-        return jsonify([])
-    
-    cur = conn.cursor()
-    cur.execute('SELECT data_hora, player_score, banker_score, resultado FROM rodadas ORDER BY data_hora DESC LIMIT %s', (limite,))
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    
-    resultado = []
-    for row in rows:
-        brasilia = row[0].astimezone(timezone(timedelta(hours=-3)))
-        resultado.append({
-            'data': brasilia.strftime('%d/%m %H:%M:%S'),
-            'player': row[1],
-            'banker': row[2],
-            'resultado': row[3],
-            'cor': '🔴' if row[3] == 'BANKER' else '🔵' if row[3] == 'PLAYER' else '🟡'
-        })
-    
-    return jsonify(resultado)
-
 @app.route('/health')
 def health():
     return jsonify({
@@ -920,12 +967,12 @@ def status_fila():
     })
 
 # =============================================================================
-# 🔥 LOOP PESADO - ATUALIZA ESTATÍSTICAS (CORRIGIDO!)
+# 🔥 LOOP PESADO - ATUALIZA ESTATÍSTICAS (3 segundos)
 # =============================================================================
 
 def loop_pesado():
     """Loop para atualizar estatísticas pesadas a cada 3 segundos"""
-    print("🔄 Loop pesado iniciado 3s)...")
+    print("🔄 Loop pesado iniciado (3s)...")
     while True:
         time.sleep(3)
         try:
@@ -944,6 +991,7 @@ if __name__ == "__main__":
     print("✅ Coleta a cada 1 segundo")
     print("✅ Processamento instantâneo")
     print("✅ Força quebra de cache")
+    print("✅ Rota /api/tabela com logs de debug")
     print("="*70)
     
     init_db()
@@ -951,7 +999,7 @@ if __name__ == "__main__":
     print("📊 Carregando dados...")
     atualizar_dados_leves()
     atualizar_dados_pesados()
-    print(f"📊 {cache['leves']['total_rodadas']} rodadas")
+    print(f"📊 {cache['leves']['total_rodadas']} rodadas no banco")
     print("="*70)
     
     # Threads
@@ -960,4 +1008,5 @@ if __name__ == "__main__":
     threading.Thread(target=loop_pesado, daemon=True).start()
     
     print("✅ Servidor rodando em 1s!")
+    print("📋 Acesse /api/tabela/50 para ver os dados brutos")
     app.run(host='0.0.0.0', port=PORT, debug=False)
