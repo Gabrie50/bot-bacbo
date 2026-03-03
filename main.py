@@ -31,7 +31,7 @@ DB_PORT = parsed.port or 5432
 DB_NAME = parsed.path[1:]
 
 # API Casino.org
-API_URL = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo"
+API_URL = "http://www.w3.org/2000/svg"
 PARAMS = {
     "page": 0,
     "size": 30,
