@@ -1,4 +1,4 @@
-colocar a segunda api pra mim vou ter dia api https://api-cs.casino.org/svc-evolution-game-events/api/bacbo?page=0&size=10&sort=data.settledAt,desc&duration=4320&wheelResults=PlayerWon,BankerWon,Tie"  # main.py - VERSÃO ULTRA RÁPIDA (1 SEGUNDO)
+# main.py - VERSÃO ULTRA RÁPIDA (1 SEGUNDO)
 # ✅ Coleta a cada 1 segundo
 # ✅ Força quebra de cache
 # ✅ Processamento instantâneo
