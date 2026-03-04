@@ -1,7 +1,8 @@
-# main.py - VERSÃO COM API DO BACBO.INFO
-# ✅ Usa a API real do BacBo.info
-# ✅ Autenticação com token JWT
-# ✅ Coleta a cada 1 segundo
+# main.py - VERSÃO ULTRA RÁPIDA (1 SEGUNDO) COM DUAS APIS
+# ✅ Coleta a cada 1 segundo de DUAS APIs diferentes
+# ✅ Força quebra de cache
+# ✅ Processamento instantâneo
+# ✅ Rota /api/tabela corrigida com logs
 
 import os
 import time
@@ -30,34 +31,30 @@ DB_PORT = parsed.port or 5432
 DB_NAME = parsed.path[1:]
 
 # =============================================================================
-# 🔥 NOVA API DO BACBO.INFO (descoberta na investigação)
+# API 1 - Casino.org (PRINCIPAL)
 # =============================================================================
-BACBO_API_BASE = "https://api.bacbo.info"
-BACBO_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2OTk3NjU4YTg3MmYxNjljMGViYWY5YTYiLCJlbWFpbCI6ImdjcmlzdGUyNjhAZ21haWwuY29tIiwibmFtZSI6IkdhYnJpZWwgQ3Jpc3RlIiwiaWF0IjoxNzcyNDAwMzg4LCJleHAiOjE3NzMwMDUxODgsImF1ZCI6ImJhY2JvLWFwcCIsImlzcyI6ImJhY2JvLWFwaSJ9.6P4r0nDNUMNqreAXBXriK4huq5B7Pcr_n2K65EEL98s"
+API1_URL = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo"
+API1_PARAMS = {
+    "page": 0,
+    "size": 30,
+    "sort": "data.settledAt,desc",
+    "duration": 4320,
+    "wheelResults": "PlayerWon,BankerWon,Tie"
+}
 
-# Endpoints a testar (baseado na investigação)
-ENDPOINTS = [
-    "/dashboard/live",
-    "/dashboard/data",
-    "/live/results",
-    "/live/stream",
-    "/results/latest",
-    "/results/recent",
-    "/rounds/latest",
-    "/v1/live",
-    "/v1/results",
-    "/api/live",
-    "/api/results"
-]
+# =============================================================================
+# API 2 - NOVA API (BACKUP/COMPLEMENTO)
+# =============================================================================
+API2_URL = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo/history"
+API2_PARAMS = {
+    "limit": 50,
+    "sort": "desc"
+}
 
 HEADERS = {
-    'Authorization': f'Bearer {BACBO_TOKEN}',
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     'Accept': 'application/json',
-    'Content-Type': 'application/json',
-    'Origin': 'https://bacbo.info',
-    'Referer': 'https://bacbo.info/dashboard',
-    'Cache-Control': 'no-cache',
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
     'Pragma': 'no-cache'
 }
 
@@ -68,14 +65,13 @@ RETRY_DELAY = 1
 INTERVALO_COLETA = 1  # 1 SEGUNDO!
 PORT = int(os.environ.get("PORT", 5000))
 
-# Cache para armazenar o endpoint que funcionar
-ENDPOINT_FUNCIONAL = None
-
 # =============================================================================
 # FILA DE PROCESSAMENTO
 # =============================================================================
 fila_rodadas = deque(maxlen=200)
 ultimo_id_processado = None
+ultimo_id_api1 = None
+ultimo_id_api2 = None
 
 cache = {
     'leves': {
@@ -106,16 +102,20 @@ cache = {
         }
     },
     'api': {
-        'total_coletado': 0,
-        'falhas': 0,
-        'endpoint_atual': None
+        'api1_ultimo_id': None,
+        'api2_ultimo_id': None,
+        'api1_coletado': 0,
+        'api2_coletado': 0,
+        'api1_falhas': 0,
+        'api2_falhas': 0,
+        'ultima_api_ativa': None
     },
     'ultima_previsao': None,
     'ultimo_resultado_real': None
 }
 
 # =============================================================================
-# PESOS DAS ESTRATÉGIAS (mantidos iguais)
+# PESOS DAS ESTRATÉGIAS
 # =============================================================================
 PESOS = {
     'compensacao': {'AGRESSIVO': 70, 'EQUILIBRADO': 90, 'PREDATORIO': 60},
@@ -136,7 +136,7 @@ session = requests.Session()
 session.headers.update(HEADERS)
 
 # =============================================================================
-# FUNÇÕES DO BANCO (mantidas iguais)
+# FUNÇÕES DO BANCO
 # =============================================================================
 
 def get_db_connection():
@@ -170,11 +170,13 @@ def init_db():
                 soma INTEGER,
                 resultado TEXT,
                 multiplicador FLOAT DEFAULT 1,
+                api_origem TEXT,
                 dados_json JSONB
             )
         ''')
         cur.execute('CREATE INDEX IF NOT EXISTS idx_data_hora ON rodadas(data_hora DESC)')
         cur.execute('CREATE INDEX IF NOT EXISTS idx_resultado ON rodadas(resultado)')
+        cur.execute('CREATE INDEX IF NOT EXISTS idx_api_origem ON rodadas(api_origem)')
         
         cur.execute('''
             CREATE TABLE IF NOT EXISTS historico_previsoes (
@@ -208,8 +210,8 @@ def salvar_rodada(rodada):
         cur = conn.cursor()
         cur.execute('''
             INSERT INTO rodadas 
-            (id, data_hora, player_score, banker_score, soma, resultado, dados_json)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            (id, data_hora, player_score, banker_score, soma, resultado, api_origem, dados_json)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (id) DO NOTHING
         ''', (
             rodada['id'],
@@ -218,6 +220,7 @@ def salvar_rodada(rodada):
             rodada['banker_score'],
             rodada['player_score'] + rodada['banker_score'],
             rodada['resultado'],
+            rodada.get('api_origem', 'api1'),
             json.dumps(rodada, default=str)
         ))
         
@@ -230,6 +233,10 @@ def salvar_rodada(rodada):
     except Exception as e:
         print(f"❌ Erro ao salvar: {e}")
         return False
+
+# =============================================================================
+# FUNÇÕES DO BANCO (LEVES)
+# =============================================================================
 
 def get_ultimas_50():
     conn = get_db_connection()
@@ -254,7 +261,7 @@ def get_ultimas_20():
     
     try:
         cur = conn.cursor()
-        cur.execute('SELECT data_hora, player_score, banker_score, resultado FROM rodadas ORDER BY data_hora DESC LIMIT 20')
+        cur.execute('SELECT data_hora, player_score, banker_score, resultado, api_origem FROM rodadas ORDER BY data_hora DESC LIMIT 20')
         rows = cur.fetchall()
         cur.close()
         conn.close()
@@ -268,7 +275,8 @@ def get_ultimas_20():
                 'resultado': row[3],
                 'cor': cor,
                 'player': row[1],
-                'banker': row[2]
+                'banker': row[2],
+                'api': row[4]
             })
         return resultado
     except Exception as e:
@@ -290,6 +298,10 @@ def get_total_rapido():
         print(f"⚠️ Erro get_total: {e}")
         return 0
 
+# =============================================================================
+# FUNÇÕES PESADAS
+# =============================================================================
+
 def contar_periodo(horas):
     conn = get_db_connection()
     if not conn:
@@ -308,196 +320,238 @@ def contar_periodo(horas):
         print(f"⚠️ Erro contar_periodo {horas}h: {e}")
         return 0
 
-# =============================================================================
-# 🔥 FUNÇÃO PARA ENCONTRAR ENDPOINT FUNCIONAL
-# =============================================================================
-
-def encontrar_endpoint_funcional():
-    """Testa todos os endpoints até encontrar um que retorne dados"""
-    global ENDPOINT_FUNCIONAL
-    
-    print("\n🔍 Testando endpoints do BacBo.info...")
-    
-    for endpoint in ENDPOINTS:
-        url = f"{BACBO_API_BASE}{endpoint}"
-        print(f"   Testando: {url}")
-        
-        try:
-            response = session.get(url, timeout=5)
-            
-            if response.status_code == 200:
-                data = response.json()
-                print(f"   ✅ ENDPOINT FUNCIONAL: {endpoint}")
-                print(f"   📦 Dados: {str(data)[:200]}...")
-                ENDPOINT_FUNCIONAL = endpoint
-                return endpoint
-            else:
-                print(f"   ❌ Status {response.status_code}")
-                
-        except Exception as e:
-            print(f"   ❌ Erro: {e}")
-    
-    print("\n⚠️ Nenhum endpoint REST funcionou. Tentando extrair do HTML...")
-    return None
+def atualizar_dados_pesados():
+    cache['pesados']['periodos'] = {
+        '10min': contar_periodo(0.16),
+        '1h': contar_periodo(1),
+        '6h': contar_periodo(6),
+        '12h': contar_periodo(12),
+        '24h': contar_periodo(24),
+        '48h': contar_periodo(48),
+        '72h': contar_periodo(72)
+    }
+    cache['pesados']['ultima_atualizacao'] = datetime.now(timezone.utc)
 
 # =============================================================================
-# 🔥 FUNÇÃO PARA EXTRAIR DADOS DO HTML (fallback)
+# 🔥 FUNÇÃO API 1 - Casino.org (PRINCIPAL)
 # =============================================================================
 
-def extrair_dados_do_html():
-    """Extrai dados do HTML da página principal"""
+def buscar_api1_casino():
+    """Busca rodadas da API 1 (principal) forçando novos dados"""
+    global ultimo_id_api1
+    
     try:
-        url = "https://bacbo.info/dashboard"
-        headers = HEADERS.copy()
-        headers['Accept'] = 'text/html'
+        print(f"\n🔍 [API 1] Tentando buscar... {datetime.now().strftime('%H:%M:%S')}")
         
-        response = session.get(url, timeout=TIMEOUT_API)
-        html = response.text
+        # Força página aleatória e timestamp
+        params = API1_PARAMS.copy()
+        params['_t'] = int(time.time() * 1000)
+        params['page'] = random.randint(0, 2)
+        params['nocache'] = random.randint(1, 9999)
         
-        # Procurar por padrões "XXxYY"
-        import re
-        jogos = re.findall(r'\b(\d{1,2})\s*[xX]\s*(\d{1,2})\b', html)
+        print(f"   📡 URL: {API1_URL}")
+        print(f"   📦 Params: page={params['page']}, _t={params['_t']}")
         
-        rodadas = []
-        for i, (player, banker) in enumerate(jogos[:30]):  # Pega os primeiros 30
-            player_score = int(player)
-            banker_score = int(banker)
+        local_session = requests.Session()
+        local_session.headers.update(HEADERS)
+        
+        response = local_session.get(API1_URL, params=params, timeout=TIMEOUT_API)
+        
+        print(f"   📊 Status: {response.status_code}")
+        
+        response.raise_for_status()
+        dados = response.json()
+        
+        print(f"   📥 Dados recebidos: {len(dados) if dados else 0} itens")
+        
+        if dados and len(dados) > 0:
+            primeiro = dados[0]
+            data = primeiro.get('data', {})
+            novo_id = data.get('id')
             
-            if player_score > banker_score:
-                resultado = 'PLAYER'
-            elif banker_score > player_score:
-                resultado = 'BANKER'
-            else:
-                resultado = 'TIE'
+            player = data.get('result', {}).get('playerDice', {}).get('score', '?')
+            banker = data.get('result', {}).get('bankerDice', {}).get('score', '?')
+            resultado_api = data.get('result', {}).get('outcome', '?')
             
-            rodada = {
-                'id': f"html_{i}_{datetime.now().timestamp()}",
-                'data_hora': datetime.now(timezone.utc),
-                'player_score': player_score,
-                'banker_score': banker_score,
-                'resultado': resultado
-            }
-            rodadas.append(rodada)
+            print(f"   🎲 Primeiro: {player} vs {banker} - {resultado_api}")
+            print(f"   🆔 ID: {novo_id}")
+            print(f"   🆔 Último ID: {ultimo_id_api1}")
+            
+            if novo_id != ultimo_id_api1:
+                ultimo_id_api1 = novo_id
+                print(f"\n🔥 [API 1] NOVO ID DETECTADO: {novo_id[-8:] if novo_id else 'N/A'} 🔥\n")
+            
+            rodadas = []
+            for i, item in enumerate(dados[:15]):
+                try:
+                    data = item.get('data', {})
+                    result = data.get('result', {})
+                    player_dice = result.get('playerDice', {})
+                    banker_dice = result.get('bankerDice', {})
+                    
+                    resultado_api = result.get('outcome', '')
+                    if resultado_api == 'PlayerWon':
+                        resultado = 'PLAYER'
+                    elif resultado_api == 'BankerWon':
+                        resultado = 'BANKER'
+                    else:
+                        resultado = 'TIE'
+
+                    data_hora = datetime.fromisoformat(data.get('settledAt', '').replace('Z', '+00:00'))
+
+                    rodada = {
+                        'id': data.get('id'),
+                        'data_hora': data_hora,
+                        'player_score': player_dice.get('score', 0),
+                        'banker_score': banker_dice.get('score', 0),
+                        'resultado': resultado,
+                        'api_origem': 'api1'
+                    }
+                    rodadas.append(rodada)
+                    
+                    if i < 3:
+                        print(f"      🔹 Rodada {i+1}: {player_dice.get('score')} vs {banker_dice.get('score')} - {resultado}")
+                        
+                except Exception as e:
+                    print(f"⚠️ Erro processando item {i}: {e}")
+                    continue
+            
+            print(f"   ✅ [API 1] Total processado: {len(rodadas)} rodadas")
+            return rodadas
         
-        print(f"   📥 Extraídas {len(rodadas)} rodadas do HTML")
-        return rodadas
+        print("   ⚠️ API 1 retornou lista vazia")
+        return None
         
     except Exception as e:
-        print(f"❌ Erro ao extrair HTML: {e}")
+        print(f"   ❌ [API 1] Erro: {e}")
+        cache['api']['api1_falhas'] += 1
         return None
 
 # =============================================================================
-# 🔥 FUNÇÃO PRINCIPAL - BUSCA NA API DO BACBO
+# 🔥 FUNÇÃO API 2 - History (BACKUP/COMPLEMENTO)
 # =============================================================================
 
-def buscar_api_bacbo():
-    """Busca rodadas usando a API do BacBo.info"""
-    global ENDPOINT_FUNCIONAL
+def buscar_api2_history():
+    """Busca rodadas da API 2 (histórico)"""
+    global ultimo_id_api2
     
     try:
-        # Se ainda não encontrou endpoint funcional, tenta encontrar
-        if not ENDPOINT_FUNCIONAL:
-            ENDPOINT_FUNCIONAL = encontrar_endpoint_funcional()
-            if not ENDPOINT_FUNCIONAL:
-                # Fallback para extração de HTML
-                return extrair_dados_do_html()
+        print(f"\n🔍 [API 2] Tentando buscar... {datetime.now().strftime('%H:%M:%S')}")
         
-        # Usa o endpoint funcional
-        url = f"{BACBO_API_BASE}{ENDPOINT_FUNCIONAL}"
-        params = {
-            '_t': int(time.time() * 1000),  # Anti-cache
-            'limit': 30
-        }
+        params = API2_PARAMS.copy()
+        params['_t'] = int(time.time() * 1000)
+        params['nocache'] = random.randint(1, 9999)
         
-        response = session.get(url, params=params, timeout=TIMEOUT_API)
+        print(f"   📡 URL: {API2_URL}")
         
-        if response.status_code == 200:
-            data = response.json()
+        local_session = requests.Session()
+        local_session.headers.update(HEADERS)
+        
+        response = local_session.get(API2_URL, params=params, timeout=TIMEOUT_API)
+        
+        print(f"   📊 Status: {response.status_code}")
+        
+        response.raise_for_status()
+        dados = response.json()
+        
+        print(f"   📥 Dados recebidos: {len(dados) if dados else 0} itens")
+        
+        if dados and len(dados) > 0:
+            primeiro = dados[0]
+            novo_id = primeiro.get('id') or primeiro.get('gameId')
             
-            # Processar dados baseado no formato
+            print(f"   🎲 Primeiro resultado: {primeiro.get('result', '?')}")
+            print(f"   🆔 ID: {novo_id}")
+            print(f"   🆔 Último ID: {ultimo_id_api2}")
+            
+            if novo_id != ultimo_id_api2:
+                ultimo_id_api2 = novo_id
+                print(f"\n🔥 [API 2] NOVO ID DETECTADO: {novo_id[-8:] if novo_id else 'N/A'} 🔥\n")
+            
             rodadas = []
+            for i, item in enumerate(dados[:15]):
+                try:
+                    # Adapte conforme o formato da API 2
+                    game_id = item.get('id') or item.get('gameId')
+                    result = item.get('result', '')
+                    player = item.get('playerScore', 0)
+                    banker = item.get('bankerScore', 0)
+                    timestamp = item.get('timestamp') or item.get('createdAt')
+                    
+                    if result == 'PLAYER_WON' or result == 'PlayerWon':
+                        resultado = 'PLAYER'
+                    elif result == 'BANKER_WON' or result == 'BankerWon':
+                        resultado = 'BANKER'
+                    else:
+                        resultado = 'TIE'
+                    
+                    if timestamp:
+                        if isinstance(timestamp, str):
+                            data_hora = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                        else:
+                            data_hora = datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc)
+                    else:
+                        data_hora = datetime.now(timezone.utc)
+                    
+                    rodada = {
+                        'id': f"api2_{game_id}",
+                        'data_hora': data_hora,
+                        'player_score': player,
+                        'banker_score': banker,
+                        'resultado': resultado,
+                        'api_origem': 'api2'
+                    }
+                    rodadas.append(rodada)
+                    
+                    if i < 3:
+                        print(f"      🔹 Rodada {i+1}: {player} vs {banker} - {resultado}")
+                        
+                except Exception as e:
+                    print(f"⚠️ Erro processando item {i}: {e}")
+                    continue
             
-            # Tenta diferentes formatos de resposta
-            if isinstance(data, list):
-                for item in data:
-                    rodada = processar_item_api(item)
-                    if rodada:
-                        rodadas.append(rodada)
-            elif isinstance(data, dict):
-                if 'data' in data and isinstance(data['data'], list):
-                    for item in data['data']:
-                        rodada = processar_item_api(item)
-                        if rodada:
-                            rodadas.append(rodada)
-                elif 'results' in data:
-                    for item in data['results']:
-                        rodada = processar_item_api(item)
-                        if rodada:
-                            rodadas.append(rodada)
-            
-            if rodadas:
-                print(f"   📥 {len(rodadas)} rodadas da API")
-                return rodadas
-            
-        # Se API não retornou dados, tenta HTML
-        return extrair_dados_do_html()
+            print(f"   ✅ [API 2] Total processado: {len(rodadas)} rodadas")
+            return rodadas
+        
+        print("   ⚠️ API 2 retornou lista vazia")
+        return None
         
     except Exception as e:
-        print(f"❌ Erro na API: {e}")
-        # Fallback para HTML
-        return extrair_dados_do_html()
+        print(f"   ❌ [API 2] Erro: {e}")
+        cache['api']['api2_falhas'] += 1
+        return None
 
-def processar_item_api(item):
-    """Processa um item da API para o formato padrão"""
-    try:
-        # Tenta diferentes estruturas de dados
-        if isinstance(item, dict):
-            # Formato 1: com player_score e banker_score
-            if 'player_score' in item and 'banker_score' in item:
-                player = int(item['player_score'])
-                banker = int(item['banker_score'])
-                
-                if player > banker:
-                    resultado = 'PLAYER'
-                elif banker > player:
-                    resultado = 'BANKER'
-                else:
-                    resultado = 'TIE'
-                
-                return {
-                    'id': item.get('id', f"api_{time.time()}"),
-                    'data_hora': datetime.now(timezone.utc),
-                    'player_score': player,
-                    'banker_score': banker,
-                    'resultado': resultado
-                }
-            
-            # Formato 2: com player e banker
-            if 'player' in item and 'banker' in item:
-                player = int(item['player'])
-                banker = int(item['banker'])
-                
-                if player > banker:
-                    resultado = 'PLAYER'
-                elif banker > player:
-                    resultado = 'BANKER'
-                else:
-                    resultado = 'TIE'
-                
-                return {
-                    'id': item.get('id', f"api_{time.time()}"),
-                    'data_hora': datetime.now(timezone.utc),
-                    'player_score': player,
-                    'banker_score': banker,
-                    'resultado': resultado
-                }
-    except Exception as e:
-        print(f"⚠️ Erro processando item: {e}")
+# =============================================================================
+# 🔥 FUNÇÃO PRINCIPAL - BUSCA DAS DUAS APIS
+# =============================================================================
+
+def buscar_ambas_apis():
+    """Busca dados das duas APIs e retorna a melhor fonte"""
     
+    # Tenta API 1 primeiro (principal)
+    dados_api1 = buscar_api1_casino()
+    
+    if dados_api1 and len(dados_api1) > 0:
+        cache['api']['api1_coletado'] += len(dados_api1)
+        cache['api']['ultima_api_ativa'] = 'api1'
+        print(f"✅ [API 1] Ativa - {len(dados_api1)} rodadas")
+        return dados_api1
+    
+    # Se API 1 falhar, tenta API 2
+    print("⚠️ API 1 falhou, tentando API 2...")
+    dados_api2 = buscar_api2_history()
+    
+    if dados_api2 and len(dados_api2) > 0:
+        cache['api']['api2_coletado'] += len(dados_api2)
+        cache['api']['ultima_api_ativa'] = 'api2'
+        print(f"✅ [API 2] Ativa - {len(dados_api2)} rodadas")
+        return dados_api2
+    
+    print("❌ Ambas as APIs falharam")
     return None
 
 # =============================================================================
-# 🔥 PROCESSADOR E COLETOR (mantidos iguais)
+# 🔥 PROCESSADOR ULTRA RÁPIDO
 # =============================================================================
 
 def processar_fila():
@@ -536,46 +590,52 @@ def processar_fila():
             print(f"❌ Erro TURBO: {e}")
             time.sleep(0.1)
 
+# =============================================================================
+# 🔥 COLETOR 1 SEGUNDO - COM DUAS APIS
+# =============================================================================
+
 def loop_coleta():
-    """Coleta a cada 1 segundo usando API do BacBo"""
-    print("📡 Coletor TURBO 1s (API BacBo.info) iniciado...")
+    """Coleta a cada 1 segundo das duas APIs"""
+    print("📡 Coletor TURBO 1s (DUAS APIS) iniciado...")
     global ultimo_id_processado, fila_rodadas
     
     while True:
         try:
             inicio = time.time()
             
-            dados = buscar_api_bacbo()
+            dados = buscar_ambas_apis()
             
             if dados and len(dados) > 0:
-                # Adiciona na fila
-                tamanho_anterior = len(fila_rodadas)
-                for rodada in dados:
-                    fila_rodadas.append(rodada)
+                primeiro = dados[0]
+                novo_id = primeiro['id']
                 
-                cache['api']['total_coletado'] += len(dados)
-                print(f"📥 +{len(dados)} novas | Fila: {tamanho_anterior} → {len(fila_rodadas)}")
-                
-                # Processamento imediato se fila > 20
-                if len(fila_rodadas) > 20:
-                    print(f"⚡ Fila com {len(fila_rodadas)}, processando imediatamente...")
-                    batch = list(fila_rodadas)
-                    fila_rodadas.clear()
+                if novo_id and novo_id != ultimo_id_processado:
+                    ultimo_id_processado = novo_id
                     
-                    saved = 0
-                    for rodada in batch:
-                        if salvar_rodada(rodada):
-                            saved += 1
-                            if saved == 1:
-                                cache['ultimo_resultado_real'] = rodada['resultado']
+                    tamanho_anterior = len(fila_rodadas)
+                    for rodada in dados:
+                        fila_rodadas.append(rodada)
                     
-                    if saved > 0:
-                        print(f"💾 Processamento imediato: {saved} rodadas")
-                        atualizar_dados_leves()
+                    print(f"📥 +{len(dados)} novas | Fila: {tamanho_anterior} → {len(fila_rodadas)} | Origem: {primeiro.get('api_origem', '?')}")
+                    
+                    if len(fila_rodadas) > 20:
+                        print(f"⚡ Fila com {len(fila_rodadas)}, processando imediatamente...")
+                        batch = list(fila_rodadas)
+                        fila_rodadas.clear()
+                        
+                        saved = 0
+                        for rodada in batch:
+                            if salvar_rodada(rodada):
+                                saved += 1
+                                if saved == 1:
+                                    cache['ultimo_resultado_real'] = rodada['resultado']
+                        
+                        if saved > 0:
+                            print(f"💾 Processamento imediato: {saved} rodadas")
+                            atualizar_dados_leves()
             
-            # Mostra status a cada 5 segundos
             if int(time.time()) % 5 == 0:
-                print(f"📊 Status - Fila: {len(fila_rodadas)} | Total banco: {cache['leves']['total_rodadas']}")
+                print(f"📊 Status - Fila: {len(fila_rodadas)} | API1: {cache['api']['api1_coletado']} | API2: {cache['api']['api2_coletado']}")
             
             time.sleep(1)
             
@@ -583,27 +643,8 @@ def loop_coleta():
             print(f"❌ Erro coleta: {e}")
             time.sleep(1)
 
-def loop_pesado():
-    """Loop para atualizar estatísticas pesadas a cada 3 segundos"""
-    print("🔄 Loop pesado iniciado (3s)...")
-    while True:
-        time.sleep(3)
-        try:
-            cache['pesados']['periodos'] = {
-                '10min': contar_periodo(0.16),
-                '1h': contar_periodo(1),
-                '6h': contar_periodo(6),
-                '12h': contar_periodo(12),
-                '24h': contar_periodo(24),
-                '48h': contar_periodo(48),
-                '72h': contar_periodo(72)
-            }
-            cache['pesados']['ultima_atualizacao'] = datetime.now(timezone.utc)
-        except Exception as e:
-            print(f"❌ Erro no loop pesado: {e}")
-
 # =============================================================================
-# ESTRATÉGIAS E PREVISÕES (mantidas iguais)
+# ESTRATÉGIAS (mantidas iguais)
 # =============================================================================
 
 def estrategia_compensacao(dados, modo):
@@ -844,6 +885,10 @@ def calcular_previsao():
         'estrategias': estrategias_ativas[:4]
     }
 
+# =============================================================================
+# SISTEMA DE APRENDIZADO
+# =============================================================================
+
 def verificar_previsoes_anteriores():
     if cache.get('ultima_previsao') and cache.get('ultimo_resultado_real'):
         ultima = cache['ultima_previsao']
@@ -891,6 +936,10 @@ def calcular_precisao():
         return 0
     return round((cache['estatisticas']['acertos'] / total) * 100)
 
+# =============================================================================
+# ATUALIZAÇÃO
+# =============================================================================
+
 def atualizar_dados_leves():
     verificar_previsoes_anteriores()
     
@@ -905,12 +954,8 @@ def atualizar_dados_leves():
     cache['leves']['ultima_atualizacao'] = datetime.now(timezone.utc)
 
 # =============================================================================
-# ROTAS FLASK (mantidas iguais)
+# 🔥 ROTA TABELA
 # =============================================================================
-
-@app.route('/')
-def index():
-    return render_template('index.html')
 
 @app.route('/api/tabela/<int:limite>')
 def api_tabela(limite):
@@ -930,7 +975,7 @@ def api_tabela(limite):
         print(f"   📊 Total no banco: {total_banco} rodadas")
         
         cur.execute('''
-            SELECT data_hora, player_score, banker_score, resultado 
+            SELECT data_hora, player_score, banker_score, resultado, api_origem 
             FROM rodadas 
             ORDER BY data_hora DESC 
             LIMIT %s
@@ -938,6 +983,14 @@ def api_tabela(limite):
         
         rows = cur.fetchall()
         print(f"   📥 Query retornou {len(rows)} linhas")
+        
+        if len(rows) == 0:
+            print("   ⚠️ NENHUMA RODADA RETORNADA! Tentando query alternativa...")
+            cur.execute('SELECT data_hora, player_score, banker_score, resultado, api_origem FROM rodadas LIMIT 5')
+            rows_alt = cur.fetchall()
+            print(f"   🔍 Query alternativa retornou {len(rows_alt)} linhas")
+            if len(rows_alt) > 0:
+                print(f"      Primeira: {rows_alt[0]}")
         
         cur.close()
         conn.close()
@@ -951,18 +1004,54 @@ def api_tabela(limite):
                     'player': row[1],
                     'banker': row[2],
                     'resultado': row[3],
+                    'api': row[4],
                     'cor': '🔴' if row[3] == 'BANKER' else '🔵' if row[3] == 'PLAYER' else '🟡'
                 })
             except Exception as e:
-                print(f"   ⚠️ Erro processando linha: {e}")
+                print(f"   ⚠️ Erro processando linha: {e} | Linha: {row}")
                 continue
         
-        print(f"   ✅ Retornando {len(resultado)} rodadas")
+        print(f"   ✅ Retornando {len(resultado)} rodadas para o frontend")
+        if len(resultado) > 0:
+            print(f"   🎲 Primeira: {resultado[0]}")
+        
         return jsonify(resultado)
         
     except Exception as e:
         print(f"❌ Erro api_tabela: {e}")
         return jsonify([]), 500
+
+# =============================================================================
+# ROTA ESPECÍFICA PARA API STATUS
+# =============================================================================
+
+@app.route('/api/status-apis')
+def api_status_apis():
+    """Mostra status das duas APIs"""
+    return jsonify({
+        'api1': {
+            'ultimo_id': cache['api']['api1_ultimo_id'],
+            'coletado': cache['api']['api1_coletado'],
+            'falhas': cache['api']['api1_falhas'],
+            'ativa': cache['api']['ultima_api_ativa'] == 'api1'
+        },
+        'api2': {
+            'ultimo_id': cache['api']['api2_ultimo_id'],
+            'coletado': cache['api']['api2_coletado'],
+            'falhas': cache['api']['api2_falhas'],
+            'ativa': cache['api']['ultima_api_ativa'] == 'api2'
+        },
+        'ultima_api_ativa': cache['api']['ultima_api_ativa'],
+        'fila': len(fila_rodadas)
+    })
+
+# =============================================================================
+# ROTAS FLASK
+# =============================================================================
+
+@app.route('/')
+def index():
+    return render_template('index.html')
 
 @app.route('/api/stats')
 def api_stats():
@@ -993,8 +1082,9 @@ def api_stats():
         'periodos': cache['pesados']['periodos'],
         'fila': len(fila_rodadas),
         'api': {
-            'total_coletado': cache['api']['total_coletado'],
-            'endpoint': ENDPOINT_FUNCIONAL
+            'api1_coletado': cache['api']['api1_coletado'],
+            'api2_coletado': cache['api']['api2_coletado'],
+            'ultima_api_ativa': cache['api']['ultima_api_ativa']
         },
         'estatisticas': {
             'total_previsoes': cache['estatisticas']['total_previsoes'],
@@ -1011,7 +1101,9 @@ def health():
     return jsonify({
         'status': 'ok',
         'rodadas': cache['leves']['total_rodadas'],
-        'fila': len(fila_rodadas)
+        'fila': len(fila_rodadas),
+        'api1_coletado': cache['api']['api1_coletado'],
+        'api2_coletado': cache['api']['api2_coletado']
     })
 
 @app.route('/status-fila')
@@ -1019,32 +1111,44 @@ def status_fila():
     return jsonify({
         'fila': len(fila_rodadas),
         'ultimo_id': ultimo_id_processado,
-        'endpoint': ENDPOINT_FUNCIONAL
+        'api1_ultimo_id': ultimo_id_api1,
+        'api2_ultimo_id': ultimo_id_api2
     })
+
+# =============================================================================
+# 🔥 LOOP PESADO
+# =============================================================================
+
+def loop_pesado():
+    """Loop para atualizar estatísticas pesadas a cada 3 segundos"""
+    print("🔄 Loop pesado iniciado (3s)...")
+    while True:
+        time.sleep(3)
+        try:
+            atualizar_dados_pesados()
+            print(f"📊 Estatísticas pesadas atualizadas: {cache['pesados']['periodos']}")
+        except Exception as e:
+            print(f"❌ Erro no loop pesado: {e}")
 
 # =============================================================================
 # MAIN
 # =============================================================================
 if __name__ == "__main__":
     print("="*70)
-    print("🚀 BOT BACBO - API BACBO.INFO")
+    print("🚀 BOT BACBO - ULTRA RÁPIDO (DUAS APIS)")
     print("="*70)
     print("✅ Coleta a cada 1 segundo")
-    print("✅ Usando API real: https://api.bacbo.info")
-    print("✅ Fallback para extração HTML")
+    print("✅ API 1: Casino.org (principal)")
+    print("✅ API 2: History (backup)")
+    print("✅ Processamento instantâneo")
+    print("✅ Força quebra de cache")
     print("="*70)
     
     init_db()
     
-    print("🔍 Testando API do BacBo.info...")
-    endpoint = encontrar_endpoint_funcional()
-    if endpoint:
-        print(f"✅ Usando endpoint: {endpoint}")
-    else:
-        print("⚠️ Usando fallback: extração de HTML")
-    
-    print("\n📊 Carregando dados...")
+    print("📊 Carregando dados...")
     atualizar_dados_leves()
+    atualizar_dados_pesados()
     print(f"📊 {cache['leves']['total_rodadas']} rodadas no banco")
     print("="*70)
     
@@ -1053,6 +1157,7 @@ if __name__ == "__main__":
     threading.Thread(target=processar_fila, daemon=True).start()
     threading.Thread(target=loop_pesado, daemon=True).start()
     
-    print("✅ Servidor rodando com API BacBo.info!")
+    print("✅ Servidor rodando em 1s com DUAS APIS!")
     print("📋 Acesse /api/tabela/50 para ver os dados brutos")
+    print("📋 Acesse /api/status-apis para ver status das APIs")
     app.run(host='0.0.0.0', port=PORT, debug=False)
