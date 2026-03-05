@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🎲 BacBo Analytics - 8 Estratégias + CLAUDE 4.6 IA</title>
+    <title>🎲 BacBo Analytics - 8 Estratégias + CLAUDE + GEMINI</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Puter.js para Claude 4.6 -->
+    <!-- Puter.js para Claude e Gemini -->
     <script src="https://js.puter.com/v2/"></script>
     <style>
         * {
@@ -107,20 +107,20 @@
             100% { opacity: 1; }
         }
 
-        /* Cards de Previsão - Layout duplo */
-        .previsao-duplo {
+        /* Cards de Previsão - Layout triplo */
+        .previsao-triplo {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 15px;
             margin-bottom: 25px;
         }
 
         /* Card de Previsão Tradicional */
-        .previsao-card, .claude-card {
+        .previsao-card, .claude-card, .gemini-card {
             background: linear-gradient(145deg, #1a1e24 0%, #15181c 100%);
             border: 1px solid #00ff8840;
             border-radius: 16px;
-            padding: 25px;
+            padding: 20px;
             position: relative;
             overflow: hidden;
         }
@@ -129,14 +129,8 @@
             border: 1px solid #8b5cf640;
         }
 
-        .claude-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 2px;
-            background: linear-gradient(90deg, #8b5cf6, #6d28d9, #a78bfa);
+        .gemini-card {
+            border: 1px solid #4285f440;
         }
 
         .previsao-card::before {
@@ -149,32 +143,56 @@
             background: linear-gradient(90deg, #00ff88, #4d4dff, #ff4d4d);
         }
 
+        .claude-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, #8b5cf6, #6d28d9, #a78bfa);
+        }
+
+        .gemini-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, #4285f4, #34a853, #ea4335);
+        }
+
         .previsao-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }
 
         .previsao-titulo {
-            font-size: 18px;
+            font-size: 16px;
             font-weight: 600;
             color: #fff;
         }
 
         .previsao-titulo i {
             color: #00ff88;
-            margin-right: 10px;
+            margin-right: 8px;
         }
 
         .claude-titulo i {
             color: #8b5cf6;
         }
 
+        .gemini-titulo i {
+            color: #4285f4;
+        }
+
         .modo-badge {
-            padding: 8px 16px;
-            border-radius: 30px;
-            font-size: 14px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
             font-weight: 600;
         }
 
@@ -202,38 +220,45 @@
             border: 1px solid #8b5cf6;
         }
 
+        .modo-gemini {
+            background: #4285f420;
+            color: #4285f4;
+            border: 1px solid #4285f4;
+        }
+
         .previsao-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: 20px;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 10px;
         }
 
         .previsao-item {
             text-align: center;
-            padding: 15px;
+            padding: 10px;
             background: #1e2227;
-            border-radius: 12px;
+            border-radius: 8px;
         }
 
         .previsao-label {
             color: #8a8f99;
-            font-size: 12px;
+            font-size: 10px;
             text-transform: uppercase;
-            margin-bottom: 10px;
+            margin-bottom: 5px;
         }
 
         .previsao-cor {
-            font-size: 48px;
-            margin: 10px 0;
+            font-size: 32px;
+            margin: 5px 0;
         }
 
         .previsao-valor {
-            font-size: 24px;
+            font-size: 18px;
             font-weight: 600;
         }
 
         .previsao-confianca {
-            font-size: 32px;
+            font-size: 24px;
             font-weight: 700;
             color: #00ff88;
         }
@@ -242,19 +267,30 @@
             color: #a78bfa;
         }
 
+        .gemini-confianca {
+            color: #4285f4;
+        }
+
         .raciocinio-box {
-            margin-top: 15px;
-            padding: 15px;
+            margin-top: 10px;
+            padding: 12px;
             background: #1a1f2e;
-            border-radius: 12px;
-            border-left: 4px solid #8b5cf6;
-            font-size: 14px;
+            border-radius: 8px;
+            border-left: 3px solid;
+            font-size: 12px;
             color: #e0e0e0;
         }
 
+        .claude-box {
+            border-left-color: #8b5cf6;
+        }
+
+        .gemini-box {
+            border-left-color: #4285f4;
+        }
+
         .raciocinio-label {
-            color: #a78bfa;
-            font-size: 12px;
+            font-size: 10px;
             text-transform: uppercase;
             margin-bottom: 5px;
             display: flex;
@@ -262,25 +298,34 @@
             gap: 5px;
         }
 
+        .claude-label {
+            color: #a78bfa;
+        }
+
+        .gemini-label {
+            color: #4285f4;
+        }
+
         .raciocinio-texto {
-            line-height: 1.6;
+            line-height: 1.5;
+            font-size: 11px;
         }
 
         .estrategias-list {
-            margin-top: 20px;
+            margin-top: 10px;
             display: flex;
             flex-wrap: wrap;
-            gap: 10px;
+            gap: 5px;
             align-items: center;
-            min-height: 50px;
+            min-height: 40px;
         }
 
         .estrategia-tag {
             background: #1e2227;
             border: 1px solid #2a2f35;
-            border-radius: 20px;
-            padding: 5px 15px;
-            font-size: 12px;
+            border-radius: 16px;
+            padding: 3px 10px;
+            font-size: 10px;
             color: #8a8f99;
         }
 
@@ -296,14 +341,21 @@
             color: #a78bfa;
         }
 
+        .estrategia-tag.gemini {
+            background: #4285f420;
+            border-color: #4285f4;
+            color: #4285f4;
+        }
+
         .delay-warning {
             background: #ffaa0020;
             border: 1px solid #ffaa00;
             color: #ffaa00;
-            padding: 10px;
-            border-radius: 8px;
-            margin-top: 15px;
+            padding: 8px;
+            border-radius: 6px;
+            margin-top: 10px;
             text-align: center;
+            font-size: 12px;
             animation: blink 1s infinite;
         }
 
@@ -317,15 +369,15 @@
         .stats-previsao-grid {
             display: grid;
             grid-template-columns: repeat(5, 1fr);
-            gap: 15px;
-            margin-bottom: 25px;
+            gap: 12px;
+            margin-bottom: 20px;
         }
 
         .stats-previsao-card {
             background: #15181c;
             border: 1px solid #2a2f35;
-            border-radius: 12px;
-            padding: 15px;
+            border-radius: 10px;
+            padding: 12px;
             text-align: center;
             transition: all 0.3s ease;
         }
@@ -336,15 +388,15 @@
         }
 
         .stats-previsao-valor {
-            font-size: 28px;
+            font-size: 24px;
             font-weight: 700;
             color: #00ff88;
         }
 
         .stats-previsao-label {
             color: #8a8f99;
-            font-size: 12px;
-            margin-top: 5px;
+            font-size: 11px;
+            margin-top: 3px;
         }
 
         .stats-previsao-acerto { color: #00ff88; }
@@ -356,23 +408,24 @@
             width: 100%;
             background: #15181c;
             border: 1px solid #2a2f35;
-            border-radius: 12px;
+            border-radius: 10px;
             overflow: hidden;
-            margin-bottom: 25px;
+            margin-bottom: 20px;
+            font-size: 13px;
         }
 
         .estrategias-table th {
             background: #1e2227;
             color: #8a8f99;
             font-weight: 500;
-            font-size: 12px;
+            font-size: 11px;
             text-transform: uppercase;
-            padding: 12px;
+            padding: 10px;
             text-align: center;
         }
 
         .estrategias-table td {
-            padding: 10px;
+            padding: 8px;
             text-align: center;
             border-bottom: 1px solid #2a2f35;
         }
@@ -408,25 +461,25 @@
         .timeline-grid {
             display: flex;
             flex-direction: column;
-            gap: 8px;
-            margin-top: 15px;
-            max-height: 400px;
+            gap: 6px;
+            margin-top: 12px;
+            max-height: 350px;
             overflow-y: auto;
-            padding: 10px;
+            padding: 8px;
             background: #1e2227;
             border-radius: 8px;
         }
 
         .timeline-item {
-            padding: 12px;
+            padding: 10px;
             background: #0a0c0f;
             border: 1px solid #2a2f35;
-            border-radius: 8px;
-            font-size: 13px;
+            border-radius: 6px;
+            font-size: 12px;
             position: relative;
             display: flex;
             flex-direction: column;
-            gap: 4px;
+            gap: 3px;
             transition: all 0.3s ease;
         }
 
@@ -435,11 +488,11 @@
         }
 
         .timeline-acerto {
-            border-left: 4px solid #00ff88;
+            border-left: 3px solid #00ff88;
         }
 
         .timeline-erro {
-            border-left: 4px solid #ff4d4d;
+            border-left: 3px solid #ff4d4d;
         }
 
         .timeline-header {
@@ -450,155 +503,52 @@
 
         .timeline-previsao {
             font-weight: 700;
-            font-size: 16px;
+            font-size: 14px;
         }
 
         .timeline-numeros {
             font-family: 'Courier New', monospace;
             color: #ffaa00;
-            font-size: 14px;
+            font-size: 12px;
             font-weight: bold;
         }
 
         .timeline-resultado {
             display: flex;
-            gap: 10px;
+            gap: 8px;
             color: #8a8f99;
-            font-size: 12px;
+            font-size: 11px;
         }
 
         .timeline-estrategias {
             display: flex;
             flex-wrap: wrap;
-            gap: 5px;
-            margin-top: 5px;
+            gap: 4px;
+            margin-top: 4px;
         }
 
         .timeline-estrategia-tag {
             background: #1e2227;
             border: 1px solid #2a2f35;
-            border-radius: 12px;
-            padding: 2px 8px;
-            font-size: 10px;
+            border-radius: 10px;
+            padding: 2px 6px;
+            font-size: 9px;
             color: #8a8f99;
-        }
-
-        /* Layout de 2 colunas */
-        .row {
-            display: flex;
-            gap: 20px;
-            margin-bottom: 25px;
-        }
-
-        .col-4 {
-            flex: 4;
-        }
-
-        .col-8 {
-            flex: 8;
-        }
-
-        /* Cards */
-        .card {
-            background: #15181c;
-            border: 1px solid #2a2f35;
-            border-radius: 12px;
-            padding: 20px;
-            height: 100%;
-        }
-
-        .card-title {
-            color: #8a8f99;
-            font-size: 14px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 15px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        /* Gráfico de Pizza */
-        .chart-container {
-            position: relative;
-            height: 250px;
-            width: 100%;
-            margin-bottom: 20px;
-        }
-
-        /* Estatísticas rápidas */
-        .stats-mini {
-            display: flex;
-            justify-content: space-around;
-            margin-top: 15px;
-        }
-
-        .stat-mini-item {
-            text-align: center;
-        }
-
-        .stat-mini-value {
-            font-size: 20px;
-            font-weight: 600;
-        }
-
-        .stat-mini-label {
-            font-size: 12px;
-            color: #8a8f99;
-        }
-
-        /* CORES CORRIGIDAS: Banker = Vermelho, Player = Azul */
-        .banker-color { color: #ff4d4d; }
-        .player-color { color: #4d4dff; }
-        .tie-color { color: #ffaa00; }
-
-        /* Botões de limite */
-        .limite-buttons {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin: 20px 0;
-        }
-
-        .limite-btn {
-            background: #1e2227;
-            border: 1px solid #2a2f35;
-            color: #8a8f99;
-            padding: 10px 20px;
-            border-radius: 25px;
-            font-size: 14px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s;
-            flex: 1;
-            min-width: 80px;
-        }
-
-        .limite-btn:hover {
-            background: #2a2f35;
-            color: #fff;
-        }
-
-        .limite-btn.active {
-            background: #00ff88;
-            border-color: #00ff88;
-            color: #000;
-            font-weight: 600;
         }
 
         /* Cards de distribuição */
         .distribuicao-grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
-            gap: 15px;
-            margin-bottom: 25px;
+            gap: 12px;
+            margin-bottom: 20px;
         }
 
         .distribuicao-card {
             background: #15181c;
             border: 1px solid #2a2f35;
-            border-radius: 12px;
-            padding: 20px;
+            border-radius: 10px;
+            padding: 15px;
             text-align: center;
             position: relative;
             overflow: hidden;
@@ -617,7 +567,7 @@
             top: 0;
             left: 0;
             right: 0;
-            height: 4px;
+            height: 3px;
         }
 
         .distribuicao-card.player::before { background: #4d4dff; }
@@ -625,48 +575,48 @@
         .distribuicao-card.banker::before { background: #ff4d4d; }
 
         .distribuicao-numero {
-            font-size: 48px;
+            font-size: 36px;
             font-weight: 700;
             line-height: 1.2;
         }
 
         .distribuicao-label {
             color: #8a8f99;
-            font-size: 14px;
-            margin-top: 5px;
+            font-size: 13px;
+            margin-top: 3px;
         }
 
         .distribuicao-percent {
-            font-size: 20px;
-            margin-top: 10px;
+            font-size: 16px;
+            margin-top: 5px;
             font-weight: 500;
         }
 
         /* Grade de números */
         .numeros-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-            gap: 8px;
-            margin-top: 15px;
-            max-height: 500px;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            gap: 6px;
+            margin-top: 12px;
+            max-height: 400px;
             overflow-y: auto;
-            padding: 10px;
+            padding: 8px;
             background: #1e2227;
-            border-radius: 8px;
-            min-height: 200px;
+            border-radius: 6px;
+            min-height: 150px;
         }
 
         .numero-item {
-            padding: 10px;
+            padding: 8px;
             background: #0a0c0f;
             border: 1px solid #2a2f35;
-            border-radius: 8px;
+            border-radius: 6px;
             font-family: 'Courier New', monospace;
-            font-size: 14px;
+            font-size: 12px;
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 4px;
+            gap: 3px;
             transition: all 0.3s ease;
         }
 
@@ -686,22 +636,22 @@
 
         .numero-valor {
             font-weight: 600;
-            font-size: 16px;
+            font-size: 14px;
         }
 
         .numero-horario {
-            font-size: 10px;
+            font-size: 9px;
             color: #8a8f99;
         }
 
         .numero-simbolo {
-            font-size: 16px;
+            font-size: 14px;
         }
 
         /* Loading */
         .loading {
             text-align: center;
-            padding: 30px;
+            padding: 20px;
             color: #8a8f99;
             grid-column: 1 / -1;
         }
@@ -719,37 +669,62 @@
         .info-badge {
             background: #2a2f35;
             color: #8a8f99;
-            padding: 4px 8px;
+            padding: 3px 6px;
             border-radius: 4px;
-            font-size: 12px;
-            margin-left: 10px;
+            font-size: 10px;
+            margin-left: 6px;
         }
 
         /* Total período */
         .total-info {
-            margin-top: 15px;
-            padding: 10px;
+            margin-top: 12px;
+            padding: 8px;
             background: #1e2227;
-            border-radius: 8px;
+            border-radius: 6px;
             color: #8a8f99;
-            font-size: 14px;
+            font-size: 12px;
             display: flex;
             justify-content: space-between;
         }
 
+        /* Botões de limite */
+        .limite-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 15px 0;
+        }
+
+        .limite-btn {
+            background: #1e2227;
+            border: 1px solid #2a2f35;
+            color: #8a8f99;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            flex: 1;
+            min-width: 60px;
+        }
+
+        .limite-btn:hover {
+            background: #2a2f35;
+            color: #fff;
+        }
+
+        .limite-btn.active {
+            background: #00ff88;
+            border-color: #00ff88;
+            color: #000;
+            font-weight: 600;
+        }
+
         /* Responsividade */
-        @media (max-width: 768px) {
-            .previsao-duplo {
+        @media (max-width: 1024px) {
+            .previsao-triplo {
                 grid-template-columns: 1fr;
-            }
-            .row {
-                flex-direction: column;
-            }
-            .previsao-grid {
-                grid-template-columns: 1fr;
-            }
-            .stats-previsao-grid {
-                grid-template-columns: repeat(2, 1fr);
             }
         }
     </style>
@@ -760,7 +735,7 @@
         <div class="header">
             <h1>
                 <i class="bi bi-dice-6-fill"></i>
-                Bac Bo - 8 Estratégias + CLAUDE 4.6 IA
+                Bac Bo - 8 Estratégias + CLAUDE + GEMINI
                 <span class="fila-badge" id="filaStatus">📦 Fila: 0</span>
             </h1>
             <div class="live-badge">
@@ -770,16 +745,16 @@
             </div>
         </div>
 
-        <!-- Cards de Previsão em Dupla -->
-        <div class="previsao-duplo">
+        <!-- Cards de Previsão em Triplo -->
+        <div class="previsao-triplo">
             <!-- Card Tradicional (8 Estratégias) -->
             <div class="previsao-card">
                 <div class="previsao-header">
                     <div class="previsao-titulo">
                         <i class="bi bi-graph-up-arrow"></i>
-                        PREVISÃO (8 ESTRATÉGIAS)
+                        8 ESTRATÉGIAS
                     </div>
-                    <div class="modo-badge" id="modoAlgoritmo">ANALISANDO...</div>
+                    <div class="modo-badge" id="modoAlgoritmo">-</div>
                 </div>
 
                 <div class="previsao-grid">
@@ -790,21 +765,12 @@
                     <div class="previsao-item">
                         <div class="previsao-label">PRÓXIMA</div>
                         <div class="previsao-cor" id="proximaCorSimbolo">⚪</div>
-                        <div class="previsao-valor" id="proximaCorTexto">AGUARDANDO</div>
-                    </div>
-                    <div class="previsao-item">
-                        <div class="previsao-label">CONFIANÇA</div>
-                        <div class="previsao-confianca" id="confianca">0%</div>
+                        <div class="previsao-valor" id="proximaCorTexto">-</div>
                     </div>
                 </div>
 
                 <div class="estrategias-list" id="estrategiasAtivas">
-                    <span class="estrategia-tag">🧠 Nenhuma estratégia ativa</span>
-                </div>
-
-                <div id="delayWarning" style="display: none;" class="delay-warning">
-                    <i class="bi bi-exclamation-triangle"></i>
-                    ⚠️ DELAY PÓS-EMPATE ATIVO
+                    <span class="estrategia-tag">🧠 Aguardando dados</span>
                 </div>
             </div>
 
@@ -813,21 +779,17 @@
                 <div class="previsao-header">
                     <div class="previsao-titulo claude-titulo">
                         <i class="bi bi-cpu"></i>
-                        CLAUDE 4.6 IA (RACIOCÍNIO)
+                        CLAUDE 4.6
                         <span class="badge bg-info ms-2">7s</span>
                     </div>
-                    <div class="modo-badge modo-claude" id="claudeModo">ANALISANDO...</div>
+                    <div class="modo-badge modo-claude" id="claudeModo">-</div>
                 </div>
 
                 <div class="previsao-grid">
                     <div class="previsao-item">
-                        <div class="previsao-label">ESTRATÉGIA</div>
-                        <div class="previsao-valor" id="claudeEstrategia">IA</div>
-                    </div>
-                    <div class="previsao-item">
                         <div class="previsao-label">PREVISÃO</div>
                         <div class="previsao-cor" id="claudeCor">⚪</div>
-                        <div class="previsao-valor" id="claudePrevisao">AGUARDANDO</div>
+                        <div class="previsao-valor" id="claudePrevisao">-</div>
                     </div>
                     <div class="previsao-item">
                         <div class="previsao-label">CONFIANÇA</div>
@@ -835,17 +797,46 @@
                     </div>
                 </div>
 
-                <div class="raciocinio-box">
-                    <div class="raciocinio-label">
+                <div class="raciocinio-box claude-box">
+                    <div class="raciocinio-label claude-label">
                         <i class="bi bi-chat-quote"></i> RACIOCÍNIO
                     </div>
                     <div class="raciocinio-texto" id="claudeRaciocinio">
                         Aguardando análise...
                     </div>
                 </div>
+            </div>
 
-                <div class="estrategias-list" id="claudeEstrategias">
-                    <span class="estrategia-tag claude">🧠 Padrões detectados</span>
+            <!-- Card GEMINI 3.1 PRO -->
+            <div class="gemini-card">
+                <div class="previsao-header">
+                    <div class="previsao-titulo gemini-titulo">
+                        <i class="bi bi-robot"></i>
+                        GEMINI 3.1 PRO
+                        <span class="badge bg-info ms-2">7s</span>
+                    </div>
+                    <div class="modo-badge modo-gemini" id="geminiModo">-</div>
+                </div>
+
+                <div class="previsao-grid">
+                    <div class="previsao-item">
+                        <div class="previsao-label">PREVISÃO</div>
+                        <div class="previsao-cor" id="geminiCor">⚪</div>
+                        <div class="previsao-valor" id="geminiPrevisao">-</div>
+                    </div>
+                    <div class="previsao-item">
+                        <div class="previsao-label">CONFIANÇA</div>
+                        <div class="previsao-confianca gemini-confianca" id="geminiConfianca">0%</div>
+                    </div>
+                </div>
+
+                <div class="raciocinio-box gemini-box">
+                    <div class="raciocinio-label gemini-label">
+                        <i class="bi bi-braces"></i> PROCESSO MENTAL
+                    </div>
+                    <div class="raciocinio-texto" id="geminiRaciocinio">
+                        Aguardando análise...
+                    </div>
                 </div>
             </div>
         </div>
@@ -904,7 +895,7 @@
                 ÚLTIMAS 20 PREVISÕES
             </div>
             <div class="timeline-grid" id="timelineGrid">
-                <div class="loading">Carregando...</div>
+                <div class="loading">Nenhuma previsão ainda</div>
             </div>
         </div>
 
@@ -950,7 +941,7 @@
                     <div class="card-title">
                         <i class="bi bi-pie-chart-fill"></i>
                         Distribuição
-                        <span class="info-badge" id="pizzaInfo">período atual</span>
+                        <span class="info-badge" id="pizzaInfo">0 rodadas</span>
                     </div>
                     <div class="chart-container">
                         <canvas id="pizzaChart"></canvas>
@@ -1006,7 +997,7 @@
         const CONFIG = {
             INTERVALO_RELOGIO: 1000,
             INTERVALO_ATUALIZACAO: 1000,
-            INTERVALO_CLAUDE: 7000,  // 7 SEGUNDOS!
+            INTERVALO_IA: 7000,  // 7 SEGUNDOS!
             LIMITE_PADRAO: 50
         };
 
@@ -1016,11 +1007,35 @@
         let filtroAtual = null;
         let limiteAtual = CONFIG.LIMITE_PADRAO;
         let ultimaAtualizacao = 0;
-        let claudeDisponivel = false;
         let puterCarregado = false;
 
-        // Histórico de previsões
+        // Histórico de previsões (ZERADO!)
         let historicoPrevisoes = [];
+
+        // Estatísticas das estratégias (ZERADAS!)
+        let estrategiasStats = {
+            'Compensação': { acertos: 0, erros: 0, total: 0 },
+            'Paredão': { acertos: 0, erros: 0, total: 0 },
+            'Moedor': { acertos: 0, erros: 0, total: 0 },
+            'Xadrez': { acertos: 0, erros: 0, total: 0 },
+            'Contragolpe': { acertos: 0, erros: 0, total: 0 },
+            'Reset Cluster': { acertos: 0, erros: 0, total: 0 },
+            'Falsa Alternância': { acertos: 0, erros: 0, total: 0 },
+            'Meta-Algoritmo': { acertos: 0, erros: 0, total: 0 }
+        };
+
+        // =========================================================================
+        // FUNÇÃO PARA ELIMINAR DUPLICATAS
+        // =========================================================================
+        function removerDuplicatas(rodadas) {
+            const seen = new Set();
+            return rodadas.filter(rodada => {
+                const chave = `${rodada.data}-${rodada.player}-${rodada.banker}-${rodada.resultado}`;
+                if (seen.has(chave)) return false;
+                seen.add(chave);
+                return true;
+            });
+        }
 
         // =========================================================================
         // VERIFICA PUTER.JS
@@ -1028,17 +1043,15 @@
         function verificarPuter() {
             if (typeof puter !== 'undefined' && puter.ai) {
                 puterCarregado = true;
-                console.log('✅ Puter.js carregado! Claude 4.6 disponível');
-                document.getElementById('claudeModo').textContent = 'IA ATIVA';
+                console.log('✅ Puter.js carregado! IA disponível');
                 return true;
             }
             return false;
         }
 
-        // Aguarda Puter carregar
         setTimeout(() => {
             if (!verificarPuter()) {
-                console.warn('⚠️ Puter.js não carregou. Usando fallback...');
+                console.warn('⚠️ Puter.js não carregou');
             }
         }, 2000);
 
@@ -1046,115 +1059,121 @@
         // FUNÇÃO PARA PREVISÃO COM CLAUDE 4.6
         // =========================================================================
         async function previsaoClaude() {
-            if (!puterCarregado || !dadosCompletos || dadosCompletos.length < 20) {
-                // Fallback se Claude não estiver disponível
-                atualizarClaudeFallback();
-                return;
-            }
+            if (!puterCarregado || !dadosCompletos || dadosCompletos.length < 10) return;
 
             try {
-                // Pega últimas 20 rodadas para análise
                 const ultimas20 = dadosCompletos.slice(0, 20);
-                
-                // Estatísticas básicas
                 const playerCount = dadosCompletos.filter(r => r.resultado === 'PLAYER').length;
                 const bankerCount = dadosCompletos.filter(r => r.resultado === 'BANKER').length;
                 const tieCount = dadosCompletos.filter(r => r.resultado === 'TIE').length;
                 const total = dadosCompletos.length;
 
-                // Cria prompt para o Claude
-                const prompt = `Analise estas últimas 20 rodadas de Bac Bo e faça uma previsão:
+                const prompt = `Analise estas últimas 20 rodadas de Bac Bo:
 
-ÚLTIMAS 20 RODADAS:
+ÚLTIMAS 20:
 ${ultimas20.map(r => `${r.player} vs ${r.banker} = ${r.resultado}`).join('\n')}
 
-ESTATÍSTICAS GLOBAIS (${total} rodadas):
-- PLAYER: ${playerCount} (${((playerCount/total)*100).toFixed(1)}%)
-- BANKER: ${bankerCount} (${((bankerCount/total)*100).toFixed(1)}%)
-- TIE: ${tieCount} (${((tieCount/total)*100).toFixed(1)}%)
+ESTATÍSTICAS:
+PLAYER: ${playerCount} (${((playerCount/total)*100).toFixed(1)}%)
+BANKER: ${bankerCount} (${((bankerCount/total)*100).toFixed(1)}%)
+TIE: ${tieCount} (${((tieCount/total)*100).toFixed(1)}%)
 
-Analise:
-1. Sequências (BB, PP, alternância)
-2. Números extremos (>=10)
-3. Clusters de empates
-4. Momento do jogo
-
-Responda EXATAMENTE neste formato JSON:
+Responda JSON:
 {
-    "raciocinio": "explicação curta (max 100 caracteres)",
+    "raciocinio": "explicação curta",
     "previsao": "PLAYER ou BANKER",
-    "confianca": 0-100,
-    "estrategias": ["padrão1", "padrão2"]
+    "confianca": 0-100
 }`;
 
-                // Chama Claude 4.6
-                const response = await puter.ai.chat(prompt, {
-                    model: 'claude-sonnet-4-6',
-                    stream: false
-                });
-
+                const response = await puter.ai.chat(prompt, { model: 'claude-sonnet-4-6' });
                 const texto = response.message.content[0].text;
+                const jsonMatch = texto.match(/\{.*\}/s);
+                
+                if (jsonMatch) {
+                    const data = JSON.parse(jsonMatch[0]);
+                    document.getElementById('claudeModo').textContent = 'CLAUDE 4.6';
+                    document.getElementById('claudeCor').textContent = data.previsao === 'BANKER' ? '🔴' : '🔵';
+                    document.getElementById('claudePrevisao').textContent = data.previsao;
+                    document.getElementById('claudeConfianca').textContent = data.confianca + '%';
+                    document.getElementById('claudeRaciocinio').textContent = data.raciocinio;
+                }
+            } catch (error) {
+                console.error('❌ Erro Claude:', error);
+            }
+        }
+
+        // =========================================================================
+        // FUNÇÃO PARA PREVISÃO COM GEMINI 3.1 PRO
+        // =========================================================================
+        async function previsaoGemini() {
+            if (!puterCarregado || !dadosCompletos || dadosCompletos.length < 10) return;
+
+            try {
+                const ultimas10 = dadosCompletos.slice(0, 10);
+                const playerCount = dadosCompletos.filter(r => r.resultado === 'PLAYER').length;
+                const bankerCount = dadosCompletos.filter(r => r.resultado === 'BANKER').length;
+                const tieCount = dadosCompletos.filter(r => r.resultado === 'TIE').length;
+                const total = dadosCompletos.length;
+
+                const prompt = `🧠 MEU PROCESSO MENTAL PASSO A PASSO:
+
+📥 PASSO 1: RECEBO OS DADOS
+${ultimas10.map(r => `${r.player} vs ${r.banker}`).join('\n')}
+
+🔢 PASSO 2: CALCULO A SOMA E A COR
+${ultimas10.map(r => `${r.player} vs ${r.banker} → soma ${r.player + r.banker} → ${(r.player + r.banker) % 2 === 0 ? 'par → Tie' : 'ímpar → ' + (r.player > r.banker ? 'Player' : 'Banker')}`).join('\n')}
+
+📊 PASSO 3: ATUALIZO O HISTÓRICO
+Últimos 10: ${ultimas10.map(r => r.resultado).join(', ')}
+
+📈 PASSO 4: ANALISO O GRÁFICO
+PLAYER: ${playerCount} (${((playerCount/total)*100).toFixed(1)}%)
+BANKER: ${bankerCount} (${((bankerCount/total)*100).toFixed(1)}%)
+TIE: ${tieCount} (${((tieCount/total)*100).toFixed(1)}%)
+Diferença: ${Math.abs(bankerCount - playerCount)}% → Modo ${bankerCount > playerCount ? 'AGRESSIVO (Banker dominando)' : 'AGRESSIVO (Player dominando)'}
+
+🔍 PASSO 5: ANALISO PADRÕES
+- Sequências: ${ultimas10.slice(0,4).map(r => r.resultado[0]).join('')}
+- Números extremos (>=10): ${ultimas10.filter(r => r.player >= 10 || r.banker >= 10).length}
+- Clusters de empates: ${ultimas10.filter(r => r.resultado === 'TIE').length}
+
+✅ PASSO 6: CONCLUSÃO
+Baseado na análise, prevejo:
+
+Responda EXATAMENTE neste formato JSON (sem texto extra):
+{
+    "raciocinio": "explicação do padrão detectado (máx 100 caracteres)",
+    "previsao": "PLAYER ou BANKER",
+    "confianca": 0-100
+}`;
+
+                const response = await puter.ai.chat(prompt, { model: 'gemini-3.1-pro-preview' });
+                const texto = response.message?.content?.[0]?.text || response;
                 
                 // Tenta extrair JSON
                 const jsonMatch = texto.match(/\{.*\}/s);
                 if (jsonMatch) {
                     const data = JSON.parse(jsonMatch[0]);
                     
-                    // Atualiza UI do Claude
-                    document.getElementById('claudeModo').textContent = 'CLAUDE 4.6';
-                    document.getElementById('claudeEstrategia').textContent = 'IA Avançada';
-                    document.getElementById('claudeCor').textContent = data.previsao === 'BANKER' ? '🔴' : '🔵';
-                    document.getElementById('claudePrevisao').textContent = data.previsao;
-                    document.getElementById('claudeConfianca').textContent = data.confianca + '%';
-                    document.getElementById('claudeRaciocinio').textContent = data.raciocinio;
+                    document.getElementById('geminiModo').textContent = 'GEMINI 3.1';
+                    document.getElementById('geminiCor').textContent = data.previsao === 'BANKER' ? '🔴' : '🔵';
+                    document.getElementById('geminiPrevisao').textContent = data.previsao;
+                    document.getElementById('geminiConfianca').textContent = data.confianca + '%';
+                    document.getElementById('geminiRaciocinio').textContent = data.raciocinio;
                     
-                    // Atualiza estratégias
-                    const estrategiasDiv = document.getElementById('claudeEstrategias');
-                    let html = '<span class="estrategia-tag claude">🧠 IA:</span>';
-                    data.estrategias.forEach(e => {
-                        html += `<span class="estrategia-tag claude">${e}</span>`;
-                    });
-                    estrategiasDiv.innerHTML = html;
-
-                    console.log('✅ Previsão Claude:', data);
+                    console.log('✅ Previsão Gemini:', data);
+                } else {
+                    // Fallback
+                    document.getElementById('geminiRaciocinio').textContent = texto.substring(0, 150);
                 }
 
             } catch (error) {
-                console.error('❌ Erro Claude:', error);
-                atualizarClaudeFallback();
+                console.error('❌ Erro Gemini:', error);
             }
-        }
-
-        // Fallback quando Claude não está disponível
-        function atualizarClaudeFallback() {
-            if (!dadosCompletos || dadosCompletos.length === 0) return;
-
-            const player = dadosCompletos.filter(r => r.resultado === 'PLAYER').length;
-            const banker = dadosCompletos.filter(r => r.resultado === 'BANKER').length;
-            const total = dadosCompletos.length;
-
-            let previsao, confianca;
-            if (player > banker) {
-                previsao = 'PLAYER';
-                confianca = Math.round((player/total)*100);
-            } else {
-                previsao = 'BANKER';
-                confianca = Math.round((banker/total)*100);
-            }
-
-            document.getElementById('claudeModo').textContent = 'ESTATÍSTICO';
-            document.getElementById('claudeEstrategia').textContent = 'Fallback';
-            document.getElementById('claudeCor').textContent = previsao === 'BANKER' ? '🔴' : '🔵';
-            document.getElementById('claudePrevisao').textContent = previsao;
-            document.getElementById('claudeConfianca').textContent = confianca + '%';
-            document.getElementById('claudeRaciocinio').textContent = 'Claude indisponível. Usando análise estatística.';
-            
-            document.getElementById('claudeEstrategias').innerHTML = 
-                '<span class="estrategia-tag">📊 Análise estatística</span>';
         }
 
         // =========================================================================
-        // FUNÇÕES EXISTENTES (mantidas iguais)
+        // FUNÇÕES DE ATUALIZAÇÃO
         // =========================================================================
         function atualizarRelogio() {
             const agora = new Date();
@@ -1225,9 +1244,11 @@ Responda EXATAMENTE neste formato JSON:
                 return;
             }
 
-            let dadosParaExibir = data;
+            const dadosUnicos = removerDuplicatas(data);
+            
+            let dadosParaExibir = dadosUnicos;
             if (filtroAtual) {
-                dadosParaExibir = data.filter(r => r.resultado.toLowerCase() === filtroAtual.toLowerCase());
+                dadosParaExibir = dadosUnicos.filter(r => r.resultado.toLowerCase() === filtroAtual.toLowerCase());
             }
 
             let html = '';
@@ -1257,6 +1278,31 @@ Responda EXATAMENTE neste formato JSON:
             document.getElementById('numerosGrid').innerHTML = html;
         }
 
+        function atualizarTabelaEstrategias() {
+            const tbody = document.getElementById('estrategiasTableBody');
+            let html = '';
+
+            Object.entries(estrategiasStats).forEach(([nome, stats]) => {
+                const total = stats.total;
+                const precisao = total > 0 ? Math.round((stats.acertos / total) * 100) : 0;
+                let precisaoClass = 'precisao-media';
+                
+                if (precisao >= 70) precisaoClass = 'precisao-alta';
+                else if (precisao <= 40) precisaoClass = 'precisao-baixa';
+
+                html += `
+                    <tr>
+                        <td class="estrategia-nome">${nome}</td>
+                        <td class="estrategia-acertos">${stats.acertos}</td>
+                        <td class="estrategia-erros">${stats.erros}</td>
+                        <td class="estrategia-precisao ${precisaoClass}">${precisao}%</td>
+                    </tr>
+                `;
+            });
+
+            tbody.innerHTML = html;
+        }
+
         function atualizarTimeline() {
             const grid = document.getElementById('timelineGrid');
             if (historicoPrevisoes.length === 0) {
@@ -1279,9 +1325,6 @@ Responda EXATAMENTE neste formato JSON:
                             <span>Resultado: ${p.resultado}</span>
                             <span>${p.horario || ''}</span>
                         </div>
-                        <div class="timeline-estrategias">
-                            ${p.estrategias.map(e => `<span class="timeline-estrategia-tag">${e}</span>`).join('')}
-                        </div>
                     </div>
                 `;
             });
@@ -1301,30 +1344,31 @@ Responda EXATAMENTE neste formato JSON:
                 const response = await fetch(`/api/tabela/${limite}`);
                 const dados = await response.json();
                 
-                dadosCompletos = dados;
-                document.getElementById('tabelaCount').textContent = `${dados.length} rodadas`;
-                document.getElementById('totalRodadasPeriodo').textContent = dados.length;
-                document.getElementById('pizzaInfo').textContent = `${dados.length} rodadas`;
+                dadosCompletos = removerDuplicatas(dados);
                 
-                const player = dados.filter(r => r.resultado === 'PLAYER').length;
-                const banker = dados.filter(r => r.resultado === 'BANKER').length;
-                const tie = dados.filter(r => r.resultado === 'TIE').length;
-                const total = dados.length;
+                document.getElementById('tabelaCount').textContent = `${dadosCompletos.length} rodadas`;
+                document.getElementById('totalRodadasPeriodo').textContent = dadosCompletos.length;
+                document.getElementById('pizzaInfo').textContent = `${dadosCompletos.length} rodadas`;
                 
-                const playerPct = ((player / total) * 100).toFixed(1);
-                const bankerPct = ((banker / total) * 100).toFixed(1);
-                const tiePct = ((tie / total) * 100).toFixed(1);
+                const player = dadosCompletos.filter(r => r.resultado === 'PLAYER').length;
+                const banker = dadosCompletos.filter(r => r.resultado === 'BANKER').length;
+                const tie = dadosCompletos.filter(r => r.resultado === 'TIE').length;
+                const total = dadosCompletos.length;
                 
-                document.getElementById('playerNumero').textContent = player;
-                document.getElementById('playerPercent').textContent = playerPct + '%';
-                document.getElementById('tieNumero').textContent = tie;
-                document.getElementById('tiePercent').textContent = tiePct + '%';
-                document.getElementById('bankerNumero').textContent = banker;
-                document.getElementById('bankerPercent').textContent = bankerPct + '%';
+                const playerPct = total > 0 ? ((player / total) * 100).toFixed(1) : '0';
+                const bankerPct = total > 0 ? ((banker / total) * 100).toFixed(1) : '0';
+                const tiePct = total > 0 ? ((tie / total) * 100).toFixed(1) : '0';
                 
-                document.getElementById('miniPlayer').textContent = player;
-                document.getElementById('miniTie').textContent = tie;
-                document.getElementById('miniBanker').textContent = banker;
+                document.getElementById('playerNumero').textContent = player || '-';
+                document.getElementById('playerPercent').textContent = player ? playerPct + '%' : '-';
+                document.getElementById('tieNumero').textContent = tie || '-';
+                document.getElementById('tiePercent').textContent = tie ? tiePct + '%' : '-';
+                document.getElementById('bankerNumero').textContent = banker || '-';
+                document.getElementById('bankerPercent').textContent = banker ? bankerPct + '%' : '-';
+                
+                document.getElementById('miniPlayer').textContent = player || '-';
+                document.getElementById('miniTie').textContent = tie || '-';
+                document.getElementById('miniBanker').textContent = banker || '-';
                 
                 if (pizzaChart) {
                     pizzaChart.data.datasets[0].data = [player, tie, banker];
@@ -1333,7 +1377,7 @@ Responda EXATAMENTE neste formato JSON:
                     criarPizzaChart(player, tie, banker);
                 }
                 
-                exibirHistorico(dados);
+                exibirHistorico(dadosCompletos);
                 
             } catch (error) {
                 console.error('Erro ao carregar tabela:', error);
@@ -1353,14 +1397,15 @@ Responda EXATAMENTE neste formato JSON:
                 if (tabelaPromise.status === 'fulfilled') {
                     const dados = tabelaPromise.value;
                     if (dados && dados.length > 0) {
-                        dadosCompletos = dados;
-                        document.getElementById('tabelaCount').textContent = `${dados.length} rodadas`;
-                        document.getElementById('totalRodadasPeriodo').textContent = dados.length;
+                        dadosCompletos = removerDuplicatas(dados);
                         
-                        const player = dados.filter(r => r.resultado === 'PLAYER').length;
-                        const banker = dados.filter(r => r.resultado === 'BANKER').length;
-                        const tie = dados.filter(r => r.resultado === 'TIE').length;
-                        const total = dados.length;
+                        document.getElementById('tabelaCount').textContent = `${dadosCompletos.length} rodadas`;
+                        document.getElementById('totalRodadasPeriodo').textContent = dadosCompletos.length;
+                        
+                        const player = dadosCompletos.filter(r => r.resultado === 'PLAYER').length;
+                        const banker = dadosCompletos.filter(r => r.resultado === 'BANKER').length;
+                        const tie = dadosCompletos.filter(r => r.resultado === 'TIE').length;
+                        const total = dadosCompletos.length;
                         
                         if (total > 0) {
                             const playerPct = ((player / total) * 100).toFixed(1);
@@ -1384,7 +1429,7 @@ Responda EXATAMENTE neste formato JSON:
                             }
                         }
                         
-                        exibirHistorico(dados);
+                        exibirHistorico(dadosCompletos);
                     }
                 }
 
@@ -1403,12 +1448,11 @@ Responda EXATAMENTE neste formato JSON:
                     if (stats.previsao) {
                         const p = stats.previsao;
                         
-                        document.getElementById('modoAlgoritmo').textContent = p.modo;
-                        document.getElementById('modoAlgoritmo').className = `modo-badge modo-${p.modo.toLowerCase()}`;
-                        document.getElementById('modoDescricao').textContent = p.modo;
-                        document.getElementById('proximaCorSimbolo').textContent = p.simbolo;
-                        document.getElementById('proximaCorTexto').textContent = p.previsao;
-                        document.getElementById('confianca').textContent = p.confianca + '%';
+                        document.getElementById('modoAlgoritmo').textContent = p.modo || '-';
+                        document.getElementById('modoDescricao').textContent = p.modo || '-';
+                        document.getElementById('proximaCorSimbolo').textContent = p.simbolo || '⚪';
+                        document.getElementById('proximaCorTexto').textContent = p.previsao || '-';
+                        document.getElementById('confianca').textContent = (p.confianca || 0) + '%';
                         
                         const estrategiasDiv = document.getElementById('estrategiasAtivas');
                         if (p.estrategias && p.estrategias.length > 0) {
@@ -1418,8 +1462,6 @@ Responda EXATAMENTE neste formato JSON:
                             });
                             estrategiasDiv.innerHTML = html;
                         }
-                        
-                        document.getElementById('delayWarning').style.display = p.delay_ativo ? 'block' : 'none';
                     }
 
                     if (stats.estatisticas) {
@@ -1439,20 +1481,25 @@ Responda EXATAMENTE neste formato JSON:
 
         // Inicializar
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('🚀 Iniciando BacBo Analytics com CLAUDE 4.6 (7s)...');
+            console.log('🚀 Iniciando BacBo Analytics com CLAUDE + GEMINI (7s)...');
             
             criarPizzaChart(0, 0, 0);
             atualizarTimeline();
+            atualizarTabelaEstrategias();
             carregarTabela(50);
             
             atualizarRelogio();
             setInterval(atualizarRelogio, CONFIG.INTERVALO_RELOGIO);
             setInterval(atualizarTudo, CONFIG.INTERVALO_ATUALIZACAO);
             
-            // Inicia CLAUDE a cada 7 segundos
+            // Inicia IAs a cada 7 segundos
             setTimeout(() => {
-                previsaoClaude(); // Primeira execução
-                setInterval(previsaoClaude, CONFIG.INTERVALO_CLAUDE); // A cada 7s
+                previsaoClaude();
+                previsaoGemini();
+                setInterval(() => {
+                    previsaoClaude();
+                    previsaoGemini();
+                }, CONFIG.INTERVALO_IA);
             }, 3000);
         });
     </script>
