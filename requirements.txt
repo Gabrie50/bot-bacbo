@@ -3,3 +3,4 @@ flask==2.3.3
 flask-cors==4.0.0
 pg8000==1.30.5
 beautifulsoup4==4.12.2
+websocket-client==1.7.0
