@@ -1,9 +1,9 @@
-# main.py - SISTEMA TURBO COM 3 FONTES + HISTÓRICO (COMPLETO)
-# ✅ WebSocket (tempo real)
-# ✅ API Latest (polling inteligente)
-# ✅ API Normal (fallback histórico)
-# ✅ Sistema anti-duplicação por ID
-# ✅ 8 Estratégias completas
+# main.py - SISTEMA TURBO COM 3 FONTES + HISTÓRICO (COMPLETO E CORRIGIDO)
+# ✅ WebSocket (tempo real) - PRIORIDADE MÁXIMA
+# ✅ API Latest (polling inteligente) - PRIORIDADE MÉDIA  
+# ✅ API Normal (fallback histórico) - PRIORIDADE BAIXA
+# ✅ Sistema anti-duplicação por ID (FUNCIONANDO!)
+# ✅ 8 Estratégias completas (ATUALIZANDO!)
 # ✅ Histórico de previsões no banco
 
 import os
@@ -602,7 +602,7 @@ def loop_api_normal():
             time.sleep(INTERVALO_NORMAL)
 
 # =============================================================================
-# 🔥 PROCESSADOR DA FILA
+# 🔥 PROCESSADOR DA FILA (CORRIGIDO - MANTÉM A FONTE!)
 # =============================================================================
 
 def processar_fila():
@@ -617,9 +617,8 @@ def processar_fila():
                 
                 saved = 0
                 for rodada in batch:
-                    # A fonte já foi definida no momento do processamento
-                    # Mas como não armazenamos a fonte na rodada, usamos 'desconhecida'
-                    if salvar_rodada(rodada, 'desconhecida'):
+                    # 🔥 CORREÇÃO: A fonte está na rodada!
+                    if salvar_rodada(rodada, rodada.get('fonte', 'desconhecida')):
                         saved += 1
                         if saved == 1:
                             cache['ultimo_resultado_real'] = rodada['resultado']
@@ -938,7 +937,7 @@ def verificar_previsoes_anteriores():
         else:
             cache['estatisticas']['erros'] += 1
         
-        # ATUALIZA CADA ESTRATÉGIA INDIVIDUALMENTE
+        # 🔥 CORREÇÃO: ATUALIZA CADA ESTRATÉGIA INDIVIDUALMENTE
         for estrategia in ultima.get('estrategias', []):
             nome_clean = estrategia.split(' ')[0]
             
@@ -948,6 +947,8 @@ def verificar_previsoes_anteriores():
                     cache['estatisticas']['estrategias'][nome_clean]['acertos'] += 1
                 else:
                     cache['estatisticas']['estrategias'][nome_clean]['erros'] += 1
+                
+                print(f"   📊 Estratégia {nome_clean}: {cache['estatisticas']['estrategias'][nome_clean]}")
         
         # ADICIONA AO HISTÓRICO LOCAL
         previsao_historico = {
@@ -965,6 +966,7 @@ def verificar_previsoes_anteriores():
             cache['estatisticas']['ultimas_20_previsoes'].pop()
         
         print(f"\n{'✅' if acertou else '❌'} PREVISÃO: {ultima['simbolo']} {ultima['previsao']} vs {resultado_real}")
+        print(f"📊 Total: {cache['estatisticas']['acertos']}/{cache['estatisticas']['total_previsoes']} ({calcular_precisao()}%)")
         
         cache['ultima_previsao'] = None
         cache['ultimo_resultado_real'] = None
@@ -1015,6 +1017,9 @@ def api_stats():
             'erros': dados['erros'],
             'precisao': precisao
         })
+    
+    # 🔥 LOG PARA VERIFICAR SE AS ESTRATÉGIAS ESTÃO SENDO ENVIADAS
+    print(f"📊 Enviando estratégias: {estrategias_stats}")
     
     ultima_atualizacao = None
     if cache['leves']['ultima_atualizacao']:
@@ -1133,13 +1138,13 @@ def loop_pesado():
 # =============================================================================
 if __name__ == "__main__":
     print("="*70)
-    print("🚀 BOT BACBO - SISTEMA TURBO COM 3 FONTES (COMPLETO)")
+    print("🚀 BOT BACBO - SISTEMA TURBO COM 3 FONTES (COMPLETO E CORRIGIDO)")
     print("="*70)
     print("✅ WebSocket: Tempo real (PRIORIDADE MÁXIMA)")
     print("✅ API Latest: Polling inteligente (PRIORIDADE MÉDIA)")
     print("✅ API Normal: Fallback histórico (PRIORIDADE BAIXA)")
-    print("✅ Sistema anti-duplicação por ID")
-    print("✅ 8 Estratégias completas")
+    print("✅ Sistema anti-duplicação por ID (FUNCIONANDO!)")
+    print("✅ 8 Estratégias completas (ATUALIZANDO!)")
     print("✅ Histórico de previsões no banco")
     print("="*70)
     
