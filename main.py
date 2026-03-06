@@ -1193,8 +1193,13 @@ if __name__ == "__main__":
     print("✅ Histórico de previsões no banco")
     print("="*70)
     
+    
+
     init_db()
     
+    print("🧹 Limpando duplicatas...")
+    limpar_duplicatas()  # Executa uma vez para limpar o banco
+
     print("📊 Carregando dados...")
     atualizar_dados_leves()
     atualizar_dados_pesados()
