@@ -1,9 +1,7 @@
-# main.py - SISTEMA TURBO COM 3 FONTES + HISTÓRICO (COMPLETO) 
+ # main.py - SISTEMA TURBO COM 3 FONTES + HISTÓRICO
 # ✅ WebSocket (tempo real)
 # ✅ API Latest (polling inteligente)
 # ✅ API Normal (fallback histórico)
-# ✅ Sistema anti-duplicação por ID
-# ✅ 8 Estratégias completas
 # ✅ Histórico de previsões no banco
 
 import os
@@ -23,7 +21,7 @@ import pg8000
 # =============================================================================
 # CONFIGURAÇÕES
 # =============================================================================
-DATABASE_URL = "postgresql://neondb_owner:npg_VcLb4K6lOzhq@ep-misty-haze-aiqcpt9j-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+DATABASE_URL = "postgresql://neondb_owner:npg_B5MPOgfYA1Ik@ep-holy-hall-addv9tiz-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
 # Parse da URL
 parsed = urllib.parse.urlparse(DATABASE_URL)
 DB_USER = parsed.username
@@ -63,15 +61,17 @@ HEADERS = {
 TIMEOUT_API = 5
 MAX_RETRIES = 3
 RETRY_DELAY = 1
-INTERVALO_LATEST = 2  # 2 segundos para /latest
-INTERVALO_NORMAL = 10  # 10 segundos para API normal (fallback)
+INTERVALO_LATEST = 1  # 1 segundos para /latest
+INTERVALO_NORMAL = 1 # 1 segundos para API normal (fallback)
 PORT = int(os.environ.get("PORT", 5000))
 
 # =============================================================================
-# CACHE DE IDS PARA EVITAR DUPLICAÇÃO
+# FILA DE PROCESSAMENTO
 # =============================================================================
-ids_processados = set()  # Guarda todos os IDs já processados
 fila_rodadas = deque(maxlen=500)
+ultimo_id_ws = None
+ultimo_id_latest = None
+ultimo_id_api = None
 
 # Status das fontes
 fontes_status = {
@@ -362,48 +362,13 @@ def atualizar_dados_pesados():
     cache['pesados']['ultima_atualizacao'] = datetime.now(timezone.utc)
 
 # =============================================================================
-# 🔥 FUNÇÃO ÚNICA PARA PROCESSAR RODADA (EVITA DUPLICAÇÃO)
-# =============================================================================
-
-def processar_rodada(rodada, fonte):
-    """
-    Processa uma rodada de qualquer fonte.
-    Retorna True se foi nova, False se já existia.
-    """
-    global ids_processados
-    
-    rodada_id = rodada['id']
-    
-    # 🔥 VERIFICA SE JÁ FOI PROCESSADO
-    if rodada_id in ids_processados:
-        print(f"   ⏭️ [DUPLICADO] {fonte} - {rodada['player_score']} vs {rodada['banker_score']} (já processado)")
-        return False
-    
-    # MARCA COMO PROCESSADO
-    ids_processados.add(rodada_id)
-    
-    # Limita o tamanho do set (para não crescer infinitamente)
-    if len(ids_processados) > 10000:
-        # Mantém apenas os últimos 5000 IDs
-        ids_processados = set(list(ids_processados)[-5000:])
-    
-    # Adiciona à fila
-    fila_rodadas.append(rodada)
-    
-    # Atualiza estatísticas da fonte
-    if fonte in fontes_status:
-        fontes_status[fonte]['total'] += 1
-    
-    print(f"\n✅ [{fonte.upper()}] NOVO: {rodada['player_score']} vs {rodada['banker_score']} - {rodada['resultado']}")
-    
-    return True
-
-# =============================================================================
-# 🔥 FONTE 1: WEBSOCKET (TEMPO REAL) - CORRIGIDO
+# 🔥 FONTE 1: WEBSOCKET (TEMPO REAL)
 # =============================================================================
 
 def on_ws_message(ws, message):
     """Recebe mensagens do WebSocket"""
+    global ultimo_id_ws, fila_rodadas
+    
     try:
         data = json.loads(message)
         
@@ -413,7 +378,9 @@ def on_ws_message(ws, message):
             
             novo_id = game_data.get('id')
             
-            if novo_id:
+            if novo_id and novo_id != ultimo_id_ws:
+                ultimo_id_ws = novo_id
+                
                 player_dice = result.get('playerDice', {})
                 banker_dice = result.get('bankerDice', {})
                 
@@ -436,8 +403,9 @@ def on_ws_message(ws, message):
                     'resultado': resultado
                 }
                 
-                # USA A FUNÇÃO ÚNICA
-                processar_rodada(rodada, 'websocket')
+                fila_rodadas.append(rodada)
+                fontes_status['websocket']['total'] += 1
+                print(f"\n⚡ WS TEMPO REAL: {player_score} vs {banker_score} - {resultado}")
                 
     except Exception as e:
         print(f"⚠️ Erro WS: {e}")
@@ -471,11 +439,13 @@ def iniciar_websocket():
     threading.Thread(target=run, daemon=True).start()
 
 # =============================================================================
-# 🔥 FONTE 2: API LATEST (POLLING INTELIGENTE) - CORRIGIDO
+# 🔥 FONTE 2: API LATEST (POLLING INTELIGENTE)
 # =============================================================================
 
 def buscar_latest():
     """Busca apenas a última rodada"""
+    global ultimo_id_latest
+    
     try:
         response = requests.get(LATEST_API_URL, headers=HEADERS, timeout=3)
         
@@ -486,7 +456,9 @@ def buscar_latest():
             data = dados.get('data', {})
             result = data.get('result', {})
             
-            if novo_id:
+            if novo_id and novo_id != ultimo_id_latest:
+                ultimo_id_latest = novo_id
+                
                 player_dice = result.get('playerDice', {})
                 banker_dice = result.get('bankerDice', {})
                 
@@ -509,97 +481,81 @@ def buscar_latest():
                     'resultado': resultado
                 }
                 
+                fontes_status['latest']['total'] += 1
+                print(f"\n📡 LATEST: {player_score} vs {banker_score} - {resultado}")
                 return rodada
         
         return None
     except Exception as e:
         fontes_status['latest']['falhas'] += 1
+        print(f"⚠️ Erro Latest: {e}")
         return None
 
-def loop_latest():
-    """Loop da fonte Latest"""
-    print("📡 Coletor LATEST iniciado (2s)...")
-    while True:
-        try:
-            rodada = buscar_latest()
-            if rodada:
-                # USA A FUNÇÃO ÚNICA
-                processar_rodada(rodada, 'latest')
-            time.sleep(INTERVALO_LATEST)
-        except Exception as e:
-            print(f"❌ Erro Latest: {e}")
-            time.sleep(INTERVALO_LATEST)
-
 # =============================================================================
-# 🔥 FONTE 3: API NORMAL (FALLBACK HISTÓRICO) - CORRIGIDO
+# 🔥 FONTE 3: API NORMAL (FALLBACK HISTÓRICO)
 # =============================================================================
 
 def buscar_api_normal():
     """Busca histórico da API normal"""
+    global ultimo_id_api
+    
     try:
         params = API_PARAMS.copy()
-        params['_t'] = int(time.time() * 1000)
+        params['_t'] = int(time.time() * 1)
         
         response = session.get(API_URL, params=params, timeout=TIMEOUT_API)
         response.raise_for_status()
         dados = response.json()
         
         if dados and len(dados) > 0:
-            rodadas = []
-            for item in dados[:10]:
-                try:
-                    data = item.get('data', {})
-                    result = data.get('result', {})
-                    player_dice = result.get('playerDice', {})
-                    banker_dice = result.get('bankerDice', {})
-                    
-                    player_score = player_dice.get('first', 0) + player_dice.get('second', 0)
-                    banker_score = banker_dice.get('first', 0) + banker_dice.get('second', 0)
-                    
-                    outcome = result.get('outcome', '')
-                    if outcome == 'PlayerWon':
-                        resultado = 'PLAYER'
-                    elif outcome == 'BankerWon':
-                        resultado = 'BANKER'
-                    else:
-                        resultado = 'TIE'
-                    
-                    data_hora = datetime.fromisoformat(data.get('settledAt', '').replace('Z', '+00:00'))
-                    
-                    rodada = {
-                        'id': data.get('id'),
-                        'data_hora': data_hora,
-                        'player_score': player_score,
-                        'banker_score': banker_score,
-                        'resultado': resultado
-                    }
-                    rodadas.append(rodada)
-                except:
-                    continue
+            primeiro = dados[0]
+            data = primeiro.get('data', {})
+            novo_id = data.get('id')
             
-            return rodadas
+            if novo_id and novo_id != ultimo_id_api:
+                ultimo_id_api = novo_id
+                
+                rodadas = []
+                for item in dados[:10]:
+                    try:
+                        data = item.get('data', {})
+                        result = data.get('result', {})
+                        player_dice = result.get('playerDice', {})
+                        banker_dice = result.get('bankerDice', {})
+                        
+                        player_score = player_dice.get('first', 0) + player_dice.get('second', 0)
+                        banker_score = banker_dice.get('first', 0) + banker_dice.get('second', 0)
+                        
+                        outcome = result.get('outcome', '')
+                        if outcome == 'PlayerWon':
+                            resultado = 'PLAYER'
+                        elif outcome == 'BankerWon':
+                            resultado = 'BANKER'
+                        else:
+                            resultado = 'TIE'
+                        
+                        data_hora = datetime.fromisoformat(data.get('settledAt', '').replace('Z', '+00:00'))
+                        
+                        rodada = {
+                            'id': data.get('id'),
+                            'data_hora': data_hora,
+                            'player_score': player_score,
+                            'banker_score': banker_score,
+                            'resultado': resultado
+                        }
+                        rodadas.append(rodada)
+                    except:
+                        continue
+                
+                fontes_status['api_normal']['total'] += len(rodadas)
+                print(f"\n📚 API NORMAL: {len(rodadas)} rodadas")
+                return rodadas
         
         return None
     except Exception as e:
         fontes_status['api_normal']['falhas'] += 1
+        print(f"⚠️ Erro API Normal: {e}")
         return None
-
-def loop_api_normal():
-    """Loop da API Normal (fallback)"""
-    print("📚 Coletor API NORMAL iniciado (10s fallback)...")
-    while True:
-        try:
-            # Só executa se WebSocket estiver desconectado (fallback)
-            if fontes_status['websocket']['status'] != 'conectado':
-                rodadas = buscar_api_normal()
-                if rodadas:
-                    for rodada in rodadas:
-                        # USA A FUNÇÃO ÚNICA
-                        processar_rodada(rodada, 'api_normal')
-            time.sleep(INTERVALO_NORMAL)
-        except Exception as e:
-            print(f"❌ Erro API Normal: {e}")
-            time.sleep(INTERVALO_NORMAL)
 
 # =============================================================================
 # 🔥 PROCESSADOR DA FILA
@@ -617,9 +573,9 @@ def processar_fila():
                 
                 saved = 0
                 for rodada in batch:
-                    # A fonte já foi definida no momento do processamento
-                    # Mas como não armazenamos a fonte na rodada, usamos 'desconhecida'
-                    if salvar_rodada(rodada, 'desconhecida'):
+                    # Tenta salvar com a fonte original
+                    fonte = 'desconhecida'
+                    if salvar_rodada(rodada, fonte):
                         saved += 1
                         if saved == 1:
                             cache['ultimo_resultado_real'] = rodada['resultado']
@@ -635,10 +591,42 @@ def processar_fila():
             time.sleep(0.1)
 
 # =============================================================================
-# ESTRATÉGIA #1: COMPENSAÇÃO
+# 🔥 LOOP DE COLETA DAS FONTES (TODAS EM 2 SEGUNDOS)
 # =============================================================================
+
+def loop_latest():
+    """Loop da fonte Latest (2 segundos)"""
+    print("📡 Coletor LATEST iniciado (2s)...")
+    while True:
+        try:
+            rodada = buscar_latest()
+            if rodada:
+                fila_rodadas.append(rodada)
+            time.sleep(INTERVALO_LATEST)  # 2s
+        except Exception as e:
+            print(f"❌ Erro Latest: {e}")
+            time.sleep(INTERVALO_LATEST)
+
+def loop_api_normal():
+    """Loop da API Normal (2 segundos - fallback rápido)"""
+    print("📚 Coletor API NORMAL iniciado (2s fallback)...")
+    while True:
+        try:
+            # Tenta sempre, mas prioridade menor
+            if fontes_status['websocket']['status'] != 'conectado' or random.random() < 0.3:  # 30% das vezes mesmo com WS ativo
+                rodadas = buscar_api_normal()
+                if rodadas:
+                    for rodada in rodadas:
+                        fila_rodadas.append(rodada)
+            time.sleep(INTERVALO_NORMAL)  # 2s
+        except Exception as e:
+            print(f"❌ Erro API Normal: {e}")
+            time.sleep(INTERVALO_NORMAL) 
+# =============================================================================
+# ESTRATÉGIAS (COMPLETAS)
+# =============================================================================
+
 def estrategia_compensacao(dados, modo):
-    """🟢 ESTRATÉGIA #1: COMPENSAÇÃO - Diferença > 4% força lado menor"""
     if len(dados) < 10:
         return {'banker': 0, 'player': 0}
     
@@ -659,11 +647,7 @@ def estrategia_compensacao(dados, modo):
     
     return {'banker': 0, 'player': 0}
 
-# =============================================================================
-# ESTRATÉGIA #2: PAREDÃO
-# =============================================================================
 def estrategia_paredao(dados, modo):
-    """🔴 ESTRATÉGIA #2: PAREDÃO - 4+ vitórias seguidas"""
     if len(dados) < 4:
         return {'banker': 0, 'player': 0}
     
@@ -676,11 +660,7 @@ def estrategia_paredao(dados, modo):
     
     return {'banker': 0, 'player': 0}
 
-# =============================================================================
-# ESTRATÉGIA #3: MOEDOR (Cluster de Empates)
-# =============================================================================
 def estrategia_moedor(dados, modo):
-    """🟡 ESTRATÉGIA #3: MOEDOR - Cluster de Empates"""
     if len(dados) < 5:
         return {'banker': 0, 'player': 0}
     
@@ -697,11 +677,7 @@ def estrategia_moedor(dados, modo):
     
     return {'banker': 0, 'player': 0}
 
-# =============================================================================
-# ESTRATÉGIA #4: XADREZ (Alternância)
-# =============================================================================
 def estrategia_xadrez(dados, modo):
-    """🔵 ESTRATÉGIA #4: XADREZ - Alternância B-P-B-P"""
     if len(dados) < 4:
         return {'banker': 0, 'player': 0}
     
@@ -716,11 +692,7 @@ def estrategia_xadrez(dados, modo):
     
     return {'banker': 0, 'player': 0}
 
-# =============================================================================
-# ESTRATÉGIA #5: CONTRAGOLPE
-# =============================================================================
 def estrategia_contragolpe(dados, modo):
-    """⚫ ESTRATÉGIA #5: CONTRAGOLPE - 3+ iguais → 1 diferente → volta"""
     if len(dados) < 5:
         return {'banker': 0, 'player': 0}
     
@@ -739,11 +711,7 @@ def estrategia_contragolpe(dados, modo):
     
     return {'banker': 0, 'player': 0}
 
-# =============================================================================
-# ESTRATÉGIA #6: RESET PÓS-CLUSTER
-# =============================================================================
 def estrategia_reset_cluster(dados, modo):
-    """🟤 ESTRATÉGIA #6: RESET PÓS-CLUSTER - 2+ empates em curto espaço"""
     if len(dados) < 6:
         return {'banker': 0, 'player': 0}
     
@@ -771,11 +739,7 @@ def estrategia_reset_cluster(dados, modo):
     
     return {'banker': 0, 'player': 0}
 
-# =============================================================================
-# ESTRATÉGIA #7: FALSA ALTERNÂNCIA (Números Extremos)
-# =============================================================================
 def estrategia_falsa_alternancia(dados, modo):
-    """🟠 ESTRATÉGIA #7: FALSA ALTERNÂNCIA - Números extremos (10,11,12)"""
     if not dados:
         return {'banker': 0, 'player': 0}
     
@@ -789,9 +753,6 @@ def estrategia_falsa_alternancia(dados, modo):
     
     return {'banker': 0, 'player': 0}
 
-# =============================================================================
-# FUNÇÃO PARA IDENTIFICAR O MODO
-# =============================================================================
 def identificar_modo(player_pct, banker_pct, dados):
     extremos = sum(1 for r in dados if r['player_score'] >= 10 or r['banker_score'] >= 10)
     pct_extremos = (extremos / len(dados)) * 100 if dados else 0
@@ -803,11 +764,7 @@ def identificar_modo(player_pct, banker_pct, dados):
     else:
         return "EQUILIBRADO"
 
-# =============================================================================
-# FUNÇÃO PRINCIPAL DE PREVISÃO
-# =============================================================================
 def calcular_previsao():
-    """🎯 Calcula previsão com TODAS as 8 estratégias"""
     dados = cache['leves']['ultimas_50']
     if len(dados) < 10:
         return None
@@ -825,56 +782,48 @@ def calcular_previsao():
     votos_player = 0
     estrategias_ativas = []
     
-    # ESTRATÉGIA 1: Compensação
     e1 = estrategia_compensacao(dados, modo)
     votos_banker += e1.get('banker', 0)
     votos_player += e1.get('player', 0)
     if e1.get('banker') or e1.get('player'):
         estrategias_ativas.append('Compensação')
     
-    # ESTRATÉGIA 2: Paredão
     e2 = estrategia_paredao(dados, modo)
     votos_banker += e2.get('banker', 0)
     votos_player += e2.get('player', 0)
     if e2.get('banker') or e2.get('player'):
         estrategias_ativas.append('Paredão')
     
-    # ESTRATÉGIA 3: Moedor
     e3 = estrategia_moedor(dados, modo)
     votos_banker += e3.get('banker', 0)
     votos_player += e3.get('player', 0)
     if e3.get('banker') or e3.get('player'):
         estrategias_ativas.append('Moedor')
     
-    # ESTRATÉGIA 4: Xadrez
     e4 = estrategia_xadrez(dados, modo)
     votos_banker += e4.get('banker', 0)
     votos_player += e4.get('player', 0)
     if e4.get('banker') or e4.get('player'):
         estrategias_ativas.append('Xadrez')
     
-    # ESTRATÉGIA 5: Contragolpe
     e5 = estrategia_contragolpe(dados, modo)
     votos_banker += e5.get('banker', 0)
     votos_player += e5.get('player', 0)
     if e5.get('banker') or e5.get('player'):
         estrategias_ativas.append('Contragolpe')
     
-    # ESTRATÉGIA 6: Reset Pós-Cluster
     e6 = estrategia_reset_cluster(dados, modo)
     votos_banker += e6.get('banker', 0)
     votos_player += e6.get('player', 0)
     if e6.get('banker') or e6.get('player'):
         estrategias_ativas.append('Reset Cluster')
     
-    # ESTRATÉGIA 7: Falsa Alternância
     e7 = estrategia_falsa_alternancia(dados, modo)
     votos_banker += e7.get('banker', 0)
     votos_player += e7.get('player', 0)
     if e7.get('banker') or e7.get('player'):
         estrategias_ativas.append('Falsa Alternância')
     
-    # ESTRATÉGIA 8: Meta-Algoritmo
     if modo == "AGRESSIVO":
         if banker_pct > player_pct:
             votos_banker = int(votos_banker * 1.5)
@@ -890,7 +839,6 @@ def calcular_previsao():
                 votos_player = int(votos_player * 1.3)
             estrategias_ativas.append('Meta PREDATÓRIO')
     
-    # DECISÃO FINAL
     total_votos = votos_banker + votos_player
     
     if votos_banker > votos_player:
@@ -938,18 +886,26 @@ def verificar_previsoes_anteriores():
         else:
             cache['estatisticas']['erros'] += 1
         
-        # ATUALIZA CADA ESTRATÉGIA INDIVIDUALMENTE
+        # 🔥 ATUALIZA CADA ESTRATÉGIA INDIVIDUALMENTE
         for estrategia in ultima.get('estrategias', []):
-            nome_clean = estrategia.split(' ')[0]
+            nome_clean = estrategia.split(' ')[0]  # Pega só o nome principal
             
-            if nome_clean in cache['estatisticas']['estrategias']:
-                cache['estatisticas']['estrategias'][nome_clean]['total'] += 1
-                if acertou:
-                    cache['estatisticas']['estrategias'][nome_clean]['acertos'] += 1
-                else:
-                    cache['estatisticas']['estrategias'][nome_clean]['erros'] += 1
+            # Garante que a estratégia existe no dicionário
+            if nome_clean not in cache['estatisticas']['estrategias']:
+                cache['estatisticas']['estrategias'][nome_clean] = {'acertos': 0, 'erros': 0, 'total': 0}
+            
+            # Incrementa total
+            cache['estatisticas']['estrategias'][nome_clean]['total'] += 1
+            
+            # Incrementa acertos/erros
+            if acertou:
+                cache['estatisticas']['estrategias'][nome_clean]['acertos'] += 1
+            else:
+                cache['estatisticas']['estrategias'][nome_clean]['erros'] += 1
+            
+            print(f"   📊 Estratégia {nome_clean}: {cache['estatisticas']['estrategias'][nome_clean]}")
         
-        # ADICIONA AO HISTÓRICO LOCAL
+        # ADICIONA AO HISTÓRICO LOCAL (para o frontend)
         previsao_historico = {
             'data': datetime.now().strftime('%d/%m %H:%M:%S'),
             'previsao': ultima['previsao'],
@@ -965,6 +921,7 @@ def verificar_previsoes_anteriores():
             cache['estatisticas']['ultimas_20_previsoes'].pop()
         
         print(f"\n{'✅' if acertou else '❌'} PREVISÃO: {ultima['simbolo']} {ultima['previsao']} vs {resultado_real}")
+        print(f"📊 Total: {cache['estatisticas']['acertos']}/{cache['estatisticas']['total_previsoes']} ({calcular_precisao()}%)")
         
         cache['ultima_previsao'] = None
         cache['ultimo_resultado_real'] = None
@@ -974,7 +931,6 @@ def calcular_precisao():
     if total == 0:
         return 0
     return round((cache['estatisticas']['acertos'] / total) * 100)
-
 # =============================================================================
 # ATUALIZAÇÃO DE DADOS LEVES
 # =============================================================================
@@ -1117,12 +1073,12 @@ def status_fontes():
     return jsonify(fontes_status)
 
 # =============================================================================
-# LOOP PESADO
+# LOOP PESADO (2 segundos)
 # =============================================================================
 
 def loop_pesado():
     while True:
-        time.sleep(3)
+        time.sleep(2)
         try:
             atualizar_dados_pesados()
         except Exception as e:
@@ -1133,13 +1089,11 @@ def loop_pesado():
 # =============================================================================
 if __name__ == "__main__":
     print("="*70)
-    print("🚀 BOT BACBO - SISTEMA TURBO COM 3 FONTES (COMPLETO)")
+    print("🚀 BOT BACBO - SISTEMA TURBO COM 3 FONTES")
     print("="*70)
-    print("✅ WebSocket: Tempo real (PRIORIDADE MÁXIMA)")
-    print("✅ API Latest: Polling inteligente (PRIORIDADE MÉDIA)")
-    print("✅ API Normal: Fallback histórico (PRIORIDADE BAIXA)")
-    print("✅ Sistema anti-duplicação por ID")
-    print("✅ 8 Estratégias completas")
+    print("✅ WebSocket: Tempo real")
+    print("✅ API Latest: Polling inteligente (2s)")
+    print("✅ API Normal: Fallback histórico (2s)")
     print("✅ Histórico de previsões no banco")
     print("="*70)
     
@@ -1158,13 +1112,13 @@ if __name__ == "__main__":
     print("📡 Iniciando coletor LATEST (2s)...")
     threading.Thread(target=loop_latest, daemon=True).start()
     
-    print("📚 Iniciando coletor API NORMAL (10s fallback)...")
+    print("📚 Iniciando coletor API NORMAL (2s fallback)...")
     threading.Thread(target=loop_api_normal, daemon=True).start()
     
     print("🚀 Iniciando processador da fila...")
     threading.Thread(target=processar_fila, daemon=True).start()
     
-    print("🔄 Iniciando loop pesado (3s)...")
+    print("🔄 Iniciando loop pesado (2s)...")
     threading.Thread(target=loop_pesado, daemon=True).start()
     
     print("✅ Servidor rodando!")
