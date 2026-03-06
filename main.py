@@ -1,8 +1,9 @@
- # main.py - SISTEMA TURBO COM 3 FONTES + HISTÓRICO
+# main.py - SISTEMA TURBO COM 3 FONTES + HISTÓRICO + ANTI-DUPLICIDADE
 # ✅ WebSocket (tempo real)
 # ✅ API Latest (polling inteligente)
 # ✅ API Normal (fallback histórico)
 # ✅ Histórico de previsões no banco
+# ✅ Anti-duplicidade: a primeira fonte que chegar VENCE
 
 import os
 import time
@@ -62,8 +63,42 @@ TIMEOUT_API = 5
 MAX_RETRIES = 3
 RETRY_DELAY = 1
 INTERVALO_LATEST = 1  # 1 segundos para /latest
-INTERVALO_NORMAL = 1 # 1 segundos para API normal (fallback)
+INTERVALO_NORMAL = 1  # 1 segundos para API normal (fallback)
 PORT = int(os.environ.get("PORT", 5000))
+
+# =============================================================================
+# SISTEMA ANTI-DUPLICIDADE - A PRIMEIRA QUE CHEGAR VENCE
+# =============================================================================
+ids_processados = set()  # Cache dos últimos IDs vistos
+lock_ids = threading.Lock()  # Para acesso thread-safe
+
+def primeira_que_chegar(rodada):
+    """
+    Verifica se esta rodada JÁ FOI PROCESSADA por QUALQUER fonte.
+    A primeira fonte que entregar a rodada VENCE, as outras são ignoradas.
+    """
+    global ids_processados
+    
+    with lock_ids:
+        rodada_id = rodada.get('id')
+        if not rodada_id:
+            return False  # Sem ID, deixa passar (improvável)
+        
+        # Se já vimos este ID antes (de QUALQUER fonte), é duplicata
+        if rodada_id in ids_processados:
+            fonte = rodada.get('fonte', 'desconhecida')
+            print(f"🔄 BLOQUEADO: {fonte} tentou enviar rodada {rodada_id} que já foi processada")
+            return True  # ✅ É DUPLICATA - BLOQUEIA
+        
+        # É a PRIMEIRA VEZ que vemos este ID
+        ids_processados.add(rodada_id)
+        
+        # Mantém apenas os últimos 2000 IDs (memória eficiente)
+        if len(ids_processados) > 2000:
+            # Converte para lista, mantém os mais recentes
+            ids_processados = set(list(ids_processados)[-2000:])
+        
+        return False  # ✅ NÃO É DUPLICATA - PODE PROCESSAR
 
 # =============================================================================
 # FILA DE PROCESSAMENTO
@@ -400,7 +435,8 @@ def on_ws_message(ws, message):
                     'data_hora': datetime.now(timezone.utc),
                     'player_score': player_score,
                     'banker_score': banker_score,
-                    'resultado': resultado
+                    'resultado': resultado,
+                    'fonte': 'websocket'  # 👈 IDENTIFICA A FONTE
                 }
                 
                 fila_rodadas.append(rodada)
@@ -478,7 +514,8 @@ def buscar_latest():
                     'data_hora': datetime.now(timezone.utc),
                     'player_score': player_score,
                     'banker_score': banker_score,
-                    'resultado': resultado
+                    'resultado': resultado,
+                    'fonte': 'latest'  # 👈 IDENTIFICA A FONTE
                 }
                 
                 fontes_status['latest']['total'] += 1
@@ -541,7 +578,8 @@ def buscar_api_normal():
                             'data_hora': data_hora,
                             'player_score': player_score,
                             'banker_score': banker_score,
-                            'resultado': resultado
+                            'resultado': resultado,
+                            'fonte': 'api_normal'  # 👈 IDENTIFICA A FONTE
                         }
                         rodadas.append(rodada)
                     except:
@@ -558,12 +596,13 @@ def buscar_api_normal():
         return None
 
 # =============================================================================
-# 🔥 PROCESSADOR DA FILA
+# 🔥 PROCESSADOR DA FILA (COM ANTI-DUPLICIDADE)
 # =============================================================================
 
 def processar_fila():
-    """Processa a fila instantaneamente"""
+    """Processa a fila - a PRIMEIRA fonte que chegar VENCE, as outras são ignoradas"""
     print("🚀 Processador TURBO iniciado...")
+    print("⚡ Sistema anti-duplicidade ATIVO: primeira fonte vence!")
     
     while True:
         try:
@@ -571,18 +610,30 @@ def processar_fila():
                 batch = list(fila_rodadas)
                 fila_rodadas.clear()
                 
-                saved = 0
-                for rodada in batch:
-                    # Tenta salvar com a fonte original
-                    fonte = 'desconhecida'
-                    if salvar_rodada(rodada, fonte):
-                        saved += 1
-                        if saved == 1:
-                            cache['ultimo_resultado_real'] = rodada['resultado']
+                # Organiza por ID para garantir que só a primeira seja processada
+                rodadas_para_salvar = []
+                duplicatas = 0
                 
-                if saved > 0:
-                    print(f"💾 TURBO: salvou {saved}/{len(batch)} rodadas")
-                    atualizar_dados_leves()
+                for rodada in batch:
+                    # 🔥 VERIFICAÇÃO CRÍTICA: esta rodada JÁ FOI VISTA?
+                    if primeira_que_chegar(rodada):
+                        duplicatas += 1
+                        continue  # Ignora duplicatas
+                    
+                    # É a PRIMEIRA VEZ que vemos esta rodada
+                    rodadas_para_salvar.append(rodada)
+                
+                # Salva apenas as rodadas que passaram (primeiras de cada ID)
+                saved = 0
+                for rodada in rodadas_para_salvar:
+                    if salvar_rodada(rodada, rodada.get('fonte', 'desconhecida')):
+                        saved += 1
+                        cache['ultimo_resultado_real'] = rodada['resultado']
+                
+                if saved > 0 or duplicatas > 0:
+                    print(f"💾 TURBO: salvou {saved} | bloqueou {duplicatas} duplicatas")
+                    if saved > 0:
+                        atualizar_dados_leves()
             
             time.sleep(0.01)
             
@@ -591,25 +642,25 @@ def processar_fila():
             time.sleep(0.1)
 
 # =============================================================================
-# 🔥 LOOP DE COLETA DAS FONTES (TODAS EM 2 SEGUNDOS)
+# 🔥 LOOP DE COLETA DAS FONTES (TODAS EM 1 SEGUNDO)
 # =============================================================================
 
 def loop_latest():
-    """Loop da fonte Latest (2 segundos)"""
-    print("📡 Coletor LATEST iniciado (2s)...")
+    """Loop da fonte Latest (1 segundo)"""
+    print("📡 Coletor LATEST iniciado (1s)...")
     while True:
         try:
             rodada = buscar_latest()
             if rodada:
                 fila_rodadas.append(rodada)
-            time.sleep(INTERVALO_LATEST)  # 2s
+            time.sleep(INTERVALO_LATEST)  # 1s
         except Exception as e:
             print(f"❌ Erro Latest: {e}")
             time.sleep(INTERVALO_LATEST)
 
 def loop_api_normal():
-    """Loop da API Normal (2 segundos - fallback rápido)"""
-    print("📚 Coletor API NORMAL iniciado (2s fallback)...")
+    """Loop da API Normal (1 segundo - fallback rápido)"""
+    print("📚 Coletor API NORMAL iniciado (1s fallback)...")
     while True:
         try:
             # Tenta sempre, mas prioridade menor
@@ -618,10 +669,11 @@ def loop_api_normal():
                 if rodadas:
                     for rodada in rodadas:
                         fila_rodadas.append(rodada)
-            time.sleep(INTERVALO_NORMAL)  # 2s
+            time.sleep(INTERVALO_NORMAL)  # 1s
         except Exception as e:
             print(f"❌ Erro API Normal: {e}")
-            time.sleep(INTERVALO_NORMAL) 
+            time.sleep(INTERVALO_NORMAL)
+
 # =============================================================================
 # ESTRATÉGIAS (COMPLETAS)
 # =============================================================================
@@ -931,6 +983,7 @@ def calcular_precisao():
     if total == 0:
         return 0
     return round((cache['estatisticas']['acertos'] / total) * 100)
+
 # =============================================================================
 # ATUALIZAÇÃO DE DADOS LEVES
 # =============================================================================
@@ -1089,11 +1142,12 @@ def loop_pesado():
 # =============================================================================
 if __name__ == "__main__":
     print("="*70)
-    print("🚀 BOT BACBO - SISTEMA TURBO COM 3 FONTES")
+    print("🚀 BOT BACBO - SISTEMA TURBO COM 3 FONTES + ANTI-DUPLICIDADE")
     print("="*70)
     print("✅ WebSocket: Tempo real")
-    print("✅ API Latest: Polling inteligente (2s)")
-    print("✅ API Normal: Fallback histórico (2s)")
+    print("✅ API Latest: Polling inteligente (1s)")
+    print("✅ API Normal: Fallback histórico (1s)")
+    print("✅ Anti-duplicidade: PRIMEIRA FONTE VENCE")
     print("✅ Histórico de previsões no banco")
     print("="*70)
     
@@ -1109,13 +1163,13 @@ if __name__ == "__main__":
     print("🔌 Iniciando WebSocket...")
     iniciar_websocket()
     
-    print("📡 Iniciando coletor LATEST (2s)...")
+    print("📡 Iniciando coletor LATEST (1s)...")
     threading.Thread(target=loop_latest, daemon=True).start()
     
-    print("📚 Iniciando coletor API NORMAL (2s fallback)...")
+    print("📚 Iniciando coletor API NORMAL (1s fallback)...")
     threading.Thread(target=loop_api_normal, daemon=True).start()
     
-    print("🚀 Iniciando processador da fila...")
+    print("🚀 Iniciando processador da fila (anti-duplicidade)...")
     threading.Thread(target=processar_fila, daemon=True).start()
     
     print("🔄 Iniciando loop pesado (2s)...")
