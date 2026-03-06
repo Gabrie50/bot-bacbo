@@ -902,71 +902,39 @@
     let limiteAtual = CONFIG.LIMITE_PADRAO;
     let ultimaAtualizacao = 0;
     
-    // 🛡️ SISTEMA ANTI-DUPLICIDADE FORTE
-    let idsVistos = new Map(); // Guarda ID + timestamp
-    let ultimaLimpeza = Date.now();
+    // 🛡️ SISTEMA ANTI-DUPLICIDADE CORRIGIDO
+    let idsVistos = new Set(); // Simples set de IDs
 
     // =========================================================================
-    // FUNÇÃO ANTI-DUPLICIDADE - USA O ID REAL DA RODADA
+    // FUNÇÃO ANTI-DUPLICIDADE CORRIGIDA
     // =========================================================================
     function removerDuplicatas(rodadas) {
         if (!rodadas || !Array.isArray(rodadas)) return [];
         
-        // Limpeza automática do cache a cada 5 minutos
-        const agora = Date.now();
-        if (agora - ultimaLimpeza > 300000) { // 5 minutos
-            console.log('🧹 Limpando cache de IDs antigos...');
-            
-            // Remove IDs com mais de 1 hora
-            for (let [id, timestamp] of idsVistos.entries()) {
-                if (agora - timestamp > 3600000) { // 1 hora
-                    idsVistos.delete(id);
-                }
-            }
-            ultimaLimpeza = agora;
-        }
-
-        // Filtra usando o ID real
+        // SIMPLES: Usa apenas o ID como chave
+        const idsUnicos = new Set();
         const rodadasUnicas = [];
-        const duplicatasEncontradas = [];
         
         for (const rodada of rodadas) {
-            // Prioridade 1: Usar o ID real se existir
+            // Se tem ID, usa o ID
             if (rodada.id) {
-                if (!idsVistos.has(rodada.id)) {
-                    idsVistos.set(rodada.id, agora);
+                if (!idsUnicos.has(rodada.id)) {
+                    idsUnicos.add(rodada.id);
                     rodadasUnicas.push(rodada);
-                } else {
-                    duplicatasEncontradas.push(rodada);
                 }
                 continue;
             }
             
-            // Prioridade 2: Fallback para chave composta (se não tiver ID)
+            // Se não tem ID (fallback), usa data+hora+resultado
             const chave = `${rodada.data}-${rodada.player}-${rodada.banker}-${rodada.resultado}`;
-            if (!idsVistos.has(chave)) {
-                idsVistos.set(chave, agora);
+            if (!idsUnicos.has(chave)) {
+                idsUnicos.add(chave);
                 rodadasUnicas.push(rodada);
-            } else {
-                duplicatasEncontradas.push(rodada);
             }
         }
         
-        if (duplicatasEncontradas.length > 0) {
-            console.log(`🔄 Bloqueou ${duplicatasEncontradas.length} duplicatas na interface`);
-        }
-        
+        console.log(`📊 Processadas ${rodadas.length} rodadas → ${rodadasUnicas.length} únicas`);
         return rodadasUnicas;
-    }
-
-    // =========================================================================
-    // FUNÇÃO PARA VERIFICAR SE RODADA JÁ EXISTE
-    // =========================================================================
-    function rodadaJaExiste(rodada) {
-        if (rodada.id && idsVistos.has(rodada.id)) return true;
-        
-        const chave = `${rodada.data}-${rodada.player}-${rodada.banker}-${rodada.resultado}`;
-        return idsVistos.has(chave);
     }
 
     // =========================================================================
@@ -1038,25 +1006,30 @@
     function exibirHistorico(data) {
         if (!data || data.length === 0) {
             document.getElementById('numerosGrid').innerHTML = `<div class="loading">📭 Nenhuma rodada neste período</div>`;
+            document.getElementById('tabelaCount').textContent = `0 rodadas`;
             return;
         }
 
-        // Aplica anti-duplicidade novamente (camada extra de proteção)
+        // Remove duplicatas
         const dadosUnicos = removerDuplicatas(data);
         
+        // Aplica filtro se houver
         let dadosParaExibir = dadosUnicos;
         if (filtroAtual) {
-            dadosParaExibir = dadosUnicos.filter(r => r.resultado.toLowerCase() === filtroAtual.toLowerCase());
+            dadosParaExibir = dadosUnicos.filter(r => 
+                r.resultado && r.resultado.toLowerCase() === filtroAtual.toLowerCase()
+            );
         }
 
+        // Gera HTML
         let html = '';
         dadosParaExibir.slice(0, 100).forEach(item => {
             let classeNumero = '';
             if (item.resultado === 'PLAYER') classeNumero = 'numero-player';
             else if (item.resultado === 'BANKER') classeNumero = 'numero-banker';
-            else classeNumero = 'numero-tie';
+            else if (item.resultado === 'TIE') classeNumero = 'numero-tie';
             
-            const isExtremo = item.player >= 10 || item.banker >= 10;
+            const isExtremo = (item.player && item.player >= 10) || (item.banker && item.banker >= 10);
             if (isExtremo) classeNumero += ' numero-extremo';
             
             let simbolo = '⚪';
@@ -1066,16 +1039,14 @@
             
             html += `
                 <div class="numero-item ${classeNumero}">
-                    <div class="numero-valor">${item.player} vs ${item.banker}</div>
+                    <div class="numero-valor">${item.player || 0} vs ${item.banker || 0}</div>
                     <div class="numero-horario">${item.data || ''}</div>
                     <div class="numero-simbolo">${simbolo}</div>
                 </div>
             `;
         });
 
-        document.getElementById('numerosGrid').innerHTML = html;
-        
-        // Atualiza contador
+        document.getElementById('numerosGrid').innerHTML = html || '<div class="loading">📭 Nenhuma rodada encontrada</div>';
         document.getElementById('tabelaCount').textContent = `${dadosUnicos.length} rodadas únicas`;
     }
 
@@ -1132,13 +1103,11 @@
 
         let html = '';
         previsoes.slice(0, 20).forEach(p => {
-            // Garante que os valores existem
             const simbolo = p.simbolo || (p.previsao === 'BANKER' ? '🔴' : '🔵');
             const previsao = p.previsao || '-';
             const confianca = p.confianca || 0;
-            const numeros = p.numeros || '';
-            const resultado = p.resultado || p.resultado_real || '-';
-            const horario = p.horario || p.data || '';
+            const resultado = p.resultado_real || p.resultado || '-';
+            const horario = p.data || '';
             const acertou = p.acertou || (resultado === previsao);
             
             const classe = acertou ? 'timeline-acerto' : 'timeline-erro';
@@ -1149,7 +1118,6 @@
                         <span class="timeline-previsao">${simbolo} ${previsao}</span>
                         <span class="timeline-confianca">${confianca}%</span>
                     </div>
-                    <div class="timeline-numeros">${numeros}</div>
                     <div class="timeline-resultado">
                         <span>Resultado: ${resultado}</span>
                         <span>${horario}</span>
@@ -1173,13 +1141,16 @@
             const response = await fetch(`/api/tabela/${limite}`);
             const dados = await response.json();
             
-            // 🛡️ APLICA ANTI-DUPLICIDADE COM ID REAL
+            console.log(`📥 Recebidas ${dados.length} rodadas da API`);
+            
+            // Remove duplicatas
             dadosCompletos = removerDuplicatas(dados);
             
             document.getElementById('tabelaCount').textContent = `${dadosCompletos.length} rodadas únicas`;
             document.getElementById('totalRodadasPeriodo').textContent = dadosCompletos.length;
             document.getElementById('pizzaInfo').textContent = `${dadosCompletos.length} rodadas`;
             
+            // Calcula estatísticas
             const player = dadosCompletos.filter(r => r.resultado === 'PLAYER').length;
             const banker = dadosCompletos.filter(r => r.resultado === 'BANKER').length;
             const tie = dadosCompletos.filter(r => r.resultado === 'TIE').length;
@@ -1189,16 +1160,16 @@
             const bankerPct = total > 0 ? ((banker / total) * 100).toFixed(1) : '0';
             const tiePct = total > 0 ? ((tie / total) * 100).toFixed(1) : '0';
             
-            document.getElementById('playerNumero').textContent = player || '-';
-            document.getElementById('playerPercent').textContent = player ? playerPct + '%' : '-';
-            document.getElementById('tieNumero').textContent = tie || '-';
-            document.getElementById('tiePercent').textContent = tie ? tiePct + '%' : '-';
-            document.getElementById('bankerNumero').textContent = banker || '-';
-            document.getElementById('bankerPercent').textContent = banker ? bankerPct + '%' : '-';
+            document.getElementById('playerNumero').textContent = player || '0';
+            document.getElementById('playerPercent').textContent = playerPct + '%';
+            document.getElementById('tieNumero').textContent = tie || '0';
+            document.getElementById('tiePercent').textContent = tiePct + '%';
+            document.getElementById('bankerNumero').textContent = banker || '0';
+            document.getElementById('bankerPercent').textContent = bankerPct + '%';
             
-            document.getElementById('miniPlayer').textContent = player || '-';
-            document.getElementById('miniTie').textContent = tie || '-';
-            document.getElementById('miniBanker').textContent = banker || '-';
+            document.getElementById('miniPlayer').textContent = player || '0';
+            document.getElementById('miniTie').textContent = tie || '0';
+            document.getElementById('miniBanker').textContent = banker || '0';
             
             if (pizzaChart) {
                 pizzaChart.data.datasets[0].data = [player, tie, banker];
@@ -1211,6 +1182,7 @@
             
         } catch (error) {
             console.error('Erro ao carregar tabela:', error);
+            document.getElementById('numerosGrid').innerHTML = `<div class="loading">❌ Erro ao carregar dados</div>`;
         }
     }
 
@@ -1227,44 +1199,35 @@
             if (tabelaPromise.status === 'fulfilled') {
                 const dados = tabelaPromise.value;
                 if (dados && dados.length > 0) {
-                    // 🛡️ APLICA ANTI-DUPLICIDADE
-                    const novosDados = removerDuplicatas(dados);
+                    dadosCompletos = removerDuplicatas(dados);
+                    exibirHistorico(dadosCompletos);
                     
-                    // Verifica se realmente houve mudança
-                    if (novosDados.length !== dadosCompletos.length) {
-                        dadosCompletos = novosDados;
+                    // Atualiza estatísticas
+                    const player = dadosCompletos.filter(r => r.resultado === 'PLAYER').length;
+                    const banker = dadosCompletos.filter(r => r.resultado === 'BANKER').length;
+                    const tie = dadosCompletos.filter(r => r.resultado === 'TIE').length;
+                    const total = dadosCompletos.length;
+                    
+                    if (total > 0) {
+                        const playerPct = ((player / total) * 100).toFixed(1);
+                        const bankerPct = ((banker / total) * 100).toFixed(1);
+                        const tiePct = ((tie / total) * 100).toFixed(1);
                         
-                        document.getElementById('tabelaCount').textContent = `${dadosCompletos.length} rodadas únicas`;
-                        document.getElementById('totalRodadasPeriodo').textContent = dadosCompletos.length;
+                        document.getElementById('playerNumero').textContent = player;
+                        document.getElementById('playerPercent').textContent = playerPct + '%';
+                        document.getElementById('tieNumero').textContent = tie;
+                        document.getElementById('tiePercent').textContent = tiePct + '%';
+                        document.getElementById('bankerNumero').textContent = banker;
+                        document.getElementById('bankerPercent').textContent = bankerPct + '%';
                         
-                        const player = dadosCompletos.filter(r => r.resultado === 'PLAYER').length;
-                        const banker = dadosCompletos.filter(r => r.resultado === 'BANKER').length;
-                        const tie = dadosCompletos.filter(r => r.resultado === 'TIE').length;
-                        const total = dadosCompletos.length;
+                        document.getElementById('miniPlayer').textContent = player;
+                        document.getElementById('miniTie').textContent = tie;
+                        document.getElementById('miniBanker').textContent = banker;
                         
-                        if (total > 0) {
-                            const playerPct = ((player / total) * 100).toFixed(1);
-                            const bankerPct = ((banker / total) * 100).toFixed(1);
-                            const tiePct = ((tie / total) * 100).toFixed(1);
-                            
-                            document.getElementById('playerNumero').textContent = player;
-                            document.getElementById('playerPercent').textContent = playerPct + '%';
-                            document.getElementById('tieNumero').textContent = tie;
-                            document.getElementById('tiePercent').textContent = tiePct + '%';
-                            document.getElementById('bankerNumero').textContent = banker;
-                            document.getElementById('bankerPercent').textContent = bankerPct + '%';
-                            
-                            document.getElementById('miniPlayer').textContent = player;
-                            document.getElementById('miniTie').textContent = tie;
-                            document.getElementById('miniBanker').textContent = banker;
-                            
-                            if (pizzaChart) {
-                                pizzaChart.data.datasets[0].data = [player, tie, banker];
-                                pizzaChart.update();
-                            }
+                        if (pizzaChart) {
+                            pizzaChart.data.datasets[0].data = [player, tie, banker];
+                            pizzaChart.update();
                         }
-                        
-                        exibirHistorico(dadosCompletos);
                     }
                 }
             }
@@ -1279,13 +1242,6 @@
                 if (stats.fila !== undefined) {
                     document.getElementById('filaTamanho').textContent = stats.fila;
                     document.getElementById('filaStatus').textContent = `📦 Fila: ${stats.fila}`;
-                    
-                    const filaElem = document.getElementById('filaStatus');
-                    if (stats.fila > 10) {
-                        filaElem.classList.add('alta');
-                    } else {
-                        filaElem.classList.remove('alta');
-                    }
                 }
 
                 if (stats.previsao) {
@@ -1343,7 +1299,6 @@
     // Inicializar
     document.addEventListener('DOMContentLoaded', function() {
         console.log('🚀 Iniciando BacBo Analytics...');
-        console.log('🛡️ Anti-duplicidade FORTE ativada');
         
         criarPizzaChart(0, 0, 0);
         carregarTabela(50);
