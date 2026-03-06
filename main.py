@@ -198,13 +198,35 @@ def init_db():
         return False
 
 def salvar_rodada(rodada, fonte):
-    """Salva rodada no banco com identificação da fonte"""
+    """Salva rodada no banco com identificação da fonte - SEM DUPLICATAS!"""
     conn = get_db_connection()
     if not conn:
         return False
     
     try:
         cur = conn.cursor()
+        
+        # 🔥 VERIFICA SE JÁ EXISTE NOS ÚLTIMOS 60 SEGUNDOS
+        cur.execute('''
+            SELECT id FROM rodadas 
+            WHERE player_score = %s 
+              AND banker_score = %s 
+              AND resultado = %s
+              AND EXTRACT(EPOCH FROM (data_hora - %s)) < 60
+            LIMIT 1
+        ''', (
+            rodada['player_score'],
+            rodada['banker_score'],
+            rodada['resultado'],
+            rodada['data_hora']
+        ))
+        
+        existing = cur.fetchone()
+        if existing:
+            print(f"   ⏭️ [DUPLICATA PREVENIDA] {rodada['player_score']} vs {rodada['banker_score']} (já existe nos últimos 60s)")
+            return False
+        
+        # Se não existe, insere
         cur.execute('''
             INSERT INTO rodadas 
             (id, data_hora, player_score, banker_score, soma, resultado, fonte, dados_json)
@@ -232,12 +254,6 @@ def salvar_rodada(rodada, fonte):
         return False
     except Exception as e:
         print(f"❌ Erro ao salvar: {e}")
-        return False
-
-def salvar_previsao(previsao, resultado_real, acertou):
-    """Salva previsão no banco de dados"""
-    conn = get_db_connection()
-    if not conn:
         return False
     
     try:
@@ -642,7 +658,7 @@ def processar_fila():
 # =============================================================================
 
 def limpar_duplicatas():
-    """Remove rodadas duplicadas do banco"""
+    """Remove rodadas duplicadas do banco baseado no conteúdo"""
     conn = get_db_connection()
     if not conn:
         return
@@ -650,7 +666,22 @@ def limpar_duplicatas():
     try:
         cur = conn.cursor()
         
-        # Encontra e remove duplicatas (mantém a mais antiga)
+        # Primeiro, verifica quantas duplicatas existem
+        cur.execute('''
+            SELECT COUNT(*) FROM (
+                SELECT player_score, banker_score, resultado, 
+                       DATE_TRUNC('minute', data_hora) as minute,
+                       COUNT(*) as cnt
+                FROM rodadas
+                GROUP BY player_score, banker_score, resultado, DATE_TRUNC('minute', data_hora)
+                HAVING COUNT(*) > 1
+            ) t
+        ''')
+        
+        total_duplicatas = cur.fetchone()[0]
+        print(f"🔍 Encontradas {total_duplicatas} rodadas duplicadas")
+        
+        # Remove duplicatas (mantém a mais antiga)
         cur.execute('''
             DELETE FROM rodadas 
             WHERE id IN (
@@ -669,14 +700,15 @@ def limpar_duplicatas():
         
         removidas = cur.rowcount
         conn.commit()
+        
+        print(f"✅ Removidas {removidas} duplicatas do banco")
+        
         cur.close()
         conn.close()
         
-        if removidas > 0:
-            print(f"✅ Removidas {removidas} duplicatas do banco")
-        
     except Exception as e:
         print(f"❌ Erro ao limpar duplicatas: {e}")
+        
         
 # =============================================================================
 # ESTRATÉGIA #1: COMPENSAÇÃO
@@ -1197,8 +1229,13 @@ if __name__ == "__main__":
 
     init_db()
     
-    print("🧹 Limpando duplicatas...")
-    limpar_duplicatas()  # Executa uma vez para limpar o banco
+    init_db()
+
+    # 🧹 LIMPAR DUPLICATAS EXISTENTES
+    print("🧹 Limpando duplicatas do banco...")
+    limpar_duplicatas()
+
+
 
     print("📊 Carregando dados...")
     atualizar_dados_leves()
