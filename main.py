@@ -993,7 +993,7 @@ def calcular_previsao():
     }
 
 # =============================================================================
-# SISTEMA DE APRENDIZADO CORRIGIDO
+# SISTEMA DE APRENDIZADO CORRIGIDO - COM LOGS
 # =============================================================================
 
 def verificar_previsoes_anteriores():
@@ -1003,6 +1003,12 @@ def verificar_previsoes_anteriores():
         resultado_real = cache['ultimo_resultado_real']
         
         acertou = (ultima['previsao'] == resultado_real)
+        
+        print(f"\n🔍 VERIFICANDO PREVISÃO ANTERIOR:")
+        print(f"   🎯 Previsão: {ultima['simbolo']} {ultima['previsao']} ({ultima['confianca']}%)")
+        print(f"   🎲 Resultado real: {resultado_real}")
+        print(f"   ✅ Acertou: {acertou}")
+        print(f"   🧠 Estratégias: {ultima['estrategias']}")
         
         # SALVA NO BANCO
         salvar_previsao(ultima, resultado_real, acertou)
@@ -1014,18 +1020,27 @@ def verificar_previsoes_anteriores():
         else:
             cache['estatisticas']['erros'] += 1
         
-        # 🔥 CORREÇÃO: ATUALIZA CADA ESTRATÉGIA INDIVIDUALMENTE
+        print(f"   📊 Gerais: {cache['estatisticas']['acertos']}/{cache['estatisticas']['total_previsoes']}")
+        
+        # 🔥 ATUALIZA CADA ESTRATÉGIA INDIVIDUALMENTE
         for estrategia in ultima.get('estrategias', []):
             nome_clean = estrategia.split(' ')[0]
             
-            if nome_clean in cache['estatisticas']['estrategias']:
-                cache['estatisticas']['estrategias'][nome_clean]['total'] += 1
-                if acertou:
-                    cache['estatisticas']['estrategias'][nome_clean]['acertos'] += 1
-                else:
-                    cache['estatisticas']['estrategias'][nome_clean]['erros'] += 1
-                
-                print(f"   📊 Estratégia {nome_clean}: {cache['estatisticas']['estrategias'][nome_clean]}")
+            # Garante que a estratégia existe
+            if nome_clean not in cache['estatisticas']['estrategias']:
+                cache['estatisticas']['estrategias'][nome_clean] = {'acertos': 0, 'erros': 0, 'total': 0}
+                print(f"   ⚠️ Estratégia {nome_clean} não existia - criada")
+            
+            # Incrementa total
+            cache['estatisticas']['estrategias'][nome_clean]['total'] += 1
+            
+            # Incrementa acertos/erros
+            if acertou:
+                cache['estatisticas']['estrategias'][nome_clean]['acertos'] += 1
+            else:
+                cache['estatisticas']['estrategias'][nome_clean]['erros'] += 1
+            
+            print(f"   📊 Estratégia {nome_clean}: {cache['estatisticas']['estrategias'][nome_clean]}")
         
         # ADICIONA AO HISTÓRICO LOCAL
         previsao_historico = {
@@ -1047,12 +1062,6 @@ def verificar_previsoes_anteriores():
         
         cache['ultima_previsao'] = None
         cache['ultimo_resultado_real'] = None
-
-def calcular_precisao():
-    total = cache['estatisticas']['total_previsoes']
-    if total == 0:
-        return 0
-    return round((cache['estatisticas']['acertos'] / total) * 100)
 
 # =============================================================================
 # ATUALIZAÇÃO DE DADOS LEVES
