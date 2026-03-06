@@ -1,9 +1,9 @@
-# main.py - SISTEMA TURBO COM 3 FONTES + HISTÓRICO (COMPLETO E CORRIGIDO)
-# ✅ WebSocket (tempo real) - PRIORIDADE MÁXIMA
-# ✅ API Latest (polling inteligente) - PRIORIDADE MÉDIA  
-# ✅ API Normal (fallback histórico) - PRIORIDADE BAIXA
-# ✅ Sistema anti-duplicação por ID (FUNCIONANDO!)
-# ✅ 8 Estratégias completas (ATUALIZANDO!)
+# main.py - SISTEMA TURBO COM 3 FONTES + HISTÓRICO (COMPLETO) 
+# ✅ WebSocket (tempo real)
+# ✅ API Latest (polling inteligente)
+# ✅ API Normal (fallback histórico)
+# ✅ Sistema anti-duplicação por ID
+# ✅ 8 Estratégias completas
 # ✅ Histórico de previsões no banco
 
 import os
@@ -23,7 +23,7 @@ import pg8000
 # =============================================================================
 # CONFIGURAÇÕES
 # =============================================================================
-DATABASE_URL = "postgresql://neondb_owner:npg_B5MPOgfYA1Ik@ep-holy-hall-addv9tiz-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+DATABASE_URL = "postgresql://neondb_owner:npg_VcLb4K6lOzhq@ep-misty-haze-aiqcpt9j-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
 # Parse da URL
 parsed = urllib.parse.urlparse(DATABASE_URL)
 DB_USER = parsed.username
@@ -198,35 +198,13 @@ def init_db():
         return False
 
 def salvar_rodada(rodada, fonte):
-    """Salva rodada no banco com identificação da fonte - SEM DUPLICATAS!"""
+    """Salva rodada no banco com identificação da fonte"""
     conn = get_db_connection()
     if not conn:
         return False
     
     try:
         cur = conn.cursor()
-        
-        # 🔥 VERIFICA SE JÁ EXISTE NOS ÚLTIMOS 60 SEGUNDOS
-        cur.execute('''
-            SELECT id FROM rodadas 
-            WHERE player_score = %s 
-              AND banker_score = %s 
-              AND resultado = %s
-              AND EXTRACT(EPOCH FROM (data_hora - %s)) < 60
-            LIMIT 1
-        ''', (
-            rodada['player_score'],
-            rodada['banker_score'],
-            rodada['resultado'],
-            rodada['data_hora']
-        ))
-        
-        existing = cur.fetchone()
-        if existing:
-            print(f"   ⏭️ [DUPLICATA PREVENIDA] {rodada['player_score']} vs {rodada['banker_score']} (já existe nos últimos 60s)")
-            return False
-        
-        # Se não existe, insere
         cur.execute('''
             INSERT INTO rodadas 
             (id, data_hora, player_score, banker_score, soma, resultado, fonte, dados_json)
@@ -254,6 +232,12 @@ def salvar_rodada(rodada, fonte):
         return False
     except Exception as e:
         print(f"❌ Erro ao salvar: {e}")
+        return False
+
+def salvar_previsao(previsao, resultado_real, acertou):
+    """Salva previsão no banco de dados"""
+    conn = get_db_connection()
+    if not conn:
         return False
     
     try:
@@ -378,7 +362,7 @@ def atualizar_dados_pesados():
     cache['pesados']['ultima_atualizacao'] = datetime.now(timezone.utc)
 
 # =============================================================================
-# 🔥 FUNÇÃO ÚNICA PARA PROCESSAR RODADA (EVITA DUPLICAÇÃO) - CORRIGIDA!
+# 🔥 FUNÇÃO ÚNICA PARA PROCESSAR RODADA (EVITA DUPLICAÇÃO)
 # =============================================================================
 
 def processar_rodada(rodada, fonte):
@@ -398,16 +382,13 @@ def processar_rodada(rodada, fonte):
     # MARCA COMO PROCESSADO
     ids_processados.add(rodada_id)
     
-    # Limita o tamanho do set
+    # Limita o tamanho do set (para não crescer infinitamente)
     if len(ids_processados) > 10000:
+        # Mantém apenas os últimos 5000 IDs
         ids_processados = set(list(ids_processados)[-5000:])
     
-    # 🔥 ADICIONA A FONTE NA RODADA!
-    rodada_com_fonte = rodada.copy()
-    rodada_com_fonte['fonte'] = fonte
-    
     # Adiciona à fila
-    fila_rodadas.append(rodada_com_fonte)
+    fila_rodadas.append(rodada)
     
     # Atualiza estatísticas da fonte
     if fonte in fontes_status:
@@ -621,7 +602,7 @@ def loop_api_normal():
             time.sleep(INTERVALO_NORMAL)
 
 # =============================================================================
-# 🔥 PROCESSADOR DA FILA (CORRIGIDO - USA A FONTE DA RODADA!)
+# 🔥 PROCESSADOR DA FILA
 # =============================================================================
 
 def processar_fila():
@@ -636,9 +617,9 @@ def processar_fila():
                 
                 saved = 0
                 for rodada in batch:
-                    # 🔥 PEGA A FONTE QUE FOI SALVA NA RODADA
-                    fonte = rodada.get('fonte', 'desconhecida')
-                    if salvar_rodada(rodada, fonte):
+                    # A fonte já foi definida no momento do processamento
+                    # Mas como não armazenamos a fonte na rodada, usamos 'desconhecida'
+                    if salvar_rodada(rodada, 'desconhecida'):
                         saved += 1
                         if saved == 1:
                             cache['ultimo_resultado_real'] = rodada['resultado']
@@ -652,64 +633,7 @@ def processar_fila():
         except Exception as e:
             print(f"❌ Erro TURBO: {e}")
             time.sleep(0.1)
-            
-# =============================================================================
-# 🧹 FUNÇÃO PARA LIMPAR DUPLICATAS DO BANCO (EXECUTE UMA VEZ!)
-# =============================================================================
 
-def limpar_duplicatas():
-    """Remove rodadas duplicadas do banco baseado no conteúdo"""
-    conn = get_db_connection()
-    if not conn:
-        return
-    
-    try:
-        cur = conn.cursor()
-        
-        # Primeiro, verifica quantas duplicatas existem
-        cur.execute('''
-            SELECT COUNT(*) FROM (
-                SELECT player_score, banker_score, resultado, 
-                       DATE_TRUNC('minute', data_hora) as minute,
-                       COUNT(*) as cnt
-                FROM rodadas
-                GROUP BY player_score, banker_score, resultado, DATE_TRUNC('minute', data_hora)
-                HAVING COUNT(*) > 1
-            ) t
-        ''')
-        
-        total_duplicatas = cur.fetchone()[0]
-        print(f"🔍 Encontradas {total_duplicatas} rodadas duplicadas")
-        
-        # Remove duplicatas (mantém a mais antiga)
-        cur.execute('''
-            DELETE FROM rodadas 
-            WHERE id IN (
-                SELECT id FROM (
-                    SELECT id, 
-                           ROW_NUMBER() OVER (
-                               PARTITION BY player_score, banker_score, resultado, 
-                                            DATE_TRUNC('minute', data_hora)
-                               ORDER BY data_hora
-                           ) as rn
-                    FROM rodadas
-                ) t
-                WHERE t.rn > 1
-            )
-        ''')
-        
-        removidas = cur.rowcount
-        conn.commit()
-        
-        print(f"✅ Removidas {removidas} duplicatas do banco")
-        
-        cur.close()
-        conn.close()
-        
-    except Exception as e:
-        print(f"❌ Erro ao limpar duplicatas: {e}")
-        
-        
 # =============================================================================
 # ESTRATÉGIA #1: COMPENSAÇÃO
 # =============================================================================
@@ -993,7 +917,7 @@ def calcular_previsao():
     }
 
 # =============================================================================
-# SISTEMA DE APRENDIZADO CORRIGIDO - COM LOGS
+# SISTEMA DE APRENDIZADO CORRIGIDO
 # =============================================================================
 
 def verificar_previsoes_anteriores():
@@ -1003,12 +927,6 @@ def verificar_previsoes_anteriores():
         resultado_real = cache['ultimo_resultado_real']
         
         acertou = (ultima['previsao'] == resultado_real)
-        
-        print(f"\n🔍 VERIFICANDO PREVISÃO ANTERIOR:")
-        print(f"   🎯 Previsão: {ultima['simbolo']} {ultima['previsao']} ({ultima['confianca']}%)")
-        print(f"   🎲 Resultado real: {resultado_real}")
-        print(f"   ✅ Acertou: {acertou}")
-        print(f"   🧠 Estratégias: {ultima['estrategias']}")
         
         # SALVA NO BANCO
         salvar_previsao(ultima, resultado_real, acertou)
@@ -1020,27 +938,16 @@ def verificar_previsoes_anteriores():
         else:
             cache['estatisticas']['erros'] += 1
         
-        print(f"   📊 Gerais: {cache['estatisticas']['acertos']}/{cache['estatisticas']['total_previsoes']}")
-        
-        # 🔥 ATUALIZA CADA ESTRATÉGIA INDIVIDUALMENTE
+        # ATUALIZA CADA ESTRATÉGIA INDIVIDUALMENTE
         for estrategia in ultima.get('estrategias', []):
             nome_clean = estrategia.split(' ')[0]
             
-            # Garante que a estratégia existe
-            if nome_clean not in cache['estatisticas']['estrategias']:
-                cache['estatisticas']['estrategias'][nome_clean] = {'acertos': 0, 'erros': 0, 'total': 0}
-                print(f"   ⚠️ Estratégia {nome_clean} não existia - criada")
-            
-            # Incrementa total
-            cache['estatisticas']['estrategias'][nome_clean]['total'] += 1
-            
-            # Incrementa acertos/erros
-            if acertou:
-                cache['estatisticas']['estrategias'][nome_clean]['acertos'] += 1
-            else:
-                cache['estatisticas']['estrategias'][nome_clean]['erros'] += 1
-            
-            print(f"   📊 Estratégia {nome_clean}: {cache['estatisticas']['estrategias'][nome_clean]}")
+            if nome_clean in cache['estatisticas']['estrategias']:
+                cache['estatisticas']['estrategias'][nome_clean]['total'] += 1
+                if acertou:
+                    cache['estatisticas']['estrategias'][nome_clean]['acertos'] += 1
+                else:
+                    cache['estatisticas']['estrategias'][nome_clean]['erros'] += 1
         
         # ADICIONA AO HISTÓRICO LOCAL
         previsao_historico = {
@@ -1058,10 +965,15 @@ def verificar_previsoes_anteriores():
             cache['estatisticas']['ultimas_20_previsoes'].pop()
         
         print(f"\n{'✅' if acertou else '❌'} PREVISÃO: {ultima['simbolo']} {ultima['previsao']} vs {resultado_real}")
-        print(f"📊 Total: {cache['estatisticas']['acertos']}/{cache['estatisticas']['total_previsoes']} ({calcular_precisao()}%)")
         
         cache['ultima_previsao'] = None
         cache['ultimo_resultado_real'] = None
+
+def calcular_precisao():
+    total = cache['estatisticas']['total_previsoes']
+    if total == 0:
+        return 0
+    return round((cache['estatisticas']['acertos'] / total) * 100)
 
 # =============================================================================
 # ATUALIZAÇÃO DE DADOS LEVES
@@ -1103,9 +1015,6 @@ def api_stats():
             'erros': dados['erros'],
             'precisao': precisao
         })
-    
-    # 🔥 LOG PARA VERIFICAR SE AS ESTRATÉGIAS ESTÃO SENDO ENVIADAS
-    print(f"📊 Enviando estratégias: {estrategias_stats}")
     
     ultima_atualizacao = None
     if cache['leves']['ultima_atualizacao']:
@@ -1213,7 +1122,7 @@ def status_fontes():
 
 def loop_pesado():
     while True:
-        time.sleep(2)
+        time.sleep(3)
         try:
             atualizar_dados_pesados()
         except Exception as e:
@@ -1224,28 +1133,18 @@ def loop_pesado():
 # =============================================================================
 if __name__ == "__main__":
     print("="*70)
-    print("🚀 BOT BACBO - SISTEMA TURBO COM 3 FONTES (COMPLETO E CORRIGIDO)")
+    print("🚀 BOT BACBO - SISTEMA TURBO COM 3 FONTES (COMPLETO)")
     print("="*70)
     print("✅ WebSocket: Tempo real (PRIORIDADE MÁXIMA)")
     print("✅ API Latest: Polling inteligente (PRIORIDADE MÉDIA)")
     print("✅ API Normal: Fallback histórico (PRIORIDADE BAIXA)")
-    print("✅ Sistema anti-duplicação por ID (FUNCIONANDO!)")
-    print("✅ 8 Estratégias completas (ATUALIZANDO!)")
+    print("✅ Sistema anti-duplicação por ID")
+    print("✅ 8 Estratégias completas")
     print("✅ Histórico de previsões no banco")
     print("="*70)
     
-    
-
     init_db()
     
-    init_db()
-
-    # 🧹 LIMPAR DUPLICATAS EXISTENTES
-    print("🧹 Limpando duplicatas do banco...")
-    limpar_duplicatas()
-
-
-
     print("📊 Carregando dados...")
     atualizar_dados_leves()
     atualizar_dados_pesados()
