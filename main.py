@@ -1,8 +1,11 @@
-# main.py - SISTEMA TURBO COM 3 FONTES + HISTÓRICO + ANTI-DUPLICIDADE FORTE
+# main.py - SISTEMA TURBO COM 3 FONTES + HISTÓRICO + ANTI-DUPLICIDADE + PREVISÕES
 # ✅ WebSocket (tempo real)
 # ✅ API Latest (polling inteligente)
 # ✅ API Normal (fallback histórico)
-# ✅ Anti-duplicidade FORTE: 3 camadas de proteção
+# ✅ Anti-duplicidade: a primeira fonte que chegar VENCE
+# ✅ Cache individual por fonte para evitar duplicatas
+# ✅ 8 Estratégias completas com aprendizado
+# ✅ Previsões funcionando com poucas rodadas
 
 import os
 import time
@@ -66,63 +69,57 @@ INTERVALO_NORMAL = 1  # 1 segundo para API normal (fallback)
 PORT = int(os.environ.get("PORT", 5000))
 
 # =============================================================================
-# 🛡️ SISTEMA ANTI-DUPLICIDADE FORTE - 3 CAMADAS
+# SISTEMA ANTI-DUPLICIDADE - A PRIMEIRA QUE CHEGAR VENCE
 # =============================================================================
-
-# CAMADA 1: Cache global de todos os IDs já processados
-ids_processados = set()
-lock_ids = threading.Lock()
-
-# CAMADA 2: Cache por fonte para evitar duplicatas na origem
-ids_por_fonte = {
+ids_processados = set()  # Cache global dos IDs já processados
+ids_por_fonte = {  # Cache individual por fonte para evitar duplicatas na origem
     'websocket': set(),
     'latest': set(),
     'api_normal': set()
 }
+lock_ids = threading.Lock()  # Para acesso thread-safe
 
-# CAMADA 3: Último ID visto por fonte (controle extra)
-ultimo_id_por_fonte = {
-    'websocket': None,
-    'latest': None,
-    'api_normal': None
-}
-
-def verificar_duplicata_forte(rodada):
+def primeira_que_chegar(rodada):
     """
-    🛡️ ANTI-DUPLICIDADE FORTE - 3 CAMADAS DE PROTEÇÃO
-    Retorna True se for duplicata, False se for nova
+    Verifica se esta rodada JÁ FOI PROCESSADA por QUALQUER fonte.
+    A primeira fonte que entregar a rodada VENCE, as outras são ignoradas.
     """
+    global ids_processados
+    
     with lock_ids:
         rodada_id = rodada.get('id')
-        fonte = rodada.get('fonte', 'desconhecida')
-        
         if not rodada_id:
-            return False
+            return False  # Sem ID, deixa passar (improvável)
         
-        # CAMADA 1: Verifica se já foi processado globalmente
+        # Se já vimos este ID antes (de QUALQUER fonte), é duplicata
         if rodada_id in ids_processados:
-            print(f"🛡️ CAMADA 1 BLOQUEIO: {fonte} tentou ID {rodada_id[-8:]} (já processado)")
-            return True
+            fonte = rodada.get('fonte', 'desconhecida')
+            print(f"🔄 BLOQUEADO GLOBAL: {fonte} tentou enviar rodada {rodada_id[-8:]} que já foi processada")
+            return True  # ✅ É DUPLICATA - BLOQUEIA
         
-        # CAMADA 2: Verifica se a mesma fonte já enviou este ID
-        if rodada_id in ids_por_fonte.get(fonte, set()):
-            print(f"🛡️ CAMADA 2 BLOQUEIO: {fonte} reenviou ID {rodada_id[-8:]}")
-            return True
-        
-        # CAMADA 3: Verifica se é o mesmo que o último da fonte
-        if rodada_id == ultimo_id_por_fonte.get(fonte):
-            print(f"🛡️ CAMADA 3 BLOQUEIO: {fonte} repetiu último ID {rodada_id[-8:]}")
-            return True
-        
-        # PASSOU POR TODAS AS CAMADAS - É NOVO!
+        # É a PRIMEIRA VEZ que vemos este ID
         ids_processados.add(rodada_id)
-        ids_por_fonte[fonte].add(rodada_id)
-        ultimo_id_por_fonte[fonte] = rodada_id
         
-        # Limpeza dos caches (mantém apenas os últimos)
+        # Mantém apenas os últimos 2000 IDs (memória eficiente)
         if len(ids_processados) > 2000:
+            # Converte para lista, mantém os mais recentes
             ids_processados = set(list(ids_processados)[-2000:])
         
+        return False  # ✅ NÃO É DUPLICATA - PODE PROCESSAR
+
+def verificar_duplicata_na_fonte(rodada_id, fonte):
+    """
+    Verifica se a rodada já foi processada pela MESMA fonte.
+    Isso evita que uma fonte envie a mesma rodada duas vezes.
+    """
+    with lock_ids:
+        if rodada_id in ids_por_fonte.get(fonte, set()):
+            print(f"🔄 BLOQUEADO FONTE: {fonte} tentou reenviar rodada {rodada_id[-8:]}")
+            return True
+        
+        ids_por_fonte[fonte].add(rodada_id)
+        
+        # Mantém apenas os últimos 500 IDs por fonte
         if len(ids_por_fonte[fonte]) > 500:
             ids_por_fonte[fonte] = set(list(ids_por_fonte[fonte])[-500:])
         
@@ -132,6 +129,11 @@ def verificar_duplicata_forte(rodada):
 # FILA DE PROCESSAMENTO
 # =============================================================================
 fila_rodadas = deque(maxlen=500)
+ultimo_id_por_fonte = {  # Último ID visto por cada fonte
+    'websocket': None,
+    'latest': None,
+    'api_normal': None
+}
 
 # Status das fontes
 fontes_status = {
@@ -422,12 +424,328 @@ def atualizar_dados_pesados():
     cache['pesados']['ultima_atualizacao'] = datetime.now(timezone.utc)
 
 # =============================================================================
+# 🔥 FUNÇÃO PRINCIPAL DE PREVISÃO - CORRIGIDA!
+# =============================================================================
+
+def calcular_previsao():
+    """🎯 Calcula previsão com TODAS as 8 estratégias"""
+    dados = cache['leves']['ultimas_50']
+    
+    print(f"\n🧠 CALCULANDO PREVISÃO - {len(dados)} rodadas disponíveis")
+    
+    if len(dados) < 5:
+        print(f"   ⚠️ Apenas {len(dados)} rodadas - usando previsão temporária")
+        # Retorna uma previsão baseada na última rodada
+        if dados:
+            ultimo = dados[0]
+            previsao = {
+                'modo': 'ANALISANDO',
+                'previsao': ultimo['resultado'],
+                'simbolo': '🔴' if ultimo['resultado'] == 'BANKER' else '🔵' if ultimo['resultado'] == 'PLAYER' else '🟡',
+                'confianca': 50,
+                'estrategias': ['Análise base']
+            }
+            print(f"   📊 Previsão temporária: {previsao['simbolo']} {previsao['previsao']}")
+            return previsao
+        return None
+    
+    total = len(dados)
+    player = sum(1 for r in dados if r['resultado'] == 'PLAYER')
+    banker = sum(1 for r in dados if r['resultado'] == 'BANKER')
+    tie = total - player - banker
+    
+    print(f"   📊 Distribuição: PLAYER={player}, BANKER={banker}, TIE={tie}")
+    
+    player_pct = (player / total) * 100
+    banker_pct = (banker / total) * 100
+    
+    print(f"   📈 Percentuais: PLAYER={player_pct:.1f}%, BANKER={banker_pct:.1f}%")
+    
+    modo = identificar_modo(player_pct, banker_pct, dados)
+    print(f"   🎯 Modo detectado: {modo}")
+    
+    votos_banker = 0
+    votos_player = 0
+    estrategias_ativas = []
+    
+    # ESTRATÉGIA 1: Compensação
+    e1 = estrategia_compensacao(dados, modo)
+    votos_banker += e1.get('banker', 0)
+    votos_player += e1.get('player', 0)
+    if e1.get('banker') or e1.get('player'):
+        estrategias_ativas.append('Compensação')
+        print(f"      ✅ Compensação: BANKER={e1.get('banker')} PLAYER={e1.get('player')}")
+    
+    # ESTRATÉGIA 2: Paredão
+    e2 = estrategia_paredao(dados, modo)
+    votos_banker += e2.get('banker', 0)
+    votos_player += e2.get('player', 0)
+    if e2.get('banker') or e2.get('player'):
+        estrategias_ativas.append('Paredão')
+        print(f"      ✅ Paredão: BANKER={e2.get('banker')} PLAYER={e2.get('player')}")
+    
+    # ESTRATÉGIA 3: Moedor
+    e3 = estrategia_moedor(dados, modo)
+    votos_banker += e3.get('banker', 0)
+    votos_player += e3.get('player', 0)
+    if e3.get('banker') or e3.get('player'):
+        estrategias_ativas.append('Moedor')
+        print(f"      ✅ Moedor: BANKER={e3.get('banker')} PLAYER={e3.get('player')}")
+    
+    # ESTRATÉGIA 4: Xadrez
+    e4 = estrategia_xadrez(dados, modo)
+    votos_banker += e4.get('banker', 0)
+    votos_player += e4.get('player', 0)
+    if e4.get('banker') or e4.get('player'):
+        estrategias_ativas.append('Xadrez')
+        print(f"      ✅ Xadrez: BANKER={e4.get('banker')} PLAYER={e4.get('player')}")
+    
+    # ESTRATÉGIA 5: Contragolpe
+    e5 = estrategia_contragolpe(dados, modo)
+    votos_banker += e5.get('banker', 0)
+    votos_player += e5.get('player', 0)
+    if e5.get('banker') or e5.get('player'):
+        estrategias_ativas.append('Contragolpe')
+        print(f"      ✅ Contragolpe: BANKER={e5.get('banker')} PLAYER={e5.get('player')}")
+    
+    # ESTRATÉGIA 6: Reset Pós-Cluster
+    e6 = estrategia_reset_cluster(dados, modo)
+    votos_banker += e6.get('banker', 0)
+    votos_player += e6.get('player', 0)
+    if e6.get('banker') or e6.get('player'):
+        estrategias_ativas.append('Reset Cluster')
+        print(f"      ✅ Reset Cluster: BANKER={e6.get('banker')} PLAYER={e6.get('player')}")
+    
+    # ESTRATÉGIA 7: Falsa Alternância
+    e7 = estrategia_falsa_alternancia(dados, modo)
+    votos_banker += e7.get('banker', 0)
+    votos_player += e7.get('player', 0)
+    if e7.get('banker') or e7.get('player'):
+        estrategias_ativas.append('Falsa Alternância')
+        print(f"      ✅ Falsa Alternância: BANKER={e7.get('banker')} PLAYER={e7.get('player')}")
+    
+    # ESTRATÉGIA 8: Meta-Algoritmo
+    if modo == "AGRESSIVO":
+        if banker_pct > player_pct:
+            votos_banker = int(votos_banker * 1.5)
+            estrategias_ativas.append('Meta AGRESSIVO')
+            print(f"      ⚡ Meta AGRESSIVO: BANKER x1.5")
+        else:
+            votos_player = int(votos_player * 1.5)
+            estrategias_ativas.append('Meta AGRESSIVO')
+            print(f"      ⚡ Meta AGRESSIVO: PLAYER x1.5")
+    elif modo == "PREDATORIO":
+        if any(s in estrategias_ativas for s in ['Contragolpe', 'Falsa Alternância']):
+            if banker_pct > player_pct:
+                votos_banker = int(votos_banker * 1.3)
+                print(f"      ⚡ Meta PREDATÓRIO: BANKER x1.3")
+            else:
+                votos_player = int(votos_player * 1.3)
+                print(f"      ⚡ Meta PREDATÓRIO: PLAYER x1.3")
+            estrategias_ativas.append('Meta PREDATÓRIO')
+    
+    print(f"   📊 Total votos: BANKER={votos_banker} PLAYER={votos_player}")
+    
+    total_votos = votos_banker + votos_player
+    
+    if votos_banker > votos_player:
+        previsao = 'BANKER'
+        confianca = round((votos_banker / total_votos) * 100) if total_votos > 0 else 50
+        print(f"   🎯 PREVISÃO: BANKER com {confianca}%")
+    elif votos_player > votos_banker:
+        previsao = 'PLAYER'
+        confianca = round((votos_player / total_votos) * 100) if total_votos > 0 else 50
+        print(f"   🎯 PREVISÃO: PLAYER com {confianca}%")
+    else:
+        if banker_pct > player_pct:
+            previsao = 'BANKER'
+            confianca = round((banker_pct / (banker_pct + player_pct)) * 100)
+        else:
+            previsao = 'PLAYER'
+            confianca = round((player_pct / (banker_pct + player_pct)) * 100)
+        estrategias_ativas = ['Análise base']
+        print(f"   🎯 PREVISÃO (empate): {previsao} com {confianca}%")
+    
+    resultado = {
+        'modo': modo,
+        'previsao': previsao,
+        'simbolo': '🔴' if previsao == 'BANKER' else '🔵' if previsao == 'PLAYER' else '🟡',
+        'confianca': confianca,
+        'estrategias': estrategias_ativas[:4]
+    }
+    
+    print(f"   ✅ Previsão calculada: {resultado}")
+    return resultado
+
+# =============================================================================
+# ESTRATÉGIA #1: COMPENSAÇÃO
+# =============================================================================
+def estrategia_compensacao(dados, modo):
+    if len(dados) < 10:
+        return {'banker': 0, 'player': 0}
+    
+    player = sum(1 for r in dados if r['resultado'] == 'PLAYER')
+    banker = sum(1 for r in dados if r['resultado'] == 'BANKER')
+    total = len(dados)
+    
+    player_pct = (player / total) * 100
+    banker_pct = (banker / total) * 100
+    
+    diff = abs(banker_pct - player_pct)
+    if diff > 4:
+        peso = PESOS['compensacao'][modo]
+        if banker > player:
+            return {'banker': 0, 'player': peso}
+        else:
+            return {'banker': peso, 'player': 0}
+    
+    return {'banker': 0, 'player': 0}
+
+# =============================================================================
+# ESTRATÉGIA #2: PAREDÃO
+# =============================================================================
+def estrategia_paredao(dados, modo):
+    if len(dados) < 4:
+        return {'banker': 0, 'player': 0}
+    
+    seq = [r['resultado'] for r in dados[:4]]
+    
+    if all(r == 'BANKER' for r in seq):
+        return {'banker': PESOS['paredao'][modo], 'player': 0}
+    if all(r == 'PLAYER' for r in seq):
+        return {'banker': 0, 'player': PESOS['paredao'][modo]}
+    
+    return {'banker': 0, 'player': 0}
+
+# =============================================================================
+# ESTRATÉGIA #3: MOEDOR (Cluster de Empates)
+# =============================================================================
+def estrategia_moedor(dados, modo):
+    if len(dados) < 5:
+        return {'banker': 0, 'player': 0}
+    
+    ties = sum(1 for r in dados[:5] if r['resultado'] == 'TIE')
+    
+    if ties >= 2:
+        ultima_nao_tie = next((r for r in dados if r['resultado'] != 'TIE'), None)
+        if ultima_nao_tie:
+            peso = PESOS['moedor'][modo]
+            if ultima_nao_tie['resultado'] == 'BANKER':
+                return {'banker': peso, 'player': 0}
+            else:
+                return {'banker': 0, 'player': peso}
+    
+    return {'banker': 0, 'player': 0}
+
+# =============================================================================
+# ESTRATÉGIA #4: XADREZ (Alternância)
+# =============================================================================
+def estrategia_xadrez(dados, modo):
+    if len(dados) < 4:
+        return {'banker': 0, 'player': 0}
+    
+    seq = [r['resultado'] for r in dados[:4]]
+    
+    if (seq[0] != seq[1] and seq[1] != seq[2] and seq[2] != seq[3]):
+        peso = PESOS['xadrez'][modo]
+        if seq[3] == 'BANKER':
+            return {'banker': 0, 'player': peso}
+        else:
+            return {'banker': peso, 'player': 0}
+    
+    return {'banker': 0, 'player': 0}
+
+# =============================================================================
+# ESTRATÉGIA #5: CONTRAGOLPE
+# =============================================================================
+def estrategia_contragolpe(dados, modo):
+    if len(dados) < 5:
+        return {'banker': 0, 'player': 0}
+    
+    seq = [r['resultado'] for r in dados[:5]]
+    
+    if (seq[0] == seq[1] == seq[2] and 
+        seq[2] != seq[3] and 
+        seq[3] != seq[4] and 
+        seq[4] == seq[0]):
+        
+        peso = PESOS['contragolpe'][modo]
+        if seq[0] == 'BANKER':
+            return {'banker': peso, 'player': 0}
+        else:
+            return {'banker': 0, 'player': peso}
+    
+    return {'banker': 0, 'player': 0}
+
+# =============================================================================
+# ESTRATÉGIA #6: RESET PÓS-CLUSTER
+# =============================================================================
+def estrategia_reset_cluster(dados, modo):
+    if len(dados) < 6:
+        return {'banker': 0, 'player': 0}
+    
+    ties = sum(1 for r in dados[:6] if r['resultado'] == 'TIE')
+    
+    if ties >= 2:
+        antes_cluster = None
+        for r in dados:
+            if r['resultado'] != 'TIE':
+                antes_cluster = r
+                break
+        
+        if antes_cluster:
+            peso = PESOS['reset_cluster'][modo]
+            if random.random() < 0.7:
+                if antes_cluster['resultado'] == 'BANKER':
+                    return {'banker': peso, 'player': 0}
+                else:
+                    return {'banker': 0, 'player': peso}
+            else:
+                if antes_cluster['resultado'] == 'BANKER':
+                    return {'banker': 0, 'player': peso}
+                else:
+                    return {'banker': peso, 'player': 0}
+    
+    return {'banker': 0, 'player': 0}
+
+# =============================================================================
+# ESTRATÉGIA #7: FALSA ALTERNÂNCIA (Números Extremos)
+# =============================================================================
+def estrategia_falsa_alternancia(dados, modo):
+    if not dados:
+        return {'banker': 0, 'player': 0}
+    
+    ultimo = dados[0]
+    if ultimo['player_score'] >= 10 or ultimo['banker_score'] >= 10:
+        peso = PESOS['falsa_alternancia'][modo]
+        if ultimo['resultado'] == 'BANKER':
+            return {'banker': peso, 'player': 0}
+        else:
+            return {'banker': 0, 'player': peso}
+    
+    return {'banker': 0, 'player': 0}
+
+# =============================================================================
+# FUNÇÃO PARA IDENTIFICAR O MODO
+# =============================================================================
+def identificar_modo(player_pct, banker_pct, dados):
+    extremos = sum(1 for r in dados if r['player_score'] >= 10 or r['banker_score'] >= 10)
+    pct_extremos = (extremos / len(dados)) * 100 if dados else 0
+    
+    if banker_pct > 47 or player_pct > 47:
+        return "AGRESSIVO"
+    elif pct_extremos > 30:
+        return "PREDATORIO"
+    else:
+        return "EQUILIBRADO"
+
+# =============================================================================
 # 🔥 FONTE 1: WEBSOCKET (TEMPO REAL)
 # =============================================================================
 
 def on_ws_message(ws, message):
     """Recebe mensagens do WebSocket"""
-    global fila_rodadas
+    global ultimo_id_por_fonte, fila_rodadas
     
     try:
         data = json.loads(message)
@@ -437,39 +755,43 @@ def on_ws_message(ws, message):
             result = game_data['result']
             
             novo_id = game_data.get('id')
+            fonte = 'websocket'
             
-            player_dice = result.get('playerDice', {})
-            banker_dice = result.get('bankerDice', {})
-            
-            player_score = player_dice.get('first', 0) + player_dice.get('second', 0)
-            banker_score = banker_dice.get('first', 0) + banker_dice.get('second', 0)
-            
-            outcome = result.get('outcome', '')
-            if outcome == 'PlayerWon':
-                resultado = 'PLAYER'
-            elif outcome == 'BankerWon':
-                resultado = 'BANKER'
-            else:
-                resultado = 'TIE'
-            
-            rodada = {
-                'id': novo_id,
-                'data_hora': datetime.now(timezone.utc),
-                'player_score': player_score,
-                'banker_score': banker_score,
-                'resultado': resultado,
-                'fonte': 'websocket'
-            }
-            
-            # 🛡️ VERIFICA ANTI-DUPLICIDADE FORTE
-            if verificar_duplicata_forte(rodada):
-                fontes_status['websocket']['duplicatas'] += 1
-                return
-            
-            fila_rodadas.append(rodada)
-            fontes_status['websocket']['total'] += 1
-            fontes_status['websocket']['status'] = 'conectado'
-            print(f"\n⚡ WS NOVO: {player_score} vs {banker_score} - {resultado} [ID: {novo_id[-8:]}]")
+            # Verifica se é novo para esta fonte
+            if novo_id and novo_id != ultimo_id_por_fonte[fonte]:
+                # Verifica duplicata na própria fonte
+                if verificar_duplicata_na_fonte(novo_id, fonte):
+                    fontes_status[fonte]['duplicatas'] += 1
+                    return
+                
+                ultimo_id_por_fonte[fonte] = novo_id
+                
+                player_dice = result.get('playerDice', {})
+                banker_dice = result.get('bankerDice', {})
+                
+                player_score = player_dice.get('first', 0) + player_dice.get('second', 0)
+                banker_score = banker_dice.get('first', 0) + banker_dice.get('second', 0)
+                
+                outcome = result.get('outcome', '')
+                if outcome == 'PlayerWon':
+                    resultado = 'PLAYER'
+                elif outcome == 'BankerWon':
+                    resultado = 'BANKER'
+                else:
+                    resultado = 'TIE'
+                
+                rodada = {
+                    'id': novo_id,
+                    'data_hora': datetime.now(timezone.utc),
+                    'player_score': player_score,
+                    'banker_score': banker_score,
+                    'resultado': resultado,
+                    'fonte': fonte
+                }
+                
+                fila_rodadas.append(rodada)
+                fontes_status[fonte]['total'] += 1
+                print(f"\n⚡ WS TEMPO REAL: {player_score} vs {banker_score} - {resultado} [ID: {novo_id[-8:]}]")
                 
     except Exception as e:
         print(f"⚠️ Erro WS: {e}")
@@ -508,6 +830,8 @@ def iniciar_websocket():
 
 def buscar_latest():
     """Busca apenas a última rodada"""
+    global ultimo_id_por_fonte
+    
     try:
         response = requests.get(LATEST_API_URL, headers=HEADERS, timeout=3)
         
@@ -517,38 +841,43 @@ def buscar_latest():
             novo_id = dados.get('id')
             data = dados.get('data', {})
             result = data.get('result', {})
+            fonte = 'latest'
             
-            player_dice = result.get('playerDice', {})
-            banker_dice = result.get('bankerDice', {})
-            
-            player_score = player_dice.get('first', 0) + player_dice.get('second', 0)
-            banker_score = banker_dice.get('first', 0) + banker_dice.get('second', 0)
-            
-            outcome = result.get('outcome', '')
-            if outcome == 'PlayerWon':
-                resultado = 'PLAYER'
-            elif outcome == 'BankerWon':
-                resultado = 'BANKER'
-            else:
-                resultado = 'TIE'
-            
-            rodada = {
-                'id': novo_id,
-                'data_hora': datetime.now(timezone.utc),
-                'player_score': player_score,
-                'banker_score': banker_score,
-                'resultado': resultado,
-                'fonte': 'latest'
-            }
-            
-            # 🛡️ VERIFICA ANTI-DUPLICIDADE FORTE
-            if verificar_duplicata_forte(rodada):
-                fontes_status['latest']['duplicatas'] += 1
-                return None
-            
-            fontes_status['latest']['total'] += 1
-            print(f"\n📡 LATEST NOVO: {player_score} vs {banker_score} - {resultado} [ID: {novo_id[-8:]}]")
-            return rodada
+            # Verifica se é novo para esta fonte
+            if novo_id and novo_id != ultimo_id_por_fonte[fonte]:
+                # Verifica duplicata na própria fonte
+                if verificar_duplicata_na_fonte(novo_id, fonte):
+                    fontes_status[fonte]['duplicatas'] += 1
+                    return None
+                
+                ultimo_id_por_fonte[fonte] = novo_id
+                
+                player_dice = result.get('playerDice', {})
+                banker_dice = result.get('bankerDice', {})
+                
+                player_score = player_dice.get('first', 0) + player_dice.get('second', 0)
+                banker_score = banker_dice.get('first', 0) + banker_dice.get('second', 0)
+                
+                outcome = result.get('outcome', '')
+                if outcome == 'PlayerWon':
+                    resultado = 'PLAYER'
+                elif outcome == 'BankerWon':
+                    resultado = 'BANKER'
+                else:
+                    resultado = 'TIE'
+                
+                rodada = {
+                    'id': novo_id,
+                    'data_hora': datetime.now(timezone.utc),
+                    'player_score': player_score,
+                    'banker_score': banker_score,
+                    'resultado': resultado,
+                    'fonte': fonte
+                }
+                
+                fontes_status[fonte]['total'] += 1
+                print(f"\n📡 LATEST: {player_score} vs {banker_score} - {resultado} [ID: {novo_id[-8:]}]")
+                return rodada
         
         return None
     except Exception as e:
@@ -562,6 +891,8 @@ def buscar_latest():
 
 def buscar_api_normal():
     """Busca histórico da API normal"""
+    global ultimo_id_por_fonte
+    
     try:
         params = API_PARAMS.copy()
         params['_t'] = int(time.time() * 1000)
@@ -571,50 +902,56 @@ def buscar_api_normal():
         dados = response.json()
         
         if dados and len(dados) > 0:
-            rodadas_novas = []
+            primeiro = dados[0]
+            data = primeiro.get('data', {})
+            novo_id = data.get('id')
+            fonte = 'api_normal'
             
-            for item in dados[:10]:
-                try:
-                    data = item.get('data', {})
-                    result = data.get('result', {})
-                    player_dice = result.get('playerDice', {})
-                    banker_dice = result.get('bankerDice', {})
-                    
-                    player_score = player_dice.get('first', 0) + player_dice.get('second', 0)
-                    banker_score = banker_dice.get('first', 0) + banker_dice.get('second', 0)
-                    
-                    outcome = result.get('outcome', '')
-                    if outcome == 'PlayerWon':
-                        resultado = 'PLAYER'
-                    elif outcome == 'BankerWon':
-                        resultado = 'BANKER'
-                    else:
-                        resultado = 'TIE'
-                    
-                    data_hora = datetime.fromisoformat(data.get('settledAt', '').replace('Z', '+00:00'))
-                    
-                    rodada = {
-                        'id': data.get('id'),
-                        'data_hora': data_hora,
-                        'player_score': player_score,
-                        'banker_score': banker_score,
-                        'resultado': resultado,
-                        'fonte': 'api_normal'
-                    }
-                    
-                    # 🛡️ VERIFICA ANTI-DUPLICIDADE FORTE
-                    if not verificar_duplicata_forte(rodada):
-                        rodadas_novas.append(rodada)
-                    else:
-                        fontes_status['api_normal']['duplicatas'] += 1
+            # Verifica se é novo para esta fonte
+            if novo_id and novo_id != ultimo_id_por_fonte[fonte]:
+                # Verifica duplicata na própria fonte
+                if verificar_duplicata_na_fonte(novo_id, fonte):
+                    fontes_status[fonte]['duplicatas'] += 1
+                    return None
+                
+                ultimo_id_por_fonte[fonte] = novo_id
+                
+                rodadas = []
+                for item in dados[:10]:
+                    try:
+                        data = item.get('data', {})
+                        result = data.get('result', {})
+                        player_dice = result.get('playerDice', {})
+                        banker_dice = result.get('bankerDice', {})
                         
-                except Exception as e:
-                    continue
-            
-            if rodadas_novas:
-                fontes_status['api_normal']['total'] += len(rodadas_novas)
-                print(f"\n📚 API NORMAL: {len(rodadas_novas)} rodadas novas")
-                return rodadas_novas
+                        player_score = player_dice.get('first', 0) + player_dice.get('second', 0)
+                        banker_score = banker_dice.get('first', 0) + banker_dice.get('second', 0)
+                        
+                        outcome = result.get('outcome', '')
+                        if outcome == 'PlayerWon':
+                            resultado = 'PLAYER'
+                        elif outcome == 'BankerWon':
+                            resultado = 'BANKER'
+                        else:
+                            resultado = 'TIE'
+                        
+                        data_hora = datetime.fromisoformat(data.get('settledAt', '').replace('Z', '+00:00'))
+                        
+                        rodada = {
+                            'id': data.get('id'),
+                            'data_hora': data_hora,
+                            'player_score': player_score,
+                            'banker_score': banker_score,
+                            'resultado': resultado,
+                            'fonte': fonte
+                        }
+                        rodadas.append(rodada)
+                    except Exception as e:
+                        continue
+                
+                fontes_status[fonte]['total'] += len(rodadas)
+                print(f"\n📚 API NORMAL: {len(rodadas)} rodadas [ID mais recente: {novo_id[-8:]}]")
+                return rodadas
         
         return None
     except Exception as e:
@@ -623,13 +960,13 @@ def buscar_api_normal():
         return None
 
 # =============================================================================
-# 🔥 PROCESSADOR DA FILA (ÚLTIMA CAMADA DE PROTEÇÃO)
+# 🔥 PROCESSADOR DA FILA (COM ANTI-DUPLICIDADE)
 # =============================================================================
 
 def processar_fila():
-    """Processa a fila - última camada de proteção"""
+    """Processa a fila - a PRIMEIRA fonte que chegar VENCE, as outras são ignoradas"""
     print("🚀 Processador TURBO iniciado...")
-    print("🛡️ ANTI-DUPLICIDADE FORTE ATIVADO - 3 CAMADAS")
+    print("⚡ Sistema anti-duplicidade ATIVO: primeira fonte vence!")
     
     while True:
         try:
@@ -643,21 +980,35 @@ def processar_fila():
                 
                 for rodada in batch:
                     rodada_id = rodada.get('id')
-                    if rodada_id and rodada_id not in ids_vistos:
+                    if rodada_id not in ids_vistos:
                         ids_vistos.add(rodada_id)
                         batch_unicos.append(rodada)
                 
-                # Salva as rodadas
-                saved = 0
+                # Processa apenas as rodadas únicas
+                rodadas_para_salvar = []
+                duplicatas_globais = 0
+                
                 for rodada in batch_unicos:
+                    # 🔥 VERIFICAÇÃO CRÍTICA: esta rodada JÁ FOI VISTA GLOBALMENTE?
+                    if primeira_que_chegar(rodada):
+                        duplicatas_globais += 1
+                        continue  # Ignora duplicatas globais
+                    
+                    # É a PRIMEIRA VEZ que vemos esta rodada
+                    rodadas_para_salvar.append(rodada)
+                
+                # Salva apenas as rodadas que passaram (primeiras de cada ID)
+                saved = 0
+                for rodada in rodadas_para_salvar:
                     if salvar_rodada(rodada, rodada.get('fonte', 'desconhecida')):
                         saved += 1
                         cache['ultimo_resultado_real'] = rodada['resultado']
                         print(f"✅ SALVO: {rodada['fonte']} - {rodada['player_score']} vs {rodada['banker_score']} - {rodada['resultado']}")
+                        print(f"   🔄 Resultado real salvo para verificar próxima previsão")
                 
-                duplicatas_batch = len(batch) - len(batch_unicos)
-                if saved > 0 or duplicatas_batch > 0:
-                    print(f"💾 TURBO: salvou {saved} | bloqueou {duplicatas_batch} duplicatas no batch")
+                total_duplicatas = (len(batch) - len(batch_unicos)) + duplicatas_globais
+                if saved > 0 or total_duplicatas > 0:
+                    print(f"💾 TURBO: salvou {saved} | bloqueou {total_duplicatas} duplicatas")
                     if saved > 0:
                         atualizar_dados_leves()
             
@@ -701,258 +1052,22 @@ def loop_api_normal():
             time.sleep(INTERVALO_NORMAL)
 
 # =============================================================================
-# ESTRATÉGIAS (COMPLETAS)
-# =============================================================================
-
-def estrategia_compensacao(dados, modo):
-    if len(dados) < 10:
-        return {'banker': 0, 'player': 0}
-    
-    player = sum(1 for r in dados if r['resultado'] == 'PLAYER')
-    banker = sum(1 for r in dados if r['resultado'] == 'BANKER')
-    total = len(dados)
-    
-    player_pct = (player / total) * 100
-    banker_pct = (banker / total) * 100
-    
-    diff = abs(banker_pct - player_pct)
-    if diff > 4:
-        peso = PESOS['compensacao'][modo]
-        if banker > player:
-            return {'banker': 0, 'player': peso}
-        else:
-            return {'banker': peso, 'player': 0}
-    
-    return {'banker': 0, 'player': 0}
-
-def estrategia_paredao(dados, modo):
-    if len(dados) < 4:
-        return {'banker': 0, 'player': 0}
-    
-    seq = [r['resultado'] for r in dados[:4]]
-    
-    if all(r == 'BANKER' for r in seq):
-        return {'banker': PESOS['paredao'][modo], 'player': 0}
-    if all(r == 'PLAYER' for r in seq):
-        return {'banker': 0, 'player': PESOS['paredao'][modo]}
-    
-    return {'banker': 0, 'player': 0}
-
-def estrategia_moedor(dados, modo):
-    if len(dados) < 5:
-        return {'banker': 0, 'player': 0}
-    
-    ties = sum(1 for r in dados[:5] if r['resultado'] == 'TIE')
-    
-    if ties >= 2:
-        ultima_nao_tie = next((r for r in dados if r['resultado'] != 'TIE'), None)
-        if ultima_nao_tie:
-            peso = PESOS['moedor'][modo]
-            if ultima_nao_tie['resultado'] == 'BANKER':
-                return {'banker': peso, 'player': 0}
-            else:
-                return {'banker': 0, 'player': peso}
-    
-    return {'banker': 0, 'player': 0}
-
-def estrategia_xadrez(dados, modo):
-    if len(dados) < 4:
-        return {'banker': 0, 'player': 0}
-    
-    seq = [r['resultado'] for r in dados[:4]]
-    
-    if (seq[0] != seq[1] and seq[1] != seq[2] and seq[2] != seq[3]):
-        peso = PESOS['xadrez'][modo]
-        if seq[3] == 'BANKER':
-            return {'banker': 0, 'player': peso}
-        else:
-            return {'banker': peso, 'player': 0}
-    
-    return {'banker': 0, 'player': 0}
-
-def estrategia_contragolpe(dados, modo):
-    if len(dados) < 5:
-        return {'banker': 0, 'player': 0}
-    
-    seq = [r['resultado'] for r in dados[:5]]
-    
-    if (seq[0] == seq[1] == seq[2] and 
-        seq[2] != seq[3] and 
-        seq[3] != seq[4] and 
-        seq[4] == seq[0]):
-        
-        peso = PESOS['contragolpe'][modo]
-        if seq[0] == 'BANKER':
-            return {'banker': peso, 'player': 0}
-        else:
-            return {'banker': 0, 'player': peso}
-    
-    return {'banker': 0, 'player': 0}
-
-def estrategia_reset_cluster(dados, modo):
-    if len(dados) < 6:
-        return {'banker': 0, 'player': 0}
-    
-    ties = sum(1 for r in dados[:6] if r['resultado'] == 'TIE')
-    
-    if ties >= 2:
-        antes_cluster = None
-        for r in dados:
-            if r['resultado'] != 'TIE':
-                antes_cluster = r
-                break
-        
-        if antes_cluster:
-            peso = PESOS['reset_cluster'][modo]
-            if random.random() < 0.7:
-                if antes_cluster['resultado'] == 'BANKER':
-                    return {'banker': peso, 'player': 0}
-                else:
-                    return {'banker': 0, 'player': peso}
-            else:
-                if antes_cluster['resultado'] == 'BANKER':
-                    return {'banker': 0, 'player': peso}
-                else:
-                    return {'banker': peso, 'player': 0}
-    
-    return {'banker': 0, 'player': 0}
-
-def estrategia_falsa_alternancia(dados, modo):
-    if not dados:
-        return {'banker': 0, 'player': 0}
-    
-    ultimo = dados[0]
-    if ultimo['player_score'] >= 10 or ultimo['banker_score'] >= 10:
-        peso = PESOS['falsa_alternancia'][modo]
-        if ultimo['resultado'] == 'BANKER':
-            return {'banker': peso, 'player': 0}
-        else:
-            return {'banker': 0, 'player': peso}
-    
-    return {'banker': 0, 'player': 0}
-
-def identificar_modo(player_pct, banker_pct, dados):
-    extremos = sum(1 for r in dados if r['player_score'] >= 10 or r['banker_score'] >= 10)
-    pct_extremos = (extremos / len(dados)) * 100 if dados else 0
-    
-    if banker_pct > 47 or player_pct > 47:
-        return "AGRESSIVO"
-    elif pct_extremos > 30:
-        return "PREDATORIO"
-    else:
-        return "EQUILIBRADO"
-
-def calcular_previsao():
-    dados = cache['leves']['ultimas_50']
-    if len(dados) < 10:
-        return None
-    
-    total = len(dados)
-    player = sum(1 for r in dados if r['resultado'] == 'PLAYER')
-    banker = sum(1 for r in dados if r['resultado'] == 'BANKER')
-    
-    player_pct = (player / total) * 100
-    banker_pct = (banker / total) * 100
-    
-    modo = identificar_modo(player_pct, banker_pct, dados)
-    
-    votos_banker = 0
-    votos_player = 0
-    estrategias_ativas = []
-    
-    e1 = estrategia_compensacao(dados, modo)
-    votos_banker += e1.get('banker', 0)
-    votos_player += e1.get('player', 0)
-    if e1.get('banker') or e1.get('player'):
-        estrategias_ativas.append('Compensação')
-    
-    e2 = estrategia_paredao(dados, modo)
-    votos_banker += e2.get('banker', 0)
-    votos_player += e2.get('player', 0)
-    if e2.get('banker') or e2.get('player'):
-        estrategias_ativas.append('Paredão')
-    
-    e3 = estrategia_moedor(dados, modo)
-    votos_banker += e3.get('banker', 0)
-    votos_player += e3.get('player', 0)
-    if e3.get('banker') or e3.get('player'):
-        estrategias_ativas.append('Moedor')
-    
-    e4 = estrategia_xadrez(dados, modo)
-    votos_banker += e4.get('banker', 0)
-    votos_player += e4.get('player', 0)
-    if e4.get('banker') or e4.get('player'):
-        estrategias_ativas.append('Xadrez')
-    
-    e5 = estrategia_contragolpe(dados, modo)
-    votos_banker += e5.get('banker', 0)
-    votos_player += e5.get('player', 0)
-    if e5.get('banker') or e5.get('player'):
-        estrategias_ativas.append('Contragolpe')
-    
-    e6 = estrategia_reset_cluster(dados, modo)
-    votos_banker += e6.get('banker', 0)
-    votos_player += e6.get('player', 0)
-    if e6.get('banker') or e6.get('player'):
-        estrategias_ativas.append('Reset Cluster')
-    
-    e7 = estrategia_falsa_alternancia(dados, modo)
-    votos_banker += e7.get('banker', 0)
-    votos_player += e7.get('player', 0)
-    if e7.get('banker') or e7.get('player'):
-        estrategias_ativas.append('Falsa Alternância')
-    
-    if modo == "AGRESSIVO":
-        if banker_pct > player_pct:
-            votos_banker = int(votos_banker * 1.5)
-            estrategias_ativas.append('Meta AGRESSIVO')
-        else:
-            votos_player = int(votos_player * 1.5)
-            estrategias_ativas.append('Meta AGRESSIVO')
-    elif modo == "PREDATORIO":
-        if any(s in estrategias_ativas for s in ['Contragolpe', 'Falsa Alternância']):
-            if banker_pct > player_pct:
-                votos_banker = int(votos_banker * 1.3)
-            else:
-                votos_player = int(votos_player * 1.3)
-            estrategias_ativas.append('Meta PREDATÓRIO')
-    
-    total_votos = votos_banker + votos_player
-    
-    if votos_banker > votos_player:
-        previsao = 'BANKER'
-        confianca = round((votos_banker / total_votos) * 100) if total_votos > 0 else 50
-    elif votos_player > votos_banker:
-        previsao = 'PLAYER'
-        confianca = round((votos_player / total_votos) * 100) if total_votos > 0 else 50
-    else:
-        if banker_pct > player_pct:
-            previsao = 'BANKER'
-            confianca = round((banker_pct / (banker_pct + player_pct)) * 100)
-        else:
-            previsao = 'PLAYER'
-            confianca = round((player_pct / (banker_pct + player_pct)) * 100)
-        estrategias_ativas = ['Análise base']
-    
-    return {
-        'modo': modo,
-        'previsao': previsao,
-        'simbolo': '🔴' if previsao == 'BANKER' else '🔵' if previsao == 'PLAYER' else '🟡',
-        'confianca': confianca,
-        'estrategias': estrategias_ativas[:4]
-    }
-
-# =============================================================================
-# SISTEMA DE APRENDIZADO
+# SISTEMA DE APRENDIZADO - CORRIGIDO!
 # =============================================================================
 
 def verificar_previsoes_anteriores():
-    """Verifica se a última previsão acertou"""
+    """Verifica se a última previsão acertou e ATUALIZA AS ESTRATÉGIAS"""
     if cache.get('ultima_previsao') and cache.get('ultimo_resultado_real'):
         ultima = cache['ultima_previsao']
         resultado_real = cache['ultimo_resultado_real']
         
         acertou = (ultima['previsao'] == resultado_real)
+        
+        print(f"\n🔍 VERIFICANDO PREVISÃO ANTERIOR:")
+        print(f"   🎯 Previsão: {ultima['simbolo']} {ultima['previsao']} ({ultima['confianca']}%)")
+        print(f"   🎲 Resultado real: {resultado_real}")
+        print(f"   ✅ Acertou: {acertou}")
+        print(f"   🧠 Estratégias: {ultima['estrategias']}")
         
         # SALVA NO BANCO
         salvar_previsao(ultima, resultado_real, acertou)
@@ -964,19 +1079,27 @@ def verificar_previsoes_anteriores():
         else:
             cache['estatisticas']['erros'] += 1
         
-        # ATUALIZA CADA ESTRATÉGIA
+        print(f"   📊 Gerais: {cache['estatisticas']['acertos']}/{cache['estatisticas']['total_previsoes']}")
+        
+        # ATUALIZA CADA ESTRATÉGIA INDIVIDUALMENTE
         for estrategia in ultima.get('estrategias', []):
             nome_clean = estrategia.split(' ')[0]
             
+            # Garante que a estratégia existe
             if nome_clean not in cache['estatisticas']['estrategias']:
                 cache['estatisticas']['estrategias'][nome_clean] = {'acertos': 0, 'erros': 0, 'total': 0}
+                print(f"   ⚠️ Estratégia {nome_clean} não existia - criada")
             
+            # Incrementa total
             cache['estatisticas']['estrategias'][nome_clean]['total'] += 1
             
+            # Incrementa acertos/erros
             if acertou:
                 cache['estatisticas']['estrategias'][nome_clean]['acertos'] += 1
             else:
                 cache['estatisticas']['estrategias'][nome_clean]['erros'] += 1
+            
+            print(f"   📊 Estratégia {nome_clean}: {cache['estatisticas']['estrategias'][nome_clean]}")
         
         # ADICIONA AO HISTÓRICO LOCAL
         previsao_historico = {
@@ -1006,21 +1129,30 @@ def calcular_precisao():
     return round((cache['estatisticas']['acertos'] / total) * 100)
 
 # =============================================================================
-# ATUALIZAÇÃO DE DADOS LEVES
+# ATUALIZAÇÃO DE DADOS LEVES - CORRIGIDA!
 # =============================================================================
 
 def atualizar_dados_leves():
+    print(f"\n🔄 Atualizando dados leves em {datetime.now().strftime('%H:%M:%S')}")
+    print(f"   📊 Total banco atual: {cache['leves']['total_rodadas']}")
+    
     verificar_previsoes_anteriores()
     
     cache['leves']['ultimas_50'] = get_ultimas_50()
     cache['leves']['ultimas_20'] = get_ultimas_20()
     cache['leves']['total_rodadas'] = get_total_rapido()
     
+    print(f"   📊 Últimas 50: {len(cache['leves']['ultimas_50'])} rodadas")
+    
     if cache['leves']['previsao']:
         cache['ultima_previsao'] = cache['leves']['previsao']
+        print(f"   🔄 Salvando previsão anterior para verificação futura")
     
     cache['leves']['previsao'] = calcular_previsao()
     cache['leves']['ultima_atualizacao'] = datetime.now(timezone.utc)
+    
+    if cache['leves']['previsao']:
+        print(f"   ✅ Nova previsão: {cache['leves']['previsao']['simbolo']} {cache['leves']['previsao']['previsao']} ({cache['leves']['previsao']['confianca']}%)")
 
 # =============================================================================
 # ROTAS FLASK
@@ -1045,6 +1177,9 @@ def api_stats():
             'erros': dados['erros'],
             'precisao': precisao
         })
+    
+    # LOG PARA VERIFICAR SE AS ESTRATÉGIAS ESTÃO SENDO ENVIADAS
+    print(f"📊 Enviando estratégias: {estrategias_stats}")
     
     ultima_atualizacao = None
     if cache['leves']['ultima_atualizacao']:
@@ -1163,16 +1298,15 @@ def loop_pesado():
 # =============================================================================
 if __name__ == "__main__":
     print("="*70)
-    print("🚀 BOT BACBO - SISTEMA TURBO COM 3 FONTES + ANTI-DUPLICIDADE FORTE")
+    print("🚀 BOT BACBO - SISTEMA TURBO COM 3 FONTES + ANTI-DUPLICIDADE + PREVISÕES")
     print("="*70)
     print("✅ WebSocket: Tempo real")
     print("✅ API Latest: Polling inteligente (1s)")
     print("✅ API Normal: Fallback histórico (1s)")
-    print("🛡️ ANTI-DUPLICIDADE: 3 CAMADAS DE PROTEÇÃO")
-    print("   1. Cache global de IDs")
-    print("   2. Cache por fonte")
-    print("   3. Último ID por fonte")
-    print("✅ Histórico de previsões no banco")
+    print("✅ Anti-duplicidade: PRIMEIRA FONTE VENCE")
+    print("✅ Cache individual por fonte")
+    print("✅ 8 Estratégias completas com aprendizado")
+    print("✅ Previsões funcionando com poucas rodadas")
     print("="*70)
     
     init_db()
