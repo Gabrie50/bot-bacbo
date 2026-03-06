@@ -886,294 +886,355 @@
     </div>
 
     <script>
-        // =========================================================================
-        // CONFIGURAÇÕES
-        // =========================================================================
-        const CONFIG = {
-            INTERVALO_RELOGIO: 1000,
-            INTERVALO_ATUALIZACAO: 1000,
-            LIMITE_PADRAO: 50
-        };
+    // =========================================================================
+    // CONFIGURAÇÕES
+    // =========================================================================
+    const CONFIG = {
+        INTERVALO_RELOGIO: 1000,
+        INTERVALO_ATUALIZACAO: 1000,
+        LIMITE_PADRAO: 50
+    };
 
-        // Variáveis globais
-        let pizzaChart = null;
-        let dadosCompletos = [];
-        let filtroAtual = null;
-        let limiteAtual = CONFIG.LIMITE_PADRAO;
-        let ultimaAtualizacao = 0;
-        let ultimosIds = new Set(); // Para evitar duplicatas
+    // Variáveis globais
+    let pizzaChart = null;
+    let dadosCompletos = [];
+    let filtroAtual = null;
+    let limiteAtual = CONFIG.LIMITE_PADRAO;
+    let ultimaAtualizacao = 0;
+    
+    // 🛡️ SISTEMA ANTI-DUPLICIDADE FORTE
+    let idsVistos = new Map(); // Guarda ID + timestamp
+    let ultimaLimpeza = Date.now();
 
-        // =========================================================================
-        // FUNÇÃO PARA ELIMINAR DUPLICATAS (MELHORADA)
-        // =========================================================================
-        function removerDuplicatas(rodadas) {
-            const seen = new Set();
-            return rodadas.filter(rodada => {
-                // Usa uma chave mais robusta
-                const chave = `${rodada.data}-${rodada.player}-${rodada.banker}-${rodada.resultado}`;
-                if (seen.has(chave)) return false;
-                seen.add(chave);
-                return true;
-            });
-        }
-
-        // =========================================================================
-        // FUNÇÕES DE ATUALIZAÇÃO
-        // =========================================================================
-        function atualizarRelogio() {
-            const agora = new Date();
-            const brasilia = new Date(agora.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+    // =========================================================================
+    // FUNÇÃO ANTI-DUPLICIDADE - USA O ID REAL DA RODADA
+    // =========================================================================
+    function removerDuplicatas(rodadas) {
+        if (!rodadas || !Array.isArray(rodadas)) return [];
+        
+        // Limpeza automática do cache a cada 5 minutos
+        const agora = Date.now();
+        if (agora - ultimaLimpeza > 300000) { // 5 minutos
+            console.log('🧹 Limpando cache de IDs antigos...');
             
-            const dia = String(brasilia.getDate()).padStart(2, '0');
-            const mes = String(brasilia.getMonth() + 1).padStart(2, '0');
-            const ano = brasilia.getFullYear();
-            const horas = String(brasilia.getHours()).padStart(2, '0');
-            const minutos = String(brasilia.getMinutes()).padStart(2, '0');
-            const segundos = String(brasilia.getSeconds()).padStart(2, '0');
-            
-            document.getElementById('updateTime').textContent = `${dia}/${mes}/${ano} ${horas}:${minutos}:${segundos}`;
-        }
-
-        function setFiltro(tipo) {
-            if (filtroAtual === tipo) {
-                filtroAtual = null;
-                document.getElementById('filtroAtivo').textContent = 'mostrando todas';
-            } else {
-                filtroAtual = tipo;
-                let nomeFiltro = tipo === 'player' ? 'PLAYER' : tipo === 'banker' ? 'BANKER' : 'TIE';
-                document.getElementById('filtroAtivo').textContent = `apenas ${nomeFiltro}`;
+            // Remove IDs com mais de 1 hora
+            for (let [id, timestamp] of idsVistos.entries()) {
+                if (agora - timestamp > 3600000) { // 1 hora
+                    idsVistos.delete(id);
+                }
             }
-            exibirHistorico(dadosCompletos);
+            ultimaLimpeza = agora;
         }
 
-        function criarPizzaChart(player, tie, banker) {
-            const ctx = document.getElementById('pizzaChart').getContext('2d');
+        // Filtra usando o ID real
+        const rodadasUnicas = [];
+        const duplicatasEncontradas = [];
+        
+        for (const rodada of rodadas) {
+            // Prioridade 1: Usar o ID real se existir
+            if (rodada.id) {
+                if (!idsVistos.has(rodada.id)) {
+                    idsVistos.set(rodada.id, agora);
+                    rodadasUnicas.push(rodada);
+                } else {
+                    duplicatasEncontradas.push(rodada);
+                }
+                continue;
+            }
             
-            if (pizzaChart) pizzaChart.destroy();
-            
-            pizzaChart = new Chart(ctx, {
-                type: 'pie',
-                data: {
-                    labels: ['Player', 'Tie', 'Banker'],
-                    datasets: [{
-                        data: [player, tie, banker],
-                        backgroundColor: ['#4d4dff', '#ffaa00', '#ff4d4d'],
-                        borderColor: '#15181c',
-                        borderWidth: 2
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    const label = context.label || '';
-                                    const value = context.raw || 0;
-                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                    const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0';
-                                    return `${label}: ${value} (${percentage}%)`;
-                                }
+            // Prioridade 2: Fallback para chave composta (se não tiver ID)
+            const chave = `${rodada.data}-${rodada.player}-${rodada.banker}-${rodada.resultado}`;
+            if (!idsVistos.has(chave)) {
+                idsVistos.set(chave, agora);
+                rodadasUnicas.push(rodada);
+            } else {
+                duplicatasEncontradas.push(rodada);
+            }
+        }
+        
+        if (duplicatasEncontradas.length > 0) {
+            console.log(`🔄 Bloqueou ${duplicatasEncontradas.length} duplicatas na interface`);
+        }
+        
+        return rodadasUnicas;
+    }
+
+    // =========================================================================
+    // FUNÇÃO PARA VERIFICAR SE RODADA JÁ EXISTE
+    // =========================================================================
+    function rodadaJaExiste(rodada) {
+        if (rodada.id && idsVistos.has(rodada.id)) return true;
+        
+        const chave = `${rodada.data}-${rodada.player}-${rodada.banker}-${rodada.resultado}`;
+        return idsVistos.has(chave);
+    }
+
+    // =========================================================================
+    // FUNÇÕES DE ATUALIZAÇÃO
+    // =========================================================================
+    function atualizarRelogio() {
+        const agora = new Date();
+        const brasilia = new Date(agora.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+        
+        const dia = String(brasilia.getDate()).padStart(2, '0');
+        const mes = String(brasilia.getMonth() + 1).padStart(2, '0');
+        const ano = brasilia.getFullYear();
+        const horas = String(brasilia.getHours()).padStart(2, '0');
+        const minutos = String(brasilia.getMinutes()).padStart(2, '0');
+        const segundos = String(brasilia.getSeconds()).padStart(2, '0');
+        
+        document.getElementById('updateTime').textContent = `${dia}/${mes}/${ano} ${horas}:${minutos}:${segundos}`;
+    }
+
+    function setFiltro(tipo) {
+        if (filtroAtual === tipo) {
+            filtroAtual = null;
+            document.getElementById('filtroAtivo').textContent = 'mostrando todas';
+        } else {
+            filtroAtual = tipo;
+            let nomeFiltro = tipo === 'player' ? 'PLAYER' : tipo === 'banker' ? 'BANKER' : 'TIE';
+            document.getElementById('filtroAtivo').textContent = `apenas ${nomeFiltro}`;
+        }
+        exibirHistorico(dadosCompletos);
+    }
+
+    function criarPizzaChart(player, tie, banker) {
+        const ctx = document.getElementById('pizzaChart').getContext('2d');
+        
+        if (pizzaChart) pizzaChart.destroy();
+        
+        pizzaChart = new Chart(ctx, {
+            type: 'pie',
+            data: {
+                labels: ['Player', 'Tie', 'Banker'],
+                datasets: [{
+                    data: [player, tie, banker],
+                    backgroundColor: ['#4d4dff', '#ffaa00', '#ff4d4d'],
+                    borderColor: '#15181c',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const label = context.label || '';
+                                const value = context.raw || 0;
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0';
+                                return `${label}: ${value} (${percentage}%)`;
                             }
                         }
                     }
                 }
-            });
+            }
+        });
+    }
+
+    function exibirHistorico(data) {
+        if (!data || data.length === 0) {
+            document.getElementById('numerosGrid').innerHTML = `<div class="loading">📭 Nenhuma rodada neste período</div>`;
+            return;
         }
 
-        function exibirHistorico(data) {
-            if (!data || data.length === 0) {
-                document.getElementById('numerosGrid').innerHTML = `<div class="loading">📭 Nenhuma rodada neste período</div>`;
-                return;
-            }
+        // Aplica anti-duplicidade novamente (camada extra de proteção)
+        const dadosUnicos = removerDuplicatas(data);
+        
+        let dadosParaExibir = dadosUnicos;
+        if (filtroAtual) {
+            dadosParaExibir = dadosUnicos.filter(r => r.resultado.toLowerCase() === filtroAtual.toLowerCase());
+        }
 
-            // Remove duplicatas antes de exibir
-            const dadosUnicos = removerDuplicatas(data);
+        let html = '';
+        dadosParaExibir.slice(0, 100).forEach(item => {
+            let classeNumero = '';
+            if (item.resultado === 'PLAYER') classeNumero = 'numero-player';
+            else if (item.resultado === 'BANKER') classeNumero = 'numero-banker';
+            else classeNumero = 'numero-tie';
             
-            let dadosParaExibir = dadosUnicos;
-            if (filtroAtual) {
-                dadosParaExibir = dadosUnicos.filter(r => r.resultado.toLowerCase() === filtroAtual.toLowerCase());
-            }
+            const isExtremo = item.player >= 10 || item.banker >= 10;
+            if (isExtremo) classeNumero += ' numero-extremo';
+            
+            let simbolo = '⚪';
+            if (item.resultado === 'PLAYER') simbolo = '🔵';
+            else if (item.resultado === 'BANKER') simbolo = '🔴';
+            else if (item.resultado === 'TIE') simbolo = '🟡';
+            
+            html += `
+                <div class="numero-item ${classeNumero}">
+                    <div class="numero-valor">${item.player} vs ${item.banker}</div>
+                    <div class="numero-horario">${item.data || ''}</div>
+                    <div class="numero-simbolo">${simbolo}</div>
+                </div>
+            `;
+        });
 
-            let html = '';
-            dadosParaExibir.slice(0, 100).forEach(item => {
-                let classeNumero = '';
-                if (item.resultado === 'PLAYER') classeNumero = 'numero-player';
-                else if (item.resultado === 'BANKER') classeNumero = 'numero-banker';
-                else classeNumero = 'numero-tie';
-                
-                const isExtremo = item.player >= 10 || item.banker >= 10;
-                if (isExtremo) classeNumero += ' numero-extremo';
-                
-                let simbolo = '⚪';
-                if (item.resultado === 'PLAYER') simbolo = '🔵';
-                else if (item.resultado === 'BANKER') simbolo = '🔴';
-                else if (item.resultado === 'TIE') simbolo = '🟡';
-                
-                html += `
-                    <div class="numero-item ${classeNumero}">
-                        <div class="numero-valor">${item.player} vs ${item.banker}</div>
-                        <div class="numero-horario">${item.data || ''}</div>
-                        <div class="numero-simbolo">${simbolo}</div>
+        document.getElementById('numerosGrid').innerHTML = html;
+        
+        // Atualiza contador
+        document.getElementById('tabelaCount').textContent = `${dadosUnicos.length} rodadas únicas`;
+    }
+
+    function atualizarTabelaEstrategias(estrategias) {
+        const tbody = document.getElementById('estrategiasTableBody');
+        
+        // Lista fixa dos nomes das estratégias
+        const nomesEstrategias = [
+            'Compensação',
+            'Paredão',
+            'Moedor',
+            'Xadrez',
+            'Contragolpe',
+            'Reset Cluster',
+            'Falsa Alternância',
+            'Meta-Algoritmo'
+        ];
+        
+        let html = '';
+        
+        for (let i = 0; i < nomesEstrategias.length; i++) {
+            const nome = nomesEstrategias[i];
+            const stats = estrategias && estrategias[nome] ? estrategias[nome] : { acertos: 0, erros: 0, total: 0 };
+            
+            const total = stats.total || 0;
+            const acertos = stats.acertos || 0;
+            const erros = stats.erros || 0;
+            const precisao = total > 0 ? Math.round((acertos / total) * 100) : 0;
+            
+            let precisaoClass = 'precisao-media';
+            if (precisao >= 70) precisaoClass = 'precisao-alta';
+            else if (precisao <= 40) precisaoClass = 'precisao-baixa';
+            
+            html += `
+                <tr>
+                    <td class="estrategia-nome">${nome}</td>
+                    <td class="estrategia-acertos">${acertos}</td>
+                    <td class="estrategia-erros">${erros}</td>
+                    <td class="estrategia-precisao ${precisaoClass}">${precisao}%</td>
+                </tr>
+            `;
+        }
+        
+        tbody.innerHTML = html;
+    }
+
+    function atualizarTimeline(previsoes) {
+        const grid = document.getElementById('timelineGrid');
+        
+        if (!previsoes || previsoes.length === 0) {
+            grid.innerHTML = '<div class="loading">Nenhuma previsão ainda</div>';
+            return;
+        }
+
+        let html = '';
+        previsoes.slice(0, 20).forEach(p => {
+            // Garante que os valores existem
+            const simbolo = p.simbolo || (p.previsao === 'BANKER' ? '🔴' : '🔵');
+            const previsao = p.previsao || '-';
+            const confianca = p.confianca || 0;
+            const numeros = p.numeros || '';
+            const resultado = p.resultado || p.resultado_real || '-';
+            const horario = p.horario || p.data || '';
+            const acertou = p.acertou || (resultado === previsao);
+            
+            const classe = acertou ? 'timeline-acerto' : 'timeline-erro';
+            
+            html += `
+                <div class="timeline-item ${classe}">
+                    <div class="timeline-header">
+                        <span class="timeline-previsao">${simbolo} ${previsao}</span>
+                        <span class="timeline-confianca">${confianca}%</span>
                     </div>
-                `;
-            });
-
-            document.getElementById('numerosGrid').innerHTML = html;
-        }
-
-        function atualizarTabelaEstrategias(estrategias) {
-            const tbody = document.getElementById('estrategiasTableBody');
-            
-            // Lista fixa dos nomes das estratégias
-            const nomesEstrategias = [
-                'Compensação',
-                'Paredão',
-                'Moedor',
-                'Xadrez',
-                'Contragolpe',
-                'Reset Cluster',
-                'Falsa Alternância',
-                'Meta-Algoritmo'
-            ];
-            
-            let html = '';
-            
-            for (let i = 0; i < nomesEstrategias.length; i++) {
-                const nome = nomesEstrategias[i];
-                const stats = estrategias && estrategias[nome] ? estrategias[nome] : { acertos: 0, erros: 0, total: 0 };
-                
-                const total = stats.total || 0;
-                const acertos = stats.acertos || 0;
-                const erros = stats.erros || 0;
-                const precisao = total > 0 ? Math.round((acertos / total) * 100) : 0;
-                
-                let precisaoClass = 'precisao-media';
-                if (precisao >= 70) precisaoClass = 'precisao-alta';
-                else if (precisao <= 40) precisaoClass = 'precisao-baixa';
-                
-                html += `
-                    <tr>
-                        <td class="estrategia-nome">${nome}</td>
-                        <td class="estrategia-acertos">${acertos}</td>
-                        <td class="estrategia-erros">${erros}</td>
-                        <td class="estrategia-precisao ${precisaoClass}">${precisao}%</td>
-                    </tr>
-                `;
-            }
-            
-            tbody.innerHTML = html;
-        }
-
-        function atualizarTimeline(previsoes) {
-            const grid = document.getElementById('timelineGrid');
-            
-            if (!previsoes || previsoes.length === 0) {
-                grid.innerHTML = '<div class="loading">Nenhuma previsão ainda</div>';
-                return;
-            }
-
-            let html = '';
-            previsoes.slice(0, 20).forEach(p => {
-                // Garante que os valores existem
-                const simbolo = p.simbolo || (p.previsao === 'BANKER' ? '🔴' : '🔵');
-                const previsao = p.previsao || '-';
-                const confianca = p.confianca || 0;
-                const numeros = p.numeros || '';
-                const resultado = p.resultado || p.resultado_real || '-';
-                const horario = p.horario || p.data || '';
-                const acertou = p.acertou || (resultado === previsao);
-                
-                const classe = acertou ? 'timeline-acerto' : 'timeline-erro';
-                
-                html += `
-                    <div class="timeline-item ${classe}">
-                        <div class="timeline-header">
-                            <span class="timeline-previsao">${simbolo} ${previsao}</span>
-                            <span class="timeline-confianca">${confianca}%</span>
-                        </div>
-                        <div class="timeline-numeros">${numeros}</div>
-                        <div class="timeline-resultado">
-                            <span>Resultado: ${resultado}</span>
-                            <span>${horario}</span>
-                        </div>
+                    <div class="timeline-numeros">${numeros}</div>
+                    <div class="timeline-resultado">
+                        <span>Resultado: ${resultado}</span>
+                        <span>${horario}</span>
                     </div>
-                `;
-            });
+                </div>
+            `;
+        });
 
-            grid.innerHTML = html;
-        }
+        grid.innerHTML = html;
+    }
 
-        async function carregarTabela(limite) {
-            limiteAtual = limite;
+    async function carregarTabela(limite) {
+        limiteAtual = limite;
+        
+        document.querySelectorAll('.limite-btn').forEach(btn => btn.classList.remove('active'));
+        event.target.classList.add('active');
+        
+        document.getElementById('limiteAtual').textContent = limite;
+        
+        try {
+            const response = await fetch(`/api/tabela/${limite}`);
+            const dados = await response.json();
             
-            document.querySelectorAll('.limite-btn').forEach(btn => btn.classList.remove('active'));
-            event.target.classList.add('active');
+            // 🛡️ APLICA ANTI-DUPLICIDADE COM ID REAL
+            dadosCompletos = removerDuplicatas(dados);
             
-            document.getElementById('limiteAtual').textContent = limite;
+            document.getElementById('tabelaCount').textContent = `${dadosCompletos.length} rodadas únicas`;
+            document.getElementById('totalRodadasPeriodo').textContent = dadosCompletos.length;
+            document.getElementById('pizzaInfo').textContent = `${dadosCompletos.length} rodadas`;
             
-            try {
-                const response = await fetch(`/api/tabela/${limite}`);
-                const dados = await response.json();
-                
-                dadosCompletos = removerDuplicatas(dados);
-                
-                document.getElementById('tabelaCount').textContent = `${dadosCompletos.length} rodadas`;
-                document.getElementById('totalRodadasPeriodo').textContent = dadosCompletos.length;
-                document.getElementById('pizzaInfo').textContent = `${dadosCompletos.length} rodadas`;
-                
-                const player = dadosCompletos.filter(r => r.resultado === 'PLAYER').length;
-                const banker = dadosCompletos.filter(r => r.resultado === 'BANKER').length;
-                const tie = dadosCompletos.filter(r => r.resultado === 'TIE').length;
-                const total = dadosCompletos.length;
-                
-                const playerPct = total > 0 ? ((player / total) * 100).toFixed(1) : '0';
-                const bankerPct = total > 0 ? ((banker / total) * 100).toFixed(1) : '0';
-                const tiePct = total > 0 ? ((tie / total) * 100).toFixed(1) : '0';
-                
-                document.getElementById('playerNumero').textContent = player || '-';
-                document.getElementById('playerPercent').textContent = player ? playerPct + '%' : '-';
-                document.getElementById('tieNumero').textContent = tie || '-';
-                document.getElementById('tiePercent').textContent = tie ? tiePct + '%' : '-';
-                document.getElementById('bankerNumero').textContent = banker || '-';
-                document.getElementById('bankerPercent').textContent = banker ? bankerPct + '%' : '-';
-                
-                document.getElementById('miniPlayer').textContent = player || '-';
-                document.getElementById('miniTie').textContent = tie || '-';
-                document.getElementById('miniBanker').textContent = banker || '-';
-                
-                if (pizzaChart) {
-                    pizzaChart.data.datasets[0].data = [player, tie, banker];
-                    pizzaChart.update();
-                } else {
-                    criarPizzaChart(player, tie, banker);
-                }
-                
-                exibirHistorico(dadosCompletos);
-                
-            } catch (error) {
-                console.error('Erro ao carregar tabela:', error);
+            const player = dadosCompletos.filter(r => r.resultado === 'PLAYER').length;
+            const banker = dadosCompletos.filter(r => r.resultado === 'BANKER').length;
+            const tie = dadosCompletos.filter(r => r.resultado === 'TIE').length;
+            const total = dadosCompletos.length;
+            
+            const playerPct = total > 0 ? ((player / total) * 100).toFixed(1) : '0';
+            const bankerPct = total > 0 ? ((banker / total) * 100).toFixed(1) : '0';
+            const tiePct = total > 0 ? ((tie / total) * 100).toFixed(1) : '0';
+            
+            document.getElementById('playerNumero').textContent = player || '-';
+            document.getElementById('playerPercent').textContent = player ? playerPct + '%' : '-';
+            document.getElementById('tieNumero').textContent = tie || '-';
+            document.getElementById('tiePercent').textContent = tie ? tiePct + '%' : '-';
+            document.getElementById('bankerNumero').textContent = banker || '-';
+            document.getElementById('bankerPercent').textContent = banker ? bankerPct + '%' : '-';
+            
+            document.getElementById('miniPlayer').textContent = player || '-';
+            document.getElementById('miniTie').textContent = tie || '-';
+            document.getElementById('miniBanker').textContent = banker || '-';
+            
+            if (pizzaChart) {
+                pizzaChart.data.datasets[0].data = [player, tie, banker];
+                pizzaChart.update();
+            } else {
+                criarPizzaChart(player, tie, banker);
             }
+            
+            exibirHistorico(dadosCompletos);
+            
+        } catch (error) {
+            console.error('Erro ao carregar tabela:', error);
         }
+    }
 
-        async function atualizarTudo() {
-            try {
-                const agora = Date.now();
-                if (agora - ultimaAtualizacao < 900) return;
-                
-                const [tabelaPromise, statsPromise] = await Promise.allSettled([
-                    fetch(`/api/tabela/${limiteAtual}`).then(res => res.json()),
-                    fetch('/api/stats').then(res => res.json())
-                ]);
+    async function atualizarTudo() {
+        try {
+            const agora = Date.now();
+            if (agora - ultimaAtualizacao < 900) return;
+            
+            const [tabelaPromise, statsPromise] = await Promise.allSettled([
+                fetch(`/api/tabela/${limiteAtual}`).then(res => res.json()),
+                fetch('/api/stats').then(res => res.json())
+            ]);
 
-                if (tabelaPromise.status === 'fulfilled') {
-                    const dados = tabelaPromise.value;
-                    if (dados && dados.length > 0) {
-                        dadosCompletos = removerDuplicatas(dados);
+            if (tabelaPromise.status === 'fulfilled') {
+                const dados = tabelaPromise.value;
+                if (dados && dados.length > 0) {
+                    // 🛡️ APLICA ANTI-DUPLICIDADE
+                    const novosDados = removerDuplicatas(dados);
+                    
+                    // Verifica se realmente houve mudança
+                    if (novosDados.length !== dadosCompletos.length) {
+                        dadosCompletos = novosDados;
                         
-                        document.getElementById('tabelaCount').textContent = `${dadosCompletos.length} rodadas`;
+                        document.getElementById('tabelaCount').textContent = `${dadosCompletos.length} rodadas únicas`;
                         document.getElementById('totalRodadasPeriodo').textContent = dadosCompletos.length;
                         
                         const player = dadosCompletos.filter(r => r.resultado === 'PLAYER').length;
@@ -1206,92 +1267,91 @@
                         exibirHistorico(dadosCompletos);
                     }
                 }
+            }
 
-                if (statsPromise.status === 'fulfilled') {
-                    const stats = statsPromise.value;
+            if (statsPromise.status === 'fulfilled') {
+                const stats = statsPromise.value;
+                
+                if (stats.ultima_atualizacao) {
+                    document.getElementById('updateTime').textContent = stats.ultima_atualizacao;
+                }
+
+                if (stats.fila !== undefined) {
+                    document.getElementById('filaTamanho').textContent = stats.fila;
+                    document.getElementById('filaStatus').textContent = `📦 Fila: ${stats.fila}`;
                     
-                    if (stats.ultima_atualizacao) {
-                        document.getElementById('updateTime').textContent = stats.ultima_atualizacao;
-                    }
-
-                    if (stats.fila !== undefined) {
-                        document.getElementById('filaTamanho').textContent = stats.fila;
-                        document.getElementById('filaStatus').textContent = `📦 Fila: ${stats.fila}`;
-                        
-                        const filaElem = document.getElementById('filaStatus');
-                        if (stats.fila > 10) {
-                            filaElem.classList.add('alta');
-                        } else {
-                            filaElem.classList.remove('alta');
-                        }
-                    }
-
-                    if (stats.previsao) {
-                        const p = stats.previsao;
-                        
-                        document.getElementById('modoAlgoritmo').textContent = p.modo || '-';
-                        document.getElementById('modoDescricao').textContent = p.modo || '-';
-                        document.getElementById('proximaCorSimbolo').textContent = p.simbolo || '⚪';
-                        document.getElementById('proximaCorTexto').textContent = p.previsao || '-';
-                        document.getElementById('confianca').textContent = (p.confianca || 0) + '%';
-                        
-                        const estrategiasDiv = document.getElementById('estrategiasAtivas');
-                        if (p.estrategias && p.estrategias.length > 0) {
-                            let html = '<span class="estrategia-tag">🧠 Estratégias:</span>';
-                            p.estrategias.forEach(e => {
-                                html += `<span class="estrategia-tag ativa">${e}</span>`;
-                            });
-                            estrategiasDiv.innerHTML = html;
-                        } else {
-                            estrategiasDiv.innerHTML = '<span class="estrategia-tag">🧠 Nenhuma estratégia ativa</span>';
-                        }
-                    }
-
-                    if (stats.estatisticas) {
-                        document.getElementById('totalPrevisoes').textContent = stats.estatisticas.total_previsoes || 0;
-                        document.getElementById('totalAcertos').textContent = stats.estatisticas.acertos || 0;
-                        document.getElementById('totalErros').textContent = stats.estatisticas.erros || 0;
-                        document.getElementById('precisaoGeral').textContent = (stats.estatisticas.precisao || 0) + '%';
-                        
-                        // 🔥 ATUALIZA AS ESTRATÉGIAS COM OS NOMES CORRETOS
-                        if (stats.estatisticas.estrategias) {
-                            // Converte o array em objeto com nomes
-                            const estrategiasObj = {};
-                            stats.estatisticas.estrategias.forEach(e => {
-                                estrategiasObj[e.nome] = {
-                                    acertos: e.acertos,
-                                    erros: e.erros,
-                                    total: e.acertos + e.erros
-                                };
-                            });
-                            atualizarTabelaEstrategias(estrategiasObj);
-                        }
-                        
-                        // 🔥 ATUALIZA O HISTÓRICO DE PREVISÕES
-                        if (stats.estatisticas.ultimas_20_previsoes) {
-                            atualizarTimeline(stats.estatisticas.ultimas_20_previsoes);
-                        }
+                    const filaElem = document.getElementById('filaStatus');
+                    if (stats.fila > 10) {
+                        filaElem.classList.add('alta');
+                    } else {
+                        filaElem.classList.remove('alta');
                     }
                 }
 
-                ultimaAtualizacao = agora;
+                if (stats.previsao) {
+                    const p = stats.previsao;
+                    
+                    document.getElementById('modoAlgoritmo').textContent = p.modo || '-';
+                    document.getElementById('modoDescricao').textContent = p.modo || '-';
+                    document.getElementById('proximaCorSimbolo').textContent = p.simbolo || '⚪';
+                    document.getElementById('proximaCorTexto').textContent = p.previsao || '-';
+                    document.getElementById('confianca').textContent = (p.confianca || 0) + '%';
+                    
+                    const estrategiasDiv = document.getElementById('estrategiasAtivas');
+                    if (p.estrategias && p.estrategias.length > 0) {
+                        let html = '<span class="estrategia-tag">🧠 Estratégias:</span>';
+                        p.estrategias.forEach(e => {
+                            html += `<span class="estrategia-tag ativa">${e}</span>`;
+                        });
+                        estrategiasDiv.innerHTML = html;
+                    } else {
+                        estrategiasDiv.innerHTML = '<span class="estrategia-tag">🧠 Nenhuma estratégia ativa</span>';
+                    }
+                }
 
-            } catch (error) {
-                console.error('Erro ao atualizar:', error);
+                if (stats.estatisticas) {
+                    document.getElementById('totalPrevisoes').textContent = stats.estatisticas.total_previsoes || 0;
+                    document.getElementById('totalAcertos').textContent = stats.estatisticas.acertos || 0;
+                    document.getElementById('totalErros').textContent = stats.estatisticas.erros || 0;
+                    document.getElementById('precisaoGeral').textContent = (stats.estatisticas.precisao || 0) + '%';
+                    
+                    if (stats.estatisticas.estrategias) {
+                        const estrategiasObj = {};
+                        stats.estatisticas.estrategias.forEach(e => {
+                            estrategiasObj[e.nome] = {
+                                acertos: e.acertos,
+                                erros: e.erros,
+                                total: e.acertos + e.erros
+                            };
+                        });
+                        atualizarTabelaEstrategias(estrategiasObj);
+                    }
+                    
+                    if (stats.estatisticas.ultimas_20_previsoes) {
+                        atualizarTimeline(stats.estatisticas.ultimas_20_previsoes);
+                    }
+                }
             }
-        }
 
-        // Inicializar
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('🚀 Iniciando BacBo Analytics...');
-            
-            criarPizzaChart(0, 0, 0);
-            carregarTabela(50);
-            
-            atualizarRelogio();
-            setInterval(atualizarRelogio, CONFIG.INTERVALO_RELOGIO);
-            setInterval(atualizarTudo, CONFIG.INTERVALO_ATUALIZACAO);
-        });
-    </script>
+            ultimaAtualizacao = agora;
+
+        } catch (error) {
+            console.error('Erro ao atualizar:', error);
+        }
+    }
+
+    // Inicializar
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('🚀 Iniciando BacBo Analytics...');
+        console.log('🛡️ Anti-duplicidade FORTE ativada');
+        
+        criarPizzaChart(0, 0, 0);
+        carregarTabela(50);
+        
+        atualizarRelogio();
+        setInterval(atualizarRelogio, CONFIG.INTERVALO_RELOGIO);
+        setInterval(atualizarTudo, CONFIG.INTERVALO_ATUALIZACAO);
+    });
+</script>
 </body>
 </html>
