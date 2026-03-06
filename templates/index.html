@@ -901,28 +901,15 @@
         let filtroAtual = null;
         let limiteAtual = CONFIG.LIMITE_PADRAO;
         let ultimaAtualizacao = 0;
-
-        // Histórico de previsões
-        let historicoPrevisoes = [];
-
-        // Estatísticas das estratégias
-        let estrategiasStats = {
-            'Compensação': { acertos: 0, erros: 0, total: 0 },
-            'Paredão': { acertos: 0, erros: 0, total: 0 },
-            'Moedor': { acertos: 0, erros: 0, total: 0 },
-            'Xadrez': { acertos: 0, erros: 0, total: 0 },
-            'Contragolpe': { acertos: 0, erros: 0, total: 0 },
-            'Reset Cluster': { acertos: 0, erros: 0, total: 0 },
-            'Falsa Alternância': { acertos: 0, erros: 0, total: 0 },
-            'Meta-Algoritmo': { acertos: 0, erros: 0, total: 0 }
-        };
+        let ultimosIds = new Set(); // Para evitar duplicatas
 
         // =========================================================================
-        // FUNÇÃO PARA ELIMINAR DUPLICATAS
+        // FUNÇÃO PARA ELIMINAR DUPLICATAS (MELHORADA)
         // =========================================================================
         function removerDuplicatas(rodadas) {
             const seen = new Set();
             return rodadas.filter(rodada => {
+                // Usa uma chave mais robusta
                 const chave = `${rodada.data}-${rodada.player}-${rodada.banker}-${rodada.resultado}`;
                 if (seen.has(chave)) return false;
                 seen.add(chave);
@@ -1002,6 +989,7 @@
                 return;
             }
 
+            // Remove duplicatas antes de exibir
             const dadosUnicos = removerDuplicatas(data);
             
             let dadosParaExibir = dadosUnicos;
@@ -1036,52 +1024,80 @@
             document.getElementById('numerosGrid').innerHTML = html;
         }
 
-        function atualizarTabelaEstrategias() {
+        function atualizarTabelaEstrategias(estrategias) {
             const tbody = document.getElementById('estrategiasTableBody');
+            
+            // Lista fixa dos nomes das estratégias
+            const nomesEstrategias = [
+                'Compensação',
+                'Paredão',
+                'Moedor',
+                'Xadrez',
+                'Contragolpe',
+                'Reset Cluster',
+                'Falsa Alternância',
+                'Meta-Algoritmo'
+            ];
+            
             let html = '';
-
-            Object.entries(estrategiasStats).forEach(([nome, stats]) => {
-                const total = stats.total;
-                const precisao = total > 0 ? Math.round((stats.acertos / total) * 100) : 0;
-                let precisaoClass = 'precisao-media';
+            
+            for (let i = 0; i < nomesEstrategias.length; i++) {
+                const nome = nomesEstrategias[i];
+                const stats = estrategias && estrategias[nome] ? estrategias[nome] : { acertos: 0, erros: 0, total: 0 };
                 
+                const total = stats.total || 0;
+                const acertos = stats.acertos || 0;
+                const erros = stats.erros || 0;
+                const precisao = total > 0 ? Math.round((acertos / total) * 100) : 0;
+                
+                let precisaoClass = 'precisao-media';
                 if (precisao >= 70) precisaoClass = 'precisao-alta';
                 else if (precisao <= 40) precisaoClass = 'precisao-baixa';
-
+                
                 html += `
                     <tr>
                         <td class="estrategia-nome">${nome}</td>
-                        <td class="estrategia-acertos">${stats.acertos}</td>
-                        <td class="estrategia-erros">${stats.erros}</td>
+                        <td class="estrategia-acertos">${acertos}</td>
+                        <td class="estrategia-erros">${erros}</td>
                         <td class="estrategia-precisao ${precisaoClass}">${precisao}%</td>
                     </tr>
                 `;
-            });
-
+            }
+            
             tbody.innerHTML = html;
         }
 
-        function atualizarTimeline() {
+        function atualizarTimeline(previsoes) {
             const grid = document.getElementById('timelineGrid');
-            if (historicoPrevisoes.length === 0) {
+            
+            if (!previsoes || previsoes.length === 0) {
                 grid.innerHTML = '<div class="loading">Nenhuma previsão ainda</div>';
                 return;
             }
 
             let html = '';
-            historicoPrevisoes.slice(0, 20).forEach(p => {
-                const classe = p.acertou ? 'timeline-acerto' : 'timeline-erro';
+            previsoes.slice(0, 20).forEach(p => {
+                // Garante que os valores existem
+                const simbolo = p.simbolo || (p.previsao === 'BANKER' ? '🔴' : '🔵');
+                const previsao = p.previsao || '-';
+                const confianca = p.confianca || 0;
+                const numeros = p.numeros || '';
+                const resultado = p.resultado || p.resultado_real || '-';
+                const horario = p.horario || p.data || '';
+                const acertou = p.acertou || (resultado === previsao);
+                
+                const classe = acertou ? 'timeline-acerto' : 'timeline-erro';
                 
                 html += `
                     <div class="timeline-item ${classe}">
                         <div class="timeline-header">
-                            <span class="timeline-previsao">${p.simboloPrevisto} ${p.previsao}</span>
-                            <span class="timeline-confianca">${p.confianca}%</span>
+                            <span class="timeline-previsao">${simbolo} ${previsao}</span>
+                            <span class="timeline-confianca">${confianca}%</span>
                         </div>
-                        <div class="timeline-numeros">${p.numeros || ''}</div>
+                        <div class="timeline-numeros">${numeros}</div>
                         <div class="timeline-resultado">
-                            <span>Resultado: ${p.resultado}</span>
-                            <span>${p.horario || ''}</span>
+                            <span>Resultado: ${resultado}</span>
+                            <span>${horario}</span>
                         </div>
                     </div>
                 `;
@@ -1201,6 +1217,13 @@
                     if (stats.fila !== undefined) {
                         document.getElementById('filaTamanho').textContent = stats.fila;
                         document.getElementById('filaStatus').textContent = `📦 Fila: ${stats.fila}`;
+                        
+                        const filaElem = document.getElementById('filaStatus');
+                        if (stats.fila > 10) {
+                            filaElem.classList.add('alta');
+                        } else {
+                            filaElem.classList.remove('alta');
+                        }
                     }
 
                     if (stats.previsao) {
@@ -1219,6 +1242,8 @@
                                 html += `<span class="estrategia-tag ativa">${e}</span>`;
                             });
                             estrategiasDiv.innerHTML = html;
+                        } else {
+                            estrategiasDiv.innerHTML = '<span class="estrategia-tag">🧠 Nenhuma estratégia ativa</span>';
                         }
                     }
 
@@ -1228,16 +1253,23 @@
                         document.getElementById('totalErros').textContent = stats.estatisticas.erros || 0;
                         document.getElementById('precisaoGeral').textContent = (stats.estatisticas.precisao || 0) + '%';
                         
-                        // ATUALIZA AS ESTRATÉGIAS DO BACKEND
+                        // 🔥 ATUALIZA AS ESTRATÉGIAS COM OS NOMES CORRETOS
                         if (stats.estatisticas.estrategias) {
-                            estrategiasStats = stats.estatisticas.estrategias;
-                            atualizarTabelaEstrategias();
+                            // Converte o array em objeto com nomes
+                            const estrategiasObj = {};
+                            stats.estatisticas.estrategias.forEach(e => {
+                                estrategiasObj[e.nome] = {
+                                    acertos: e.acertos,
+                                    erros: e.erros,
+                                    total: e.acertos + e.erros
+                                };
+                            });
+                            atualizarTabelaEstrategias(estrategiasObj);
                         }
                         
-                        // ATUALIZA O HISTÓRICO DE PREVISÕES
+                        // 🔥 ATUALIZA O HISTÓRICO DE PREVISÕES
                         if (stats.estatisticas.ultimas_20_previsoes) {
-                            historicoPrevisoes = stats.estatisticas.ultimas_20_previsoes;
-                            atualizarTimeline();
+                            atualizarTimeline(stats.estatisticas.ultimas_20_previsoes);
                         }
                     }
                 }
@@ -1254,8 +1286,6 @@
             console.log('🚀 Iniciando BacBo Analytics...');
             
             criarPizzaChart(0, 0, 0);
-            atualizarTimeline();
-            atualizarTabelaEstrategias();
             carregarTabela(50);
             
             atualizarRelogio();
