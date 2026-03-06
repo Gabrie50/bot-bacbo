@@ -4,6 +4,7 @@
 # ✅ API Normal (fallback histórico)
 # ✅ Histórico de previsões no banco
 # ✅ Anti-duplicidade: a primeira fonte que chegar VENCE
+# ✅ Cache individual por fonte para evitar duplicatas na origem
 
 import os
 import time
@@ -62,14 +63,19 @@ HEADERS = {
 TIMEOUT_API = 5
 MAX_RETRIES = 3
 RETRY_DELAY = 1
-INTERVALO_LATEST = 1  # 1 segundos para /latest
-INTERVALO_NORMAL = 1  # 1 segundos para API normal (fallback)
+INTERVALO_LATEST = 1  # 1 segundo para /latest
+INTERVALO_NORMAL = 1  # 1 segundo para API normal (fallback)
 PORT = int(os.environ.get("PORT", 5000))
 
 # =============================================================================
 # SISTEMA ANTI-DUPLICIDADE - A PRIMEIRA QUE CHEGAR VENCE
 # =============================================================================
-ids_processados = set()  # Cache dos últimos IDs vistos
+ids_processados = set()  # Cache global dos IDs já processados
+ids_por_fonte = {  # Cache individual por fonte para evitar duplicatas na origem
+    'websocket': set(),
+    'latest': set(),
+    'api_normal': set()
+}
 lock_ids = threading.Lock()  # Para acesso thread-safe
 
 def primeira_que_chegar(rodada):
@@ -87,7 +93,7 @@ def primeira_que_chegar(rodada):
         # Se já vimos este ID antes (de QUALQUER fonte), é duplicata
         if rodada_id in ids_processados:
             fonte = rodada.get('fonte', 'desconhecida')
-            print(f"🔄 BLOQUEADO: {fonte} tentou enviar rodada {rodada_id} que já foi processada")
+            print(f"🔄 BLOQUEADO GLOBAL: {fonte} tentou enviar rodada {rodada_id[-8:]} que já foi processada")
             return True  # ✅ É DUPLICATA - BLOQUEIA
         
         # É a PRIMEIRA VEZ que vemos este ID
@@ -100,19 +106,39 @@ def primeira_que_chegar(rodada):
         
         return False  # ✅ NÃO É DUPLICATA - PODE PROCESSAR
 
+def verificar_duplicata_na_fonte(rodada_id, fonte):
+    """
+    Verifica se a rodada já foi processada pela MESMA fonte.
+    Isso evita que uma fonte envie a mesma rodada duas vezes.
+    """
+    with lock_ids:
+        if rodada_id in ids_por_fonte.get(fonte, set()):
+            print(f"🔄 BLOQUEADO FONTE: {fonte} tentou reenviar rodada {rodada_id[-8:]}")
+            return True
+        
+        ids_por_fonte[fonte].add(rodada_id)
+        
+        # Mantém apenas os últimos 500 IDs por fonte
+        if len(ids_por_fonte[fonte]) > 500:
+            ids_por_fonte[fonte] = set(list(ids_por_fonte[fonte])[-500:])
+        
+        return False
+
 # =============================================================================
 # FILA DE PROCESSAMENTO
 # =============================================================================
 fila_rodadas = deque(maxlen=500)
-ultimo_id_ws = None
-ultimo_id_latest = None
-ultimo_id_api = None
+ultimo_id_por_fonte = {  # Último ID visto por cada fonte
+    'websocket': None,
+    'latest': None,
+    'api_normal': None
+}
 
 # Status das fontes
 fontes_status = {
-    'websocket': {'status': 'desconectado', 'total': 0, 'falhas': 0},
-    'latest': {'status': 'ativo', 'total': 0, 'falhas': 0},
-    'api_normal': {'status': 'ativo', 'total': 0, 'falhas': 0}
+    'websocket': {'status': 'desconectado', 'total': 0, 'falhas': 0, 'duplicatas': 0},
+    'latest': {'status': 'ativo', 'total': 0, 'falhas': 0, 'duplicatas': 0},
+    'api_normal': {'status': 'ativo', 'total': 0, 'falhas': 0, 'duplicatas': 0}
 }
 
 cache = {
@@ -402,7 +428,7 @@ def atualizar_dados_pesados():
 
 def on_ws_message(ws, message):
     """Recebe mensagens do WebSocket"""
-    global ultimo_id_ws, fila_rodadas
+    global ultimo_id_por_fonte, fila_rodadas
     
     try:
         data = json.loads(message)
@@ -412,9 +438,16 @@ def on_ws_message(ws, message):
             result = game_data['result']
             
             novo_id = game_data.get('id')
+            fonte = 'websocket'
             
-            if novo_id and novo_id != ultimo_id_ws:
-                ultimo_id_ws = novo_id
+            # Verifica se é novo para esta fonte
+            if novo_id and novo_id != ultimo_id_por_fonte[fonte]:
+                # Verifica duplicata na própria fonte
+                if verificar_duplicata_na_fonte(novo_id, fonte):
+                    fontes_status[fonte]['duplicatas'] += 1
+                    return
+                
+                ultimo_id_por_fonte[fonte] = novo_id
                 
                 player_dice = result.get('playerDice', {})
                 banker_dice = result.get('bankerDice', {})
@@ -436,12 +469,12 @@ def on_ws_message(ws, message):
                     'player_score': player_score,
                     'banker_score': banker_score,
                     'resultado': resultado,
-                    'fonte': 'websocket'  # 👈 IDENTIFICA A FONTE
+                    'fonte': fonte
                 }
                 
                 fila_rodadas.append(rodada)
-                fontes_status['websocket']['total'] += 1
-                print(f"\n⚡ WS TEMPO REAL: {player_score} vs {banker_score} - {resultado}")
+                fontes_status[fonte]['total'] += 1
+                print(f"\n⚡ WS TEMPO REAL: {player_score} vs {banker_score} - {resultado} [ID: {novo_id[-8:]}]")
                 
     except Exception as e:
         print(f"⚠️ Erro WS: {e}")
@@ -480,7 +513,7 @@ def iniciar_websocket():
 
 def buscar_latest():
     """Busca apenas a última rodada"""
-    global ultimo_id_latest
+    global ultimo_id_por_fonte
     
     try:
         response = requests.get(LATEST_API_URL, headers=HEADERS, timeout=3)
@@ -491,9 +524,16 @@ def buscar_latest():
             novo_id = dados.get('id')
             data = dados.get('data', {})
             result = data.get('result', {})
+            fonte = 'latest'
             
-            if novo_id and novo_id != ultimo_id_latest:
-                ultimo_id_latest = novo_id
+            # Verifica se é novo para esta fonte
+            if novo_id and novo_id != ultimo_id_por_fonte[fonte]:
+                # Verifica duplicata na própria fonte
+                if verificar_duplicata_na_fonte(novo_id, fonte):
+                    fontes_status[fonte]['duplicatas'] += 1
+                    return None
+                
+                ultimo_id_por_fonte[fonte] = novo_id
                 
                 player_dice = result.get('playerDice', {})
                 banker_dice = result.get('bankerDice', {})
@@ -515,11 +555,11 @@ def buscar_latest():
                     'player_score': player_score,
                     'banker_score': banker_score,
                     'resultado': resultado,
-                    'fonte': 'latest'  # 👈 IDENTIFICA A FONTE
+                    'fonte': fonte
                 }
                 
-                fontes_status['latest']['total'] += 1
-                print(f"\n📡 LATEST: {player_score} vs {banker_score} - {resultado}")
+                fontes_status[fonte]['total'] += 1
+                print(f"\n📡 LATEST: {player_score} vs {banker_score} - {resultado} [ID: {novo_id[-8:]}]")
                 return rodada
         
         return None
@@ -534,11 +574,11 @@ def buscar_latest():
 
 def buscar_api_normal():
     """Busca histórico da API normal"""
-    global ultimo_id_api
+    global ultimo_id_por_fonte
     
     try:
         params = API_PARAMS.copy()
-        params['_t'] = int(time.time() * 1)
+        params['_t'] = int(time.time() * 1000)
         
         response = session.get(API_URL, params=params, timeout=TIMEOUT_API)
         response.raise_for_status()
@@ -548,9 +588,16 @@ def buscar_api_normal():
             primeiro = dados[0]
             data = primeiro.get('data', {})
             novo_id = data.get('id')
+            fonte = 'api_normal'
             
-            if novo_id and novo_id != ultimo_id_api:
-                ultimo_id_api = novo_id
+            # Verifica se é novo para esta fonte
+            if novo_id and novo_id != ultimo_id_por_fonte[fonte]:
+                # Verifica duplicata na própria fonte
+                if verificar_duplicata_na_fonte(novo_id, fonte):
+                    fontes_status[fonte]['duplicatas'] += 1
+                    return None
+                
+                ultimo_id_por_fonte[fonte] = novo_id
                 
                 rodadas = []
                 for item in dados[:10]:
@@ -579,14 +626,14 @@ def buscar_api_normal():
                             'player_score': player_score,
                             'banker_score': banker_score,
                             'resultado': resultado,
-                            'fonte': 'api_normal'  # 👈 IDENTIFICA A FONTE
+                            'fonte': fonte
                         }
                         rodadas.append(rodada)
-                    except:
+                    except Exception as e:
                         continue
                 
-                fontes_status['api_normal']['total'] += len(rodadas)
-                print(f"\n📚 API NORMAL: {len(rodadas)} rodadas")
+                fontes_status[fonte]['total'] += len(rodadas)
+                print(f"\n📚 API NORMAL: {len(rodadas)} rodadas [ID mais recente: {novo_id[-8:]}]")
                 return rodadas
         
         return None
@@ -610,15 +657,25 @@ def processar_fila():
                 batch = list(fila_rodadas)
                 fila_rodadas.clear()
                 
-                # Organiza por ID para garantir que só a primeira seja processada
-                rodadas_para_salvar = []
-                duplicatas = 0
+                # Remove duplicatas do próprio batch
+                ids_vistos = set()
+                batch_unicos = []
                 
                 for rodada in batch:
-                    # 🔥 VERIFICAÇÃO CRÍTICA: esta rodada JÁ FOI VISTA?
+                    rodada_id = rodada.get('id')
+                    if rodada_id not in ids_vistos:
+                        ids_vistos.add(rodada_id)
+                        batch_unicos.append(rodada)
+                
+                # Processa apenas as rodadas únicas
+                rodadas_para_salvar = []
+                duplicatas_globais = 0
+                
+                for rodada in batch_unicos:
+                    # 🔥 VERIFICAÇÃO CRÍTICA: esta rodada JÁ FOI VISTA GLOBALMENTE?
                     if primeira_que_chegar(rodada):
-                        duplicatas += 1
-                        continue  # Ignora duplicatas
+                        duplicatas_globais += 1
+                        continue  # Ignora duplicatas globais
                     
                     # É a PRIMEIRA VEZ que vemos esta rodada
                     rodadas_para_salvar.append(rodada)
@@ -629,9 +686,11 @@ def processar_fila():
                     if salvar_rodada(rodada, rodada.get('fonte', 'desconhecida')):
                         saved += 1
                         cache['ultimo_resultado_real'] = rodada['resultado']
+                        print(f"✅ SALVO: {rodada['fonte']} - {rodada['player_score']} vs {rodada['banker_score']} - {rodada['resultado']}")
                 
-                if saved > 0 or duplicatas > 0:
-                    print(f"💾 TURBO: salvou {saved} | bloqueou {duplicatas} duplicatas")
+                total_duplicatas = (len(batch) - len(batch_unicos)) + duplicatas_globais
+                if saved > 0 or total_duplicatas > 0:
+                    print(f"💾 TURBO: salvou {saved} | bloqueou {total_duplicatas} duplicatas")
                     if saved > 0:
                         atualizar_dados_leves()
             
@@ -642,34 +701,34 @@ def processar_fila():
             time.sleep(0.1)
 
 # =============================================================================
-# 🔥 LOOP DE COLETA DAS FONTES (TODAS EM 1 SEGUNDO)
+# 🔥 LOOP DE COLETA DAS FONTES
 # =============================================================================
 
 def loop_latest():
-    """Loop da fonte Latest (1 segundo)"""
+    """Loop da fonte Latest"""
     print("📡 Coletor LATEST iniciado (1s)...")
     while True:
         try:
             rodada = buscar_latest()
             if rodada:
                 fila_rodadas.append(rodada)
-            time.sleep(INTERVALO_LATEST)  # 1s
+            time.sleep(INTERVALO_LATEST)
         except Exception as e:
             print(f"❌ Erro Latest: {e}")
             time.sleep(INTERVALO_LATEST)
 
 def loop_api_normal():
-    """Loop da API Normal (1 segundo - fallback rápido)"""
+    """Loop da API Normal"""
     print("📚 Coletor API NORMAL iniciado (1s fallback)...")
     while True:
         try:
-            # Tenta sempre, mas prioridade menor
-            if fontes_status['websocket']['status'] != 'conectado' or random.random() < 0.3:  # 30% das vezes mesmo com WS ativo
+            # Tenta sempre, mas com prioridade menor quando WS está ativo
+            if fontes_status['websocket']['status'] != 'conectado' or random.random() < 0.3:
                 rodadas = buscar_api_normal()
                 if rodadas:
                     for rodada in rodadas:
                         fila_rodadas.append(rodada)
-            time.sleep(INTERVALO_NORMAL)  # 1s
+            time.sleep(INTERVALO_NORMAL)
         except Exception as e:
             print(f"❌ Erro API Normal: {e}")
             time.sleep(INTERVALO_NORMAL)
@@ -917,7 +976,7 @@ def calcular_previsao():
     }
 
 # =============================================================================
-# SISTEMA DE APRENDIZADO CORRIGIDO
+# SISTEMA DE APRENDIZADO
 # =============================================================================
 
 def verificar_previsoes_anteriores():
@@ -938,26 +997,21 @@ def verificar_previsoes_anteriores():
         else:
             cache['estatisticas']['erros'] += 1
         
-        # 🔥 ATUALIZA CADA ESTRATÉGIA INDIVIDUALMENTE
+        # ATUALIZA CADA ESTRATÉGIA INDIVIDUALMENTE
         for estrategia in ultima.get('estrategias', []):
-            nome_clean = estrategia.split(' ')[0]  # Pega só o nome principal
+            nome_clean = estrategia.split(' ')[0]
             
-            # Garante que a estratégia existe no dicionário
             if nome_clean not in cache['estatisticas']['estrategias']:
                 cache['estatisticas']['estrategias'][nome_clean] = {'acertos': 0, 'erros': 0, 'total': 0}
             
-            # Incrementa total
             cache['estatisticas']['estrategias'][nome_clean]['total'] += 1
             
-            # Incrementa acertos/erros
             if acertou:
                 cache['estatisticas']['estrategias'][nome_clean]['acertos'] += 1
             else:
                 cache['estatisticas']['estrategias'][nome_clean]['erros'] += 1
-            
-            print(f"   📊 Estratégia {nome_clean}: {cache['estatisticas']['estrategias'][nome_clean]}")
         
-        # ADICIONA AO HISTÓRICO LOCAL (para o frontend)
+        # ADICIONA AO HISTÓRICO LOCAL
         previsao_historico = {
             'data': datetime.now().strftime('%d/%m %H:%M:%S'),
             'previsao': ultima['previsao'],
@@ -1126,7 +1180,7 @@ def status_fontes():
     return jsonify(fontes_status)
 
 # =============================================================================
-# LOOP PESADO (2 segundos)
+# LOOP PESADO
 # =============================================================================
 
 def loop_pesado():
@@ -1148,6 +1202,7 @@ if __name__ == "__main__":
     print("✅ API Latest: Polling inteligente (1s)")
     print("✅ API Normal: Fallback histórico (1s)")
     print("✅ Anti-duplicidade: PRIMEIRA FONTE VENCE")
+    print("✅ Cache individual por fonte")
     print("✅ Histórico de previsões no banco")
     print("="*70)
     
