@@ -865,38 +865,47 @@ def calcular_previsao():
     }
 
 # =============================================================================
-# SISTEMA DE APRENDIZADO (CORRIGIDO!)
+# SISTEMA DE APRENDIZADO CORRIGIDO
 # =============================================================================
 
 def verificar_previsoes_anteriores():
-    """Verifica se a última previsão acertou e salva no banco"""
+    """Verifica se a última previsão acertou e ATUALIZA AS ESTRATÉGIAS"""
     if cache.get('ultima_previsao') and cache.get('ultimo_resultado_real'):
         ultima = cache['ultima_previsao']
         resultado_real = cache['ultimo_resultado_real']
         
         acertou = (ultima['previsao'] == resultado_real)
         
-        # SALVA NO BANCO!
+        # SALVA NO BANCO
         salvar_previsao(ultima, resultado_real, acertou)
         
-        # Atualiza estatísticas
+        # ATUALIZA ESTATÍSTICAS GERAIS
         cache['estatisticas']['total_previsoes'] += 1
         if acertou:
             cache['estatisticas']['acertos'] += 1
         else:
             cache['estatisticas']['erros'] += 1
         
-        # Atualiza estatísticas por estratégia
+        # 🔥 ATUALIZA CADA ESTRATÉGIA INDIVIDUALMENTE
         for estrategia in ultima.get('estrategias', []):
-            nome_clean = estrategia.split(' ')[0]
-            if nome_clean in cache['estatisticas']['estrategias']:
-                cache['estatisticas']['estrategias'][nome_clean]['total'] += 1
-                if acertou:
-                    cache['estatisticas']['estrategias'][nome_clean]['acertos'] += 1
-                else:
-                    cache['estatisticas']['estrategias'][nome_clean]['erros'] += 1
+            nome_clean = estrategia.split(' ')[0]  # Pega só o nome principal
+            
+            # Garante que a estratégia existe no dicionário
+            if nome_clean not in cache['estatisticas']['estrategias']:
+                cache['estatisticas']['estrategias'][nome_clean] = {'acertos': 0, 'erros': 0, 'total': 0}
+            
+            # Incrementa total
+            cache['estatisticas']['estrategias'][nome_clean]['total'] += 1
+            
+            # Incrementa acertos/erros
+            if acertou:
+                cache['estatisticas']['estrategias'][nome_clean]['acertos'] += 1
+            else:
+                cache['estatisticas']['estrategias'][nome_clean]['erros'] += 1
+            
+            print(f"   📊 Estratégia {nome_clean}: {cache['estatisticas']['estrategias'][nome_clean]}")
         
-        # Atualiza cache local para o frontend
+        # ADICIONA AO HISTÓRICO LOCAL (para o frontend)
         previsao_historico = {
             'data': datetime.now().strftime('%d/%m %H:%M:%S'),
             'previsao': ultima['previsao'],
@@ -912,6 +921,7 @@ def verificar_previsoes_anteriores():
             cache['estatisticas']['ultimas_20_previsoes'].pop()
         
         print(f"\n{'✅' if acertou else '❌'} PREVISÃO: {ultima['simbolo']} {ultima['previsao']} vs {resultado_real}")
+        print(f"📊 Total: {cache['estatisticas']['acertos']}/{cache['estatisticas']['total_previsoes']} ({calcular_precisao()}%)")
         
         cache['ultima_previsao'] = None
         cache['ultimo_resultado_real'] = None
@@ -921,7 +931,6 @@ def calcular_precisao():
     if total == 0:
         return 0
     return round((cache['estatisticas']['acertos'] / total) * 100)
-
 # =============================================================================
 # ATUALIZAÇÃO DE DADOS LEVES
 # =============================================================================
