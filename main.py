@@ -1,10 +1,8 @@
-# main.py - SISTEMA TURBO COM 3 FONTES + HISTÓRICO + ANTI-DUPLICIDADE
+# main.py - SISTEMA TURBO COM 3 FONTES + HISTÓRICO + ANTI-DUPLICIDADE FORTE
 # ✅ WebSocket (tempo real)
 # ✅ API Latest (polling inteligente)
 # ✅ API Normal (fallback histórico)
-# ✅ Histórico de previsões no banco
-# ✅ Anti-duplicidade: a primeira fonte que chegar VENCE
-# ✅ Cache individual por fonte para evitar duplicatas na origem
+# ✅ Anti-duplicidade FORTE: 3 camadas de proteção
 
 import os
 import time
@@ -68,57 +66,63 @@ INTERVALO_NORMAL = 1  # 1 segundo para API normal (fallback)
 PORT = int(os.environ.get("PORT", 5000))
 
 # =============================================================================
-# SISTEMA ANTI-DUPLICIDADE - A PRIMEIRA QUE CHEGAR VENCE
+# 🛡️ SISTEMA ANTI-DUPLICIDADE FORTE - 3 CAMADAS
 # =============================================================================
-ids_processados = set()  # Cache global dos IDs já processados
-ids_por_fonte = {  # Cache individual por fonte para evitar duplicatas na origem
+
+# CAMADA 1: Cache global de todos os IDs já processados
+ids_processados = set()
+lock_ids = threading.Lock()
+
+# CAMADA 2: Cache por fonte para evitar duplicatas na origem
+ids_por_fonte = {
     'websocket': set(),
     'latest': set(),
     'api_normal': set()
 }
-lock_ids = threading.Lock()  # Para acesso thread-safe
 
-def primeira_que_chegar(rodada):
+# CAMADA 3: Último ID visto por fonte (controle extra)
+ultimo_id_por_fonte = {
+    'websocket': None,
+    'latest': None,
+    'api_normal': None
+}
+
+def verificar_duplicata_forte(rodada):
     """
-    Verifica se esta rodada JÁ FOI PROCESSADA por QUALQUER fonte.
-    A primeira fonte que entregar a rodada VENCE, as outras são ignoradas.
+    🛡️ ANTI-DUPLICIDADE FORTE - 3 CAMADAS DE PROTEÇÃO
+    Retorna True se for duplicata, False se for nova
     """
-    global ids_processados
-    
     with lock_ids:
         rodada_id = rodada.get('id')
+        fonte = rodada.get('fonte', 'desconhecida')
+        
         if not rodada_id:
-            return False  # Sem ID, deixa passar (improvável)
+            return False
         
-        # Se já vimos este ID antes (de QUALQUER fonte), é duplicata
+        # CAMADA 1: Verifica se já foi processado globalmente
         if rodada_id in ids_processados:
-            fonte = rodada.get('fonte', 'desconhecida')
-            print(f"🔄 BLOQUEADO GLOBAL: {fonte} tentou enviar rodada {rodada_id[-8:]} que já foi processada")
-            return True  # ✅ É DUPLICATA - BLOQUEIA
-        
-        # É a PRIMEIRA VEZ que vemos este ID
-        ids_processados.add(rodada_id)
-        
-        # Mantém apenas os últimos 2000 IDs (memória eficiente)
-        if len(ids_processados) > 2000:
-            # Converte para lista, mantém os mais recentes
-            ids_processados = set(list(ids_processados)[-2000:])
-        
-        return False  # ✅ NÃO É DUPLICATA - PODE PROCESSAR
-
-def verificar_duplicata_na_fonte(rodada_id, fonte):
-    """
-    Verifica se a rodada já foi processada pela MESMA fonte.
-    Isso evita que uma fonte envie a mesma rodada duas vezes.
-    """
-    with lock_ids:
-        if rodada_id in ids_por_fonte.get(fonte, set()):
-            print(f"🔄 BLOQUEADO FONTE: {fonte} tentou reenviar rodada {rodada_id[-8:]}")
+            print(f"🛡️ CAMADA 1 BLOQUEIO: {fonte} tentou ID {rodada_id[-8:]} (já processado)")
             return True
         
-        ids_por_fonte[fonte].add(rodada_id)
+        # CAMADA 2: Verifica se a mesma fonte já enviou este ID
+        if rodada_id in ids_por_fonte.get(fonte, set()):
+            print(f"🛡️ CAMADA 2 BLOQUEIO: {fonte} reenviou ID {rodada_id[-8:]}")
+            return True
         
-        # Mantém apenas os últimos 500 IDs por fonte
+        # CAMADA 3: Verifica se é o mesmo que o último da fonte
+        if rodada_id == ultimo_id_por_fonte.get(fonte):
+            print(f"🛡️ CAMADA 3 BLOQUEIO: {fonte} repetiu último ID {rodada_id[-8:]}")
+            return True
+        
+        # PASSOU POR TODAS AS CAMADAS - É NOVO!
+        ids_processados.add(rodada_id)
+        ids_por_fonte[fonte].add(rodada_id)
+        ultimo_id_por_fonte[fonte] = rodada_id
+        
+        # Limpeza dos caches (mantém apenas os últimos)
+        if len(ids_processados) > 2000:
+            ids_processados = set(list(ids_processados)[-2000:])
+        
         if len(ids_por_fonte[fonte]) > 500:
             ids_por_fonte[fonte] = set(list(ids_por_fonte[fonte])[-500:])
         
@@ -128,11 +132,6 @@ def verificar_duplicata_na_fonte(rodada_id, fonte):
 # FILA DE PROCESSAMENTO
 # =============================================================================
 fila_rodadas = deque(maxlen=500)
-ultimo_id_por_fonte = {  # Último ID visto por cada fonte
-    'websocket': None,
-    'latest': None,
-    'api_normal': None
-}
 
 # Status das fontes
 fontes_status = {
@@ -428,7 +427,7 @@ def atualizar_dados_pesados():
 
 def on_ws_message(ws, message):
     """Recebe mensagens do WebSocket"""
-    global ultimo_id_por_fonte, fila_rodadas
+    global fila_rodadas
     
     try:
         data = json.loads(message)
@@ -438,43 +437,39 @@ def on_ws_message(ws, message):
             result = game_data['result']
             
             novo_id = game_data.get('id')
-            fonte = 'websocket'
             
-            # Verifica se é novo para esta fonte
-            if novo_id and novo_id != ultimo_id_por_fonte[fonte]:
-                # Verifica duplicata na própria fonte
-                if verificar_duplicata_na_fonte(novo_id, fonte):
-                    fontes_status[fonte]['duplicatas'] += 1
-                    return
-                
-                ultimo_id_por_fonte[fonte] = novo_id
-                
-                player_dice = result.get('playerDice', {})
-                banker_dice = result.get('bankerDice', {})
-                
-                player_score = player_dice.get('first', 0) + player_dice.get('second', 0)
-                banker_score = banker_dice.get('first', 0) + banker_dice.get('second', 0)
-                
-                outcome = result.get('outcome', '')
-                if outcome == 'PlayerWon':
-                    resultado = 'PLAYER'
-                elif outcome == 'BankerWon':
-                    resultado = 'BANKER'
-                else:
-                    resultado = 'TIE'
-                
-                rodada = {
-                    'id': novo_id,
-                    'data_hora': datetime.now(timezone.utc),
-                    'player_score': player_score,
-                    'banker_score': banker_score,
-                    'resultado': resultado,
-                    'fonte': fonte
-                }
-                
-                fila_rodadas.append(rodada)
-                fontes_status[fonte]['total'] += 1
-                print(f"\n⚡ WS TEMPO REAL: {player_score} vs {banker_score} - {resultado} [ID: {novo_id[-8:]}]")
+            player_dice = result.get('playerDice', {})
+            banker_dice = result.get('bankerDice', {})
+            
+            player_score = player_dice.get('first', 0) + player_dice.get('second', 0)
+            banker_score = banker_dice.get('first', 0) + banker_dice.get('second', 0)
+            
+            outcome = result.get('outcome', '')
+            if outcome == 'PlayerWon':
+                resultado = 'PLAYER'
+            elif outcome == 'BankerWon':
+                resultado = 'BANKER'
+            else:
+                resultado = 'TIE'
+            
+            rodada = {
+                'id': novo_id,
+                'data_hora': datetime.now(timezone.utc),
+                'player_score': player_score,
+                'banker_score': banker_score,
+                'resultado': resultado,
+                'fonte': 'websocket'
+            }
+            
+            # 🛡️ VERIFICA ANTI-DUPLICIDADE FORTE
+            if verificar_duplicata_forte(rodada):
+                fontes_status['websocket']['duplicatas'] += 1
+                return
+            
+            fila_rodadas.append(rodada)
+            fontes_status['websocket']['total'] += 1
+            fontes_status['websocket']['status'] = 'conectado'
+            print(f"\n⚡ WS NOVO: {player_score} vs {banker_score} - {resultado} [ID: {novo_id[-8:]}]")
                 
     except Exception as e:
         print(f"⚠️ Erro WS: {e}")
@@ -513,8 +508,6 @@ def iniciar_websocket():
 
 def buscar_latest():
     """Busca apenas a última rodada"""
-    global ultimo_id_por_fonte
-    
     try:
         response = requests.get(LATEST_API_URL, headers=HEADERS, timeout=3)
         
@@ -524,43 +517,38 @@ def buscar_latest():
             novo_id = dados.get('id')
             data = dados.get('data', {})
             result = data.get('result', {})
-            fonte = 'latest'
             
-            # Verifica se é novo para esta fonte
-            if novo_id and novo_id != ultimo_id_por_fonte[fonte]:
-                # Verifica duplicata na própria fonte
-                if verificar_duplicata_na_fonte(novo_id, fonte):
-                    fontes_status[fonte]['duplicatas'] += 1
-                    return None
-                
-                ultimo_id_por_fonte[fonte] = novo_id
-                
-                player_dice = result.get('playerDice', {})
-                banker_dice = result.get('bankerDice', {})
-                
-                player_score = player_dice.get('first', 0) + player_dice.get('second', 0)
-                banker_score = banker_dice.get('first', 0) + banker_dice.get('second', 0)
-                
-                outcome = result.get('outcome', '')
-                if outcome == 'PlayerWon':
-                    resultado = 'PLAYER'
-                elif outcome == 'BankerWon':
-                    resultado = 'BANKER'
-                else:
-                    resultado = 'TIE'
-                
-                rodada = {
-                    'id': novo_id,
-                    'data_hora': datetime.now(timezone.utc),
-                    'player_score': player_score,
-                    'banker_score': banker_score,
-                    'resultado': resultado,
-                    'fonte': fonte
-                }
-                
-                fontes_status[fonte]['total'] += 1
-                print(f"\n📡 LATEST: {player_score} vs {banker_score} - {resultado} [ID: {novo_id[-8:]}]")
-                return rodada
+            player_dice = result.get('playerDice', {})
+            banker_dice = result.get('bankerDice', {})
+            
+            player_score = player_dice.get('first', 0) + player_dice.get('second', 0)
+            banker_score = banker_dice.get('first', 0) + banker_dice.get('second', 0)
+            
+            outcome = result.get('outcome', '')
+            if outcome == 'PlayerWon':
+                resultado = 'PLAYER'
+            elif outcome == 'BankerWon':
+                resultado = 'BANKER'
+            else:
+                resultado = 'TIE'
+            
+            rodada = {
+                'id': novo_id,
+                'data_hora': datetime.now(timezone.utc),
+                'player_score': player_score,
+                'banker_score': banker_score,
+                'resultado': resultado,
+                'fonte': 'latest'
+            }
+            
+            # 🛡️ VERIFICA ANTI-DUPLICIDADE FORTE
+            if verificar_duplicata_forte(rodada):
+                fontes_status['latest']['duplicatas'] += 1
+                return None
+            
+            fontes_status['latest']['total'] += 1
+            print(f"\n📡 LATEST NOVO: {player_score} vs {banker_score} - {resultado} [ID: {novo_id[-8:]}]")
+            return rodada
         
         return None
     except Exception as e:
@@ -574,8 +562,6 @@ def buscar_latest():
 
 def buscar_api_normal():
     """Busca histórico da API normal"""
-    global ultimo_id_por_fonte
-    
     try:
         params = API_PARAMS.copy()
         params['_t'] = int(time.time() * 1000)
@@ -585,56 +571,50 @@ def buscar_api_normal():
         dados = response.json()
         
         if dados and len(dados) > 0:
-            primeiro = dados[0]
-            data = primeiro.get('data', {})
-            novo_id = data.get('id')
-            fonte = 'api_normal'
+            rodadas_novas = []
             
-            # Verifica se é novo para esta fonte
-            if novo_id and novo_id != ultimo_id_por_fonte[fonte]:
-                # Verifica duplicata na própria fonte
-                if verificar_duplicata_na_fonte(novo_id, fonte):
-                    fontes_status[fonte]['duplicatas'] += 1
-                    return None
-                
-                ultimo_id_por_fonte[fonte] = novo_id
-                
-                rodadas = []
-                for item in dados[:10]:
-                    try:
-                        data = item.get('data', {})
-                        result = data.get('result', {})
-                        player_dice = result.get('playerDice', {})
-                        banker_dice = result.get('bankerDice', {})
+            for item in dados[:10]:
+                try:
+                    data = item.get('data', {})
+                    result = data.get('result', {})
+                    player_dice = result.get('playerDice', {})
+                    banker_dice = result.get('bankerDice', {})
+                    
+                    player_score = player_dice.get('first', 0) + player_dice.get('second', 0)
+                    banker_score = banker_dice.get('first', 0) + banker_dice.get('second', 0)
+                    
+                    outcome = result.get('outcome', '')
+                    if outcome == 'PlayerWon':
+                        resultado = 'PLAYER'
+                    elif outcome == 'BankerWon':
+                        resultado = 'BANKER'
+                    else:
+                        resultado = 'TIE'
+                    
+                    data_hora = datetime.fromisoformat(data.get('settledAt', '').replace('Z', '+00:00'))
+                    
+                    rodada = {
+                        'id': data.get('id'),
+                        'data_hora': data_hora,
+                        'player_score': player_score,
+                        'banker_score': banker_score,
+                        'resultado': resultado,
+                        'fonte': 'api_normal'
+                    }
+                    
+                    # 🛡️ VERIFICA ANTI-DUPLICIDADE FORTE
+                    if not verificar_duplicata_forte(rodada):
+                        rodadas_novas.append(rodada)
+                    else:
+                        fontes_status['api_normal']['duplicatas'] += 1
                         
-                        player_score = player_dice.get('first', 0) + player_dice.get('second', 0)
-                        banker_score = banker_dice.get('first', 0) + banker_dice.get('second', 0)
-                        
-                        outcome = result.get('outcome', '')
-                        if outcome == 'PlayerWon':
-                            resultado = 'PLAYER'
-                        elif outcome == 'BankerWon':
-                            resultado = 'BANKER'
-                        else:
-                            resultado = 'TIE'
-                        
-                        data_hora = datetime.fromisoformat(data.get('settledAt', '').replace('Z', '+00:00'))
-                        
-                        rodada = {
-                            'id': data.get('id'),
-                            'data_hora': data_hora,
-                            'player_score': player_score,
-                            'banker_score': banker_score,
-                            'resultado': resultado,
-                            'fonte': fonte
-                        }
-                        rodadas.append(rodada)
-                    except Exception as e:
-                        continue
-                
-                fontes_status[fonte]['total'] += len(rodadas)
-                print(f"\n📚 API NORMAL: {len(rodadas)} rodadas [ID mais recente: {novo_id[-8:]}]")
-                return rodadas
+                except Exception as e:
+                    continue
+            
+            if rodadas_novas:
+                fontes_status['api_normal']['total'] += len(rodadas_novas)
+                print(f"\n📚 API NORMAL: {len(rodadas_novas)} rodadas novas")
+                return rodadas_novas
         
         return None
     except Exception as e:
@@ -643,13 +623,13 @@ def buscar_api_normal():
         return None
 
 # =============================================================================
-# 🔥 PROCESSADOR DA FILA (COM ANTI-DUPLICIDADE)
+# 🔥 PROCESSADOR DA FILA (ÚLTIMA CAMADA DE PROTEÇÃO)
 # =============================================================================
 
 def processar_fila():
-    """Processa a fila - a PRIMEIRA fonte que chegar VENCE, as outras são ignoradas"""
+    """Processa a fila - última camada de proteção"""
     print("🚀 Processador TURBO iniciado...")
-    print("⚡ Sistema anti-duplicidade ATIVO: primeira fonte vence!")
+    print("🛡️ ANTI-DUPLICIDADE FORTE ATIVADO - 3 CAMADAS")
     
     while True:
         try:
@@ -663,34 +643,21 @@ def processar_fila():
                 
                 for rodada in batch:
                     rodada_id = rodada.get('id')
-                    if rodada_id not in ids_vistos:
+                    if rodada_id and rodada_id not in ids_vistos:
                         ids_vistos.add(rodada_id)
                         batch_unicos.append(rodada)
                 
-                # Processa apenas as rodadas únicas
-                rodadas_para_salvar = []
-                duplicatas_globais = 0
-                
-                for rodada in batch_unicos:
-                    # 🔥 VERIFICAÇÃO CRÍTICA: esta rodada JÁ FOI VISTA GLOBALMENTE?
-                    if primeira_que_chegar(rodada):
-                        duplicatas_globais += 1
-                        continue  # Ignora duplicatas globais
-                    
-                    # É a PRIMEIRA VEZ que vemos esta rodada
-                    rodadas_para_salvar.append(rodada)
-                
-                # Salva apenas as rodadas que passaram (primeiras de cada ID)
+                # Salva as rodadas
                 saved = 0
-                for rodada in rodadas_para_salvar:
+                for rodada in batch_unicos:
                     if salvar_rodada(rodada, rodada.get('fonte', 'desconhecida')):
                         saved += 1
                         cache['ultimo_resultado_real'] = rodada['resultado']
                         print(f"✅ SALVO: {rodada['fonte']} - {rodada['player_score']} vs {rodada['banker_score']} - {rodada['resultado']}")
                 
-                total_duplicatas = (len(batch) - len(batch_unicos)) + duplicatas_globais
-                if saved > 0 or total_duplicatas > 0:
-                    print(f"💾 TURBO: salvou {saved} | bloqueou {total_duplicatas} duplicatas")
+                duplicatas_batch = len(batch) - len(batch_unicos)
+                if saved > 0 or duplicatas_batch > 0:
+                    print(f"💾 TURBO: salvou {saved} | bloqueou {duplicatas_batch} duplicatas no batch")
                     if saved > 0:
                         atualizar_dados_leves()
             
@@ -980,7 +947,7 @@ def calcular_previsao():
 # =============================================================================
 
 def verificar_previsoes_anteriores():
-    """Verifica se a última previsão acertou e ATUALIZA AS ESTRATÉGIAS"""
+    """Verifica se a última previsão acertou"""
     if cache.get('ultima_previsao') and cache.get('ultimo_resultado_real'):
         ultima = cache['ultima_previsao']
         resultado_real = cache['ultimo_resultado_real']
@@ -997,7 +964,7 @@ def verificar_previsoes_anteriores():
         else:
             cache['estatisticas']['erros'] += 1
         
-        # ATUALIZA CADA ESTRATÉGIA INDIVIDUALMENTE
+        # ATUALIZA CADA ESTRATÉGIA
         for estrategia in ultima.get('estrategias', []):
             nome_clean = estrategia.split(' ')[0]
             
@@ -1196,13 +1163,15 @@ def loop_pesado():
 # =============================================================================
 if __name__ == "__main__":
     print("="*70)
-    print("🚀 BOT BACBO - SISTEMA TURBO COM 3 FONTES + ANTI-DUPLICIDADE")
+    print("🚀 BOT BACBO - SISTEMA TURBO COM 3 FONTES + ANTI-DUPLICIDADE FORTE")
     print("="*70)
     print("✅ WebSocket: Tempo real")
     print("✅ API Latest: Polling inteligente (1s)")
     print("✅ API Normal: Fallback histórico (1s)")
-    print("✅ Anti-duplicidade: PRIMEIRA FONTE VENCE")
-    print("✅ Cache individual por fonte")
+    print("🛡️ ANTI-DUPLICIDADE: 3 CAMADAS DE PROTEÇÃO")
+    print("   1. Cache global de IDs")
+    print("   2. Cache por fonte")
+    print("   3. Último ID por fonte")
     print("✅ Histórico de previsões no banco")
     print("="*70)
     
