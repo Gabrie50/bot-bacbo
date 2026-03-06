@@ -3,12 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🎲 BacBo Analytics - Gemini 3.1 Pro</title>
+    <title>🎲 BacBo Analytics - 8 Estratégias</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Puter.js para Gemini -->
-    <script src="https://js.puter.com/v2/"></script>
     <style>
         * {
             margin: 0;
@@ -107,26 +105,15 @@
             100% { opacity: 1; }
         }
 
-        /* Cards de Previsão - Layout duplo */
-        .previsao-duplo {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-            margin-bottom: 25px;
-        }
-
-        /* Card de Previsão Tradicional */
-        .previsao-card, .gemini-card {
+        /* Card de Previsão */
+        .previsao-card {
             background: linear-gradient(145deg, #1a1e24 0%, #15181c 100%);
             border: 1px solid #00ff8840;
             border-radius: 16px;
             padding: 25px;
+            margin-bottom: 25px;
             position: relative;
             overflow: hidden;
-        }
-
-        .gemini-card {
-            border: 1px solid #4285f440;
         }
 
         .previsao-card::before {
@@ -137,16 +124,6 @@
             right: 0;
             height: 2px;
             background: linear-gradient(90deg, #00ff88, #4d4dff, #ff4d4d);
-        }
-
-        .gemini-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 2px;
-            background: linear-gradient(90deg, #4285f4, #34a853, #ea4335);
         }
 
         .previsao-header {
@@ -165,10 +142,6 @@
         .previsao-titulo i {
             color: #00ff88;
             margin-right: 10px;
-        }
-
-        .gemini-titulo i {
-            color: #4285f4;
         }
 
         .modo-badge {
@@ -194,12 +167,6 @@
             background: #ffaa0020;
             color: #ffaa00;
             border: 1px solid #ffaa00;
-        }
-
-        .modo-gemini {
-            background: #4285f420;
-            color: #4285f4;
-            border: 1px solid #4285f4;
         }
 
         .previsao-grid {
@@ -238,54 +205,6 @@
             color: #00ff88;
         }
 
-        .gemini-confianca {
-            color: #4285f4;
-        }
-
-        .raciocinio-box {
-            margin-top: 20px;
-            padding: 20px;
-            background: #1a1f2e;
-            border-radius: 12px;
-            border-left: 4px solid #4285f4;
-            font-size: 14px;
-            color: #e0e0e0;
-        }
-
-        .raciocinio-label {
-            color: #4285f4;
-            font-size: 14px;
-            font-weight: 600;
-            margin-bottom: 15px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            border-bottom: 1px solid #2a2f35;
-            padding-bottom: 10px;
-        }
-
-        .raciocinio-passo {
-            margin-bottom: 12px;
-            padding: 8px 12px;
-            background: #0a0c0f;
-            border-radius: 8px;
-            border-left: 3px solid #4285f4;
-        }
-
-        .raciocinio-passo-titulo {
-            color: #4285f4;
-            font-weight: 600;
-            font-size: 13px;
-            margin-bottom: 5px;
-        }
-
-        .raciocinio-passo-conteudo {
-            color: #e0e0e0;
-            font-size: 12px;
-            line-height: 1.6;
-            white-space: pre-line;
-        }
-
         .estrategias-list {
             margin-top: 20px;
             display: flex;
@@ -308,12 +227,6 @@
             background: #00ff8820;
             border-color: #00ff88;
             color: #00ff88;
-        }
-
-        .estrategia-tag.gemini {
-            background: #4285f420;
-            border-color: #4285f4;
-            color: #4285f4;
         }
 
         .delay-warning {
@@ -759,9 +672,6 @@
 
         /* Responsividade */
         @media (max-width: 768px) {
-            .previsao-duplo {
-                grid-template-columns: 1fr;
-            }
             .row {
                 flex-direction: column;
             }
@@ -780,7 +690,7 @@
         <div class="header">
             <h1>
                 <i class="bi bi-dice-6-fill"></i>
-                Bac Bo - Gemini 3.1 Pro IA
+                Bac Bo - 8 Estratégias PRO
                 <span class="fila-badge" id="filaStatus">📦 Fila: 0</span>
             </h1>
             <div class="live-badge">
@@ -790,97 +700,39 @@
             </div>
         </div>
 
-        <!-- Cards de Previsão em Dupla -->
-        <div class="previsao-duplo">
-            <!-- Card Tradicional (8 Estratégias) -->
-            <div class="previsao-card">
-                <div class="previsao-header">
-                    <div class="previsao-titulo">
-                        <i class="bi bi-graph-up-arrow"></i>
-                        PREVISÃO (8 ESTRATÉGIAS)
-                    </div>
-                    <div class="modo-badge" id="modoAlgoritmo">-</div>
+        <!-- Card de Previsão da Próxima Cor -->
+        <div class="previsao-card" id="previsaoCard">
+            <div class="previsao-header">
+                <div class="previsao-titulo">
+                    <i class="bi bi-graph-up-arrow"></i>
+                    PREVISÃO DA PRÓXIMA COR (8 ESTRATÉGIAS)
                 </div>
+                <div class="modo-badge" id="modoAlgoritmo">ANALISANDO...</div>
+            </div>
 
-                <div class="previsao-grid">
-                    <div class="previsao-item">
-                        <div class="previsao-label">MODO</div>
-                        <div class="previsao-valor" id="modoDescricao">-</div>
-                    </div>
-                    <div class="previsao-item">
-                        <div class="previsao-label">PRÓXIMA</div>
-                        <div class="previsao-cor" id="proximaCorSimbolo">⚪</div>
-                        <div class="previsao-valor" id="proximaCorTexto">-</div>
-                    </div>
-                    <div class="previsao-item">
-                        <div class="previsao-label">CONFIANÇA</div>
-                        <div class="previsao-confianca" id="confianca">0%</div>
-                    </div>
+            <div class="previsao-grid">
+                <div class="previsao-item">
+                    <div class="previsao-label">MODO DETECTADO</div>
+                    <div class="previsao-valor" id="modoDescricao">-</div>
                 </div>
-
-                <div class="estrategias-list" id="estrategiasAtivas">
-                    <span class="estrategia-tag">🧠 Aguardando dados</span>
+                <div class="previsao-item">
+                    <div class="previsao-label">PRÓXIMA COR</div>
+                    <div class="previsao-cor" id="proximaCorSimbolo">⚪</div>
+                    <div class="previsao-valor" id="proximaCorTexto">AGUARDANDO</div>
+                </div>
+                <div class="previsao-item">
+                    <div class="previsao-label">CONFIANÇA</div>
+                    <div class="previsao-confianca" id="confianca">0%</div>
                 </div>
             </div>
 
-            <!-- Card GEMINI 3.1 PRO -->
-            <div class="gemini-card">
-                <div class="previsao-header">
-                    <div class="previsao-titulo gemini-titulo">
-                        <i class="bi bi-robot"></i>
-                        GEMINI 3.1 PRO
-                        <span class="badge bg-info ms-2">7s</span>
-                    </div>
-                    <div class="modo-badge modo-gemini" id="geminiModo">ANALISANDO...</div>
-                </div>
+            <div class="estrategias-list" id="estrategiasAtivas">
+                <span class="estrategia-tag">🧠 Nenhuma estratégia ativa</span>
+            </div>
 
-                <div class="previsao-grid">
-                    <div class="previsao-item">
-                        <div class="previsao-label">PREVISÃO</div>
-                        <div class="previsao-cor" id="geminiCor">⚪</div>
-                        <div class="previsao-valor" id="geminiPrevisao">AGUARDANDO</div>
-                    </div>
-                    <div class="previsao-item">
-                        <div class="previsao-label">CONFIANÇA</div>
-                        <div class="previsao-confianca gemini-confianca" id="geminiConfianca">0%</div>
-                    </div>
-                </div>
-
-                <div class="raciocinio-box" id="geminiRaciocinio">
-                    <div class="raciocinio-label">
-                        <i class="bi bi-braces"></i> 🧠 MEU PROCESSO MENTAL PASSO A PASSO
-                    </div>
-                    <div id="geminiPassos">
-                        <div class="raciocinio-passo">
-                            <div class="raciocinio-passo-titulo">📥 PASSO 1: RECEBENDO DADOS</div>
-                            <div class="raciocinio-passo-conteudo" id="passo1">Aguardando rodadas...</div>
-                        </div>
-                        <div class="raciocinio-passo">
-                            <div class="raciocinio-passo-titulo">🔢 PASSO 2: CALCULANDO SOMAS</div>
-                            <div class="raciocinio-passo-conteudo" id="passo2">-</div>
-                        </div>
-                        <div class="raciocinio-passo">
-                            <div class="raciocinio-passo-titulo">📊 PASSO 3: HISTÓRICO</div>
-                            <div class="raciocinio-passo-conteudo" id="passo3">-</div>
-                        </div>
-                        <div class="raciocinio-passo">
-                            <div class="raciocinio-passo-titulo">📈 PASSO 4: ANÁLISE GRÁFICA</div>
-                            <div class="raciocinio-passo-conteudo" id="passo4">-</div>
-                        </div>
-                        <div class="raciocinio-passo">
-                            <div class="raciocinio-passo-titulo">🔍 PASSO 5: PADRÕES DETECTADOS</div>
-                            <div class="raciocinio-passo-conteudo" id="passo5">-</div>
-                        </div>
-                        <div class="raciocinio-passo">
-                            <div class="raciocinio-passo-titulo">✅ PASSO 6: CONCLUSÃO</div>
-                            <div class="raciocinio-passo-conteudo" id="passo6">-</div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="estrategias-list" id="geminiEstrategias">
-                    <span class="estrategia-tag gemini">🧠 Padrões detectados</span>
-                </div>
+            <div id="delayWarning" style="display: none;" class="delay-warning">
+                <i class="bi bi-exclamation-triangle"></i>
+                ⚠️ DELAY PÓS-EMPATE ATIVO - IGNORAR PRÓXIMA RODADA
             </div>
         </div>
 
@@ -938,7 +790,7 @@
                 ÚLTIMAS 20 PREVISÕES
             </div>
             <div class="timeline-grid" id="timelineGrid">
-                <div class="loading">Nenhuma previsão ainda</div>
+                <div class="loading">Carregando...</div>
             </div>
         </div>
 
@@ -984,7 +836,7 @@
                     <div class="card-title">
                         <i class="bi bi-pie-chart-fill"></i>
                         Distribuição
-                        <span class="info-badge" id="pizzaInfo">0 rodadas</span>
+                        <span class="info-badge" id="pizzaInfo">período atual</span>
                     </div>
                     <div class="chart-container">
                         <canvas id="pizzaChart"></canvas>
@@ -1040,7 +892,6 @@
         const CONFIG = {
             INTERVALO_RELOGIO: 1000,
             INTERVALO_ATUALIZACAO: 1000,
-            INTERVALO_GEMINI: 7000,  // 7 SEGUNDOS!
             LIMITE_PADRAO: 50
         };
 
@@ -1050,12 +901,11 @@
         let filtroAtual = null;
         let limiteAtual = CONFIG.LIMITE_PADRAO;
         let ultimaAtualizacao = 0;
-        let puterCarregado = false;
 
-        // Histórico de previsões (ZERADO!)
+        // Histórico de previsões
         let historicoPrevisoes = [];
 
-        // Estatísticas das estratégias (ZERADAS!)
+        // Estatísticas das estratégias
         let estrategiasStats = {
             'Compensação': { acertos: 0, erros: 0, total: 0 },
             'Paredão': { acertos: 0, erros: 0, total: 0 },
@@ -1078,139 +928,6 @@
                 seen.add(chave);
                 return true;
             });
-        }
-
-        // =========================================================================
-        // VERIFICA PUTER.JS
-        // =========================================================================
-        function verificarPuter() {
-            if (typeof puter !== 'undefined' && puter.ai) {
-                puterCarregado = true;
-                console.log('✅ Puter.js carregado! Gemini disponível');
-                document.getElementById('geminiModo').textContent = 'GEMINI ATIVO';
-                return true;
-            }
-            return false;
-        }
-
-        setTimeout(() => {
-            if (!verificarPuter()) {
-                console.warn('⚠️ Puter.js não carregou');
-                document.getElementById('geminiModo').textContent = 'FALLBACK';
-            }
-        }, 2000);
-
-        // =========================================================================
-        // FUNÇÃO PARA PREVISÃO COM GEMINI 3.1 PRO
-        // =========================================================================
-        async function previsaoGemini() {
-            if (!puterCarregado || !dadosCompletos || dadosCompletos.length < 5) return;
-
-            try {
-                // Pega últimas 10 rodadas
-                const ultimas10 = dadosCompletos.slice(0, 10);
-                
-                // Estatísticas
-                const playerCount = dadosCompletos.filter(r => r.resultado === 'PLAYER').length;
-                const bankerCount = dadosCompletos.filter(r => r.resultado === 'BANKER').length;
-                const tieCount = dadosCompletos.filter(r => r.resultado === 'TIE').length;
-                const total = dadosCompletos.length;
-
-                // Calcula somas para cada rodada
-                const rodadasComSoma = ultimas10.map(r => ({
-                    ...r,
-                    soma: r.player + r.banker,
-                    paridade: (r.player + r.banker) % 2 === 0 ? 'par' : 'ímpar'
-                }));
-
-                // Detecta sequências
-                const ultimosResultados = ultimas10.map(r => r.resultado[0]).join('');
-                const sequencias = {
-                    'BB': (ultimosResultados.match(/B/g) || []).length,
-                    'PP': (ultimosResultados.match(/P/g) || []).length,
-                    'alternancia': /(BP|PB)/g.test(ultimosResultados)
-                };
-
-                // Detecta números extremos
-                const extremos = ultimas10.filter(r => r.player >= 10 || r.banker >= 10).length;
-
-                // Atualiza os passos no HTML
-                document.getElementById('passo1').innerHTML = ultimas10.map(r => `${r.player} vs ${r.banker}`).join('<br>');
-                
-                document.getElementById('passo2').innerHTML = rodadasComSoma.map(r => 
-                    `${r.player} vs ${r.banker} → soma ${r.soma} → ${r.paridade} → ${r.resultado}`
-                ).join('<br>');
-                
-                document.getElementById('passo3').innerHTML = `Últimos 10: ${ultimas10.map(r => r.resultado).join(' → ')}`;
-                
-                document.getElementById('passo4').innerHTML = `
-                    PLAYER: ${playerCount} (${((playerCount/total)*100).toFixed(1)}%)<br>
-                    BANKER: ${bankerCount} (${((bankerCount/total)*100).toFixed(1)}%)<br>
-                    TIE: ${tieCount} (${((tieCount/total)*100).toFixed(1)}%)<br>
-                    Diferença: ${Math.abs(bankerCount - playerCount)}% → Modo ${bankerCount > playerCount ? 'AGRESSIVO (Banker dominando)' : playerCount > bankerCount ? 'AGRESSIVO (Player dominando)' : 'EQUILIBRADO'}
-                `;
-                
-                document.getElementById('passo5').innerHTML = `
-                    - Sequências: ${sequencias.BB} Bankers, ${sequencias.PP} Players<br>
-                    - Alternância: ${sequencias.alternancia ? 'Sim' : 'Não'}<br>
-                    - Números extremos (>=10): ${extremos}<br>
-                    - Clusters de empates: ${tieCount}
-                `;
-
-                // Prompt para o Gemini
-                const prompt = `Analise estas últimas 10 rodadas de Bac Bo e faça uma previsão:
-
-RODADAS:
-${ultimas10.map(r => `${r.player} vs ${r.banker} = ${r.resultado}`).join('\n')}
-
-ESTATÍSTICAS GLOBAIS:
-PLAYER: ${playerCount} (${((playerCount/total)*100).toFixed(1)}%)
-BANKER: ${bankerCount} (${((bankerCount/total)*100).toFixed(1)}%)
-TIE: ${tieCount} (${((tieCount/total)*100).toFixed(1)}%)
-
-Analise os padrões e responda EXATAMENTE neste formato JSON:
-{
-    "raciocinio": "explicação curta do padrão",
-    "previsao": "PLAYER ou BANKER",
-    "confianca": 0-100,
-    "estrategias": ["padrão1", "padrão2"]
-}`;
-
-                const response = await puter.ai.chat(prompt, { 
-                    model: 'gemini-3.1-pro-preview',
-                    stream: false 
-                });
-
-                const texto = response.message?.content?.[0]?.text || response;
-                
-                // Tenta extrair JSON
-                const jsonMatch = texto.match(/\{.*\}/s);
-                if (jsonMatch) {
-                    const data = JSON.parse(jsonMatch[0]);
-                    
-                    document.getElementById('geminiModo').textContent = 'GEMINI 3.1';
-                    document.getElementById('geminiCor').textContent = data.previsao === 'BANKER' ? '🔴' : '🔵';
-                    document.getElementById('geminiPrevisao').textContent = data.previsao;
-                    document.getElementById('geminiConfianca').textContent = data.confianca + '%';
-                    document.getElementById('passo6').innerHTML = data.raciocinio;
-                    
-                    // Atualiza estratégias
-                    const estrategiasDiv = document.getElementById('geminiEstrategias');
-                    let html = '<span class="estrategia-tag gemini">🧠 IA:</span>';
-                    data.estrategias.forEach(e => {
-                        html += `<span class="estrategia-tag gemini">${e}</span>`;
-                    });
-                    estrategiasDiv.innerHTML = html;
-
-                    console.log('✅ Previsão Gemini:', data);
-                } else {
-                    document.getElementById('passo6').innerHTML = texto.substring(0, 200);
-                }
-
-            } catch (error) {
-                console.error('❌ Erro Gemini:', error);
-                document.getElementById('passo6').innerHTML = 'Erro na análise. Tentando novamente...';
-            }
         }
 
         // =========================================================================
@@ -1510,6 +1227,18 @@ Analise os padrões e responda EXATAMENTE neste formato JSON:
                         document.getElementById('totalAcertos').textContent = stats.estatisticas.acertos || 0;
                         document.getElementById('totalErros').textContent = stats.estatisticas.erros || 0;
                         document.getElementById('precisaoGeral').textContent = (stats.estatisticas.precisao || 0) + '%';
+                        
+                        // ATUALIZA AS ESTRATÉGIAS DO BACKEND
+                        if (stats.estatisticas.estrategias) {
+                            estrategiasStats = stats.estatisticas.estrategias;
+                            atualizarTabelaEstrategias();
+                        }
+                        
+                        // ATUALIZA O HISTÓRICO DE PREVISÕES
+                        if (stats.estatisticas.ultimas_20_previsoes) {
+                            historicoPrevisoes = stats.estatisticas.ultimas_20_previsoes;
+                            atualizarTimeline();
+                        }
                     }
                 }
 
@@ -1522,7 +1251,7 @@ Analise os padrões e responda EXATAMENTE neste formato JSON:
 
         // Inicializar
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('🚀 Iniciando BacBo Analytics com GEMINI 3.1 PRO (7s)...');
+            console.log('🚀 Iniciando BacBo Analytics...');
             
             criarPizzaChart(0, 0, 0);
             atualizarTimeline();
@@ -1532,12 +1261,6 @@ Analise os padrões e responda EXATAMENTE neste formato JSON:
             atualizarRelogio();
             setInterval(atualizarRelogio, CONFIG.INTERVALO_RELOGIO);
             setInterval(atualizarTudo, CONFIG.INTERVALO_ATUALIZACAO);
-            
-            // Inicia Gemini a cada 7 segundos
-            setTimeout(() => {
-                previsaoGemini();
-                setInterval(previsaoGemini, CONFIG.INTERVALO_GEMINI);
-            }, 3000);
         });
     </script>
 </body>
