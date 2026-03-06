@@ -362,7 +362,7 @@ def atualizar_dados_pesados():
     cache['pesados']['ultima_atualizacao'] = datetime.now(timezone.utc)
 
 # =============================================================================
-# 🔥 FUNÇÃO ÚNICA PARA PROCESSAR RODADA (EVITA DUPLICAÇÃO)
+# 🔥 FUNÇÃO ÚNICA PARA PROCESSAR RODADA (EVITA DUPLICAÇÃO) - CORRIGIDA!
 # =============================================================================
 
 def processar_rodada(rodada, fonte):
@@ -382,13 +382,16 @@ def processar_rodada(rodada, fonte):
     # MARCA COMO PROCESSADO
     ids_processados.add(rodada_id)
     
-    # Limita o tamanho do set (para não crescer infinitamente)
+    # Limita o tamanho do set
     if len(ids_processados) > 10000:
-        # Mantém apenas os últimos 5000 IDs
         ids_processados = set(list(ids_processados)[-5000:])
     
+    # 🔥 ADICIONA A FONTE NA RODADA!
+    rodada_com_fonte = rodada.copy()
+    rodada_com_fonte['fonte'] = fonte
+    
     # Adiciona à fila
-    fila_rodadas.append(rodada)
+    fila_rodadas.append(rodada_com_fonte)
     
     # Atualiza estatísticas da fonte
     if fonte in fontes_status:
@@ -602,7 +605,7 @@ def loop_api_normal():
             time.sleep(INTERVALO_NORMAL)
 
 # =============================================================================
-# 🔥 PROCESSADOR DA FILA (CORRIGIDO - MANTÉM A FONTE!)
+# 🔥 PROCESSADOR DA FILA (CORRIGIDO - USA A FONTE DA RODADA!)
 # =============================================================================
 
 def processar_fila():
@@ -617,8 +620,9 @@ def processar_fila():
                 
                 saved = 0
                 for rodada in batch:
-                    # 🔥 CORREÇÃO: A fonte está na rodada!
-                    if salvar_rodada(rodada, rodada.get('fonte', 'desconhecida')):
+                    # 🔥 PEGA A FONTE QUE FOI SALVA NA RODADA
+                    fonte = rodada.get('fonte', 'desconhecida')
+                    if salvar_rodada(rodada, fonte):
                         saved += 1
                         if saved == 1:
                             cache['ultimo_resultado_real'] = rodada['resultado']
@@ -632,7 +636,48 @@ def processar_fila():
         except Exception as e:
             print(f"❌ Erro TURBO: {e}")
             time.sleep(0.1)
+            
+# =============================================================================
+# 🧹 FUNÇÃO PARA LIMPAR DUPLICATAS DO BANCO (EXECUTE UMA VEZ!)
+# =============================================================================
 
+def limpar_duplicatas():
+    """Remove rodadas duplicadas do banco"""
+    conn = get_db_connection()
+    if not conn:
+        return
+    
+    try:
+        cur = conn.cursor()
+        
+        # Encontra e remove duplicatas (mantém a mais antiga)
+        cur.execute('''
+            DELETE FROM rodadas 
+            WHERE id IN (
+                SELECT id FROM (
+                    SELECT id, 
+                           ROW_NUMBER() OVER (
+                               PARTITION BY player_score, banker_score, resultado, 
+                                            DATE_TRUNC('minute', data_hora)
+                               ORDER BY data_hora
+                           ) as rn
+                    FROM rodadas
+                ) t
+                WHERE t.rn > 1
+            )
+        ''')
+        
+        removidas = cur.rowcount
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        if removidas > 0:
+            print(f"✅ Removidas {removidas} duplicatas do banco")
+        
+    except Exception as e:
+        print(f"❌ Erro ao limpar duplicatas: {e}")
+        
 # =============================================================================
 # ESTRATÉGIA #1: COMPENSAÇÃO
 # =============================================================================
@@ -1127,7 +1172,7 @@ def status_fontes():
 
 def loop_pesado():
     while True:
-        time.sleep(3)
+        time.sleep(2)
         try:
             atualizar_dados_pesados()
         except Exception as e:
