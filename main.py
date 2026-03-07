@@ -1053,7 +1053,7 @@ def estrategia_falsa_alternancia(dados, modo):
     return {'banker': 0, 'player': 0}
 
 # =============================================================================
-# 🔥 FUNÇÃO PARA IDENTIFICAR O MODO (CORRIGIDO - AGORA ESTÁ AQUI!)
+# 🔥 FUNÇÃO PARA IDENTIFICAR O MODO (COLOQUE AQUI!)
 # =============================================================================
 def identificar_modo(player_pct, banker_pct, dados):
     """Identifica o modo baseado nas porcentagens e números extremos"""
