@@ -1,10 +1,11 @@
 # main.py - SISTEMA COM API LATEST COMO FONTE PRINCIPAL
 # ✅ API Latest: Fonte PRINCIPAL (envia para tabela)
 # ✅ WebSocket: Backup quando Latest falha
-# ✅ API Normal: Fallback quando todos falham
+# ✅ API Normal: Fallback quando todos falham + CARGA HISTÓRICA
 # ✅ Alternância automática entre fontes
 # ✅ 8 Estratégias completas com aprendizado
 # ✅ Histórico de previsões no banco
+# ✅ Carga histórica automática na primeira execução
 
 import os
 import time
@@ -42,7 +43,7 @@ LATEST_API_URL = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo/
 # FONTE 2: WebSocket (Backup - quando Latest falha)
 WS_URL = "wss://api-cs.casino.org/svc-evolution-game-events/ws/bacbo"
 
-# FONTE 3: API Normal (Fallback - quando todos falham)
+# FONTE 3: API Normal (Fallback - quando todos falham + CARGA HISTÓRICA)
 API_URL = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo"
 API_PARAMS = {
     "page": 0,
@@ -63,8 +64,8 @@ HEADERS = {
 TIMEOUT_API = 5
 MAX_RETRIES = 3
 RETRY_DELAY = 1
-INTERVALO_LATEST = 0.1  # 1 segundo para /latest (PRINCIPAL)
-INTERVALO_WS_FALLBACK = 1  # 1 segundos para WebSocket (backup)
+INTERVALO_LATEST = 0.1  # 0.1 segundo para /latest (PRINCIPAL)
+INTERVALO_WS_FALLBACK = 1  # 1 segundo para WebSocket (backup)
 INTERVALO_NORMAL_FALLBACK = 10  # 10 segundos para API normal (último recurso)
 PORT = int(os.environ.get("PORT", 5000))
 
@@ -569,7 +570,7 @@ def iniciar_websocket():
     threading.Thread(target=run, daemon=True).start()
 
 # =============================================================================
-# 🔥 FONTE 3: API NORMAL (FALLBACK FINAL)
+# 🔥 FONTE 3: API NORMAL (FALLBACK FINAL + CARGA HISTÓRICA)
 # =============================================================================
 
 def buscar_api_normal():
@@ -644,12 +645,136 @@ def buscar_api_normal():
         return None
 
 # =============================================================================
+# 🔥 FUNÇÃO PARA CARREGAR HISTÓRICO COMPLETO (TUDO QUE A API NORMAL TIVER)
+# =============================================================================
+
+def carregar_historico_completo():
+    """Carrega TODO o histórico disponível da API Normal"""
+    print("\n📚 INICIANDO CARGA HISTÓRICA COMPLETA...")
+    print("⏳ Isso pode levar alguns minutos...")
+    
+    conn = get_db_connection()
+    if not conn:
+        print("❌ Erro ao conectar ao banco")
+        return
+    
+    try:
+        cur = conn.cursor()
+        
+        # Verifica quantas rodadas já temos
+        cur.execute('SELECT COUNT(*) FROM rodadas')
+        total_existente = cur.fetchone()[0]
+        print(f"📊 Rodadas existentes: {total_existente}")
+        
+        page = 0
+        total_carregadas = 0
+        pagina_sem_novidades = 0
+        
+        while pagina_sem_novidades < 3:  # Para depois de 3 páginas sem novidades
+            params = API_PARAMS.copy()
+            params['page'] = page
+            params['_t'] = int(time.time() * 1000)
+            
+            try:
+                print(f"\n📥 Buscando página {page}...")
+                response = session.get(API_URL, params=params, timeout=TIMEOUT_API)
+                response.raise_for_status()
+                dados = response.json()
+                
+                if not dados or len(dados) == 0:
+                    print(f"✅ Fim das páginas na página {page}")
+                    break
+                
+                print(f"   → Página {page}: {len(dados)} rodadas")
+                
+                novas_na_pagina = 0
+                for item in dados:
+                    try:
+                        data = item.get('data', {})
+                        result = data.get('result', {})
+                        player_dice = result.get('playerDice', {})
+                        banker_dice = result.get('bankerDice', {})
+                        
+                        player_score = player_dice.get('first', 0) + player_dice.get('second', 0)
+                        banker_score = banker_dice.get('first', 0) + banker_dice.get('second', 0)
+                        
+                        outcome = result.get('outcome', '')
+                        if outcome == 'PlayerWon':
+                            resultado = 'PLAYER'
+                        elif outcome == 'BankerWon':
+                            resultado = 'BANKER'
+                        else:
+                            resultado = 'TIE'
+                        
+                        data_hora = datetime.fromisoformat(data.get('settledAt', '').replace('Z', '+00:00'))
+                        
+                        rodada = {
+                            'id': data.get('id'),
+                            'data_hora': data_hora,
+                            'player_score': player_score,
+                            'banker_score': banker_score,
+                            'resultado': resultado
+                        }
+                        
+                        # Insere no banco
+                        cur.execute('''
+                            INSERT INTO rodadas 
+                            (id, data_hora, player_score, banker_score, soma, resultado, fonte, dados_json)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                            ON CONFLICT (id) DO NOTHING
+                        ''', (
+                            rodada['id'],
+                            rodada['data_hora'],
+                            rodada['player_score'],
+                            rodada['banker_score'],
+                            rodada['player_score'] + rodada['banker_score'],
+                            rodada['resultado'],
+                            'historico',
+                            json.dumps(rodada, default=str)
+                        ))
+                        
+                        if cur.rowcount > 0:
+                            novas_na_pagina += 1
+                            
+                    except Exception as e:
+                        continue
+                
+                conn.commit()
+                total_carregadas += novas_na_pagina
+                
+                if novas_na_pagina > 0:
+                    print(f"   ✅ +{novas_na_pagina} novas rodadas (acumulado: {total_carregadas})")
+                    pagina_sem_novidades = 0
+                else:
+                    print(f"   ⏭️ Nenhuma rodada nova nesta página")
+                    pagina_sem_novidades += 1
+                
+                page += 1
+                time.sleep(0.5)  # Pausa entre páginas
+                
+            except Exception as e:
+                print(f"⚠️ Erro na página {page}: {e}")
+                break
+        
+        cur.close()
+        conn.close()
+        
+        print("\n" + "="*50)
+        print("📊 CARGA HISTÓRICA CONCLUÍDA!")
+        print(f"✅ Total de novas rodadas: {total_carregadas}")
+        print(f"📈 Total no banco agora: {total_existente + total_carregadas}")
+        print("="*50)
+        
+    except Exception as e:
+        print(f"❌ Erro na carga histórica: {e}")
+
+# =============================================================================
 # 🔥 LOOP DE COLETA - APENAS FONTE ATIVA ENVIA
 # =============================================================================
 
 def loop_latest():
     """Loop da fonte Latest (PRINCIPAL)"""
-    print("📡 [PRINCIPAL] Coletor LATEST iniciado (1s)...")
+    print("📡 [PRINCIPAL] Coletor LATEST iniciado (0.1s)...")
     while True:
         try:
             if fonte_ativa == 'latest':
@@ -674,7 +799,7 @@ def loop_websocket_fallback():
 
 def loop_api_fallback():
     """Loop da API Normal (FALLBACK)"""
-    print("📚 [FALLBACK] Coletor API NORMAL iniciado (30s)...")
+    print("📚 [FALLBACK] Coletor API NORMAL iniciado (10s)...")
     while True:
         try:
             if fonte_ativa == 'api_normal':
@@ -1146,17 +1271,20 @@ def loop_pesado():
 # =============================================================================
 if __name__ == "__main__":
     print("="*70)
-    print("🚀 BOT BACBO - API LATEST COMO FONTE PRINCIPAL")
+    print("🚀 BOT BACBO - API LATEST COMO FONTE PRINCIPAL + CARGA HISTÓRICA")
     print("="*70)
     print("✅ [PRINCIPAL] API Latest: Envia para tabela (0.1s)")
     print("✅ [BACKUP] WebSocket: Ativado quando Latest falha")
-    print("✅ [FALLBACK] API Normal: Último recurso")
+    print("✅ [FALLBACK] API Normal: Último recurso + CARGA HISTÓRICA")
     print("✅ Alternância automática entre fontes")
     print("✅ 8 Estratégias completas")
     print("✅ Histórico de previsões no banco")
     print("="*70)
     
     init_db()
+    
+    # 📚 CARREGAR HISTÓRICO COMPLETO (APENAS NA PRIMEIRA EXECUÇÃO)
+    carregar_historico_completo()
     
     print("📊 Carregando dados...")
     atualizar_dados_leves()
