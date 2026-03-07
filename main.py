@@ -1073,12 +1073,12 @@ def identificar_modo(player_pct, banker_pct, dados):
 def calcular_previsao():
     """🎯 Versão calibrada - sem confiança exagerada (96% precisão real)"""
     dados = cache['leves']['ultimas_50']
-    if len(dados) < 10:  # AUMENTADO DE 5 PARA 10 (mais seguro)
+    if len(dados) < 100:  # AUMENTADO DE 5 PARA 10 (mais seguro)
         print(f"⚠️ Apenas {len(dados)} rodadas (mínimo 10)")
         return None
     
     # Limite máximo de confiança
-    MAX_CONFIANCA = 85  # Nunca passar disso
+    MAX_CONFIANCA = 100  # Nunca passar disso
     
     # Aplica bônus das funções extras
     bonus_horario = analisar_horario()
