@@ -24,7 +24,7 @@ import pg8000
 # =============================================================================
 # CONFIGURAÇÕES
 # =============================================================================
-DATABASE_URL = "postgresql://neondb_owner:npg_7XZo6hImsCnw@ep-purple-forest-a4zr8eht-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+DATABASE_URL = "postgresql://neondb_owner:npg_G1lExoba3hOp@ep-icy-butterfly-a4lyx0q2-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
 # Parse da URL
 parsed = urllib.parse.urlparse(DATABASE_URL)
 DB_USER = parsed.username
@@ -1073,7 +1073,7 @@ def identificar_modo(player_pct, banker_pct, dados):
 def calcular_previsao():
     """🎯 Calcula previsão com 8 estratégias + bônus (96% precisão)"""
     dados = cache['leves']['ultimas_50']
-    if len(dados) < 5:
+    if len(dados) < 10:
         return None
     
     # Aplica bônus das funções extras
