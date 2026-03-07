@@ -24,7 +24,7 @@ import pg8000
 # =============================================================================
 # CONFIGURAÇÕES
 # =============================================================================
-DATABASE_URL = "postgresql://neondb_owner:npg_o3Dgym6TbXnF@ep-shiny-flower-a438tnhv-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+DATABASE_URL = "postgresql://neondb_owner:npg_h4rLBy5OWpxJ@ep-rough-sound-adc2y1ea-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
 # Parse da URL
 parsed = urllib.parse.urlparse(DATABASE_URL)
 DB_USER = parsed.username
@@ -215,7 +215,8 @@ def detectar_virada_mesa():
             print("🔄 Invertendo estratégia temporariamente...")
             return {'inverter': True, 'fator': -1}
     
-    return {'inverter': False, 'fator': 1} 
+    return {'inverter': False, 'fator': 1}
+
 # =============================================================================
 # INICIALIZAÇÃO FLASK
 # =============================================================================
@@ -400,7 +401,7 @@ def get_ultimas_20():
             })
         return resultado
     except Exception as e:
-        print(f"⚠️ Ergo get_ultimas_20: {e}")
+        print(f"⚠️ Erro get_ultimas_20: {e}")
         return []
 
 def get_total_rapido():
@@ -919,6 +920,152 @@ def processar_fila():
         except Exception as e:
             print(f"❌ Erro TURBO: {e}")
             time.sleep(0.1)
+
+# =============================================================================
+# ESTRATÉGIAS (COMPLETAS)
+# =============================================================================
+
+def estrategia_compensacao(dados, modo):
+    if len(dados) < 10:
+        return {'banker': 0, 'player': 0}
+    
+    player = sum(1 for r in dados if r['resultado'] == 'PLAYER')
+    banker = sum(1 for r in dados if r['resultado'] == 'BANKER')
+    total = len(dados)
+    
+    player_pct = (player / total) * 100
+    banker_pct = (banker / total) * 100
+    
+    diff = abs(banker_pct - player_pct)
+    if diff > 4:
+        peso = PESOS['compensacao'][modo]
+        if banker > player:
+            return {'banker': 0, 'player': peso}
+        else:
+            return {'banker': peso, 'player': 0}
+    
+    return {'banker': 0, 'player': 0}
+
+def estrategia_paredao(dados, modo):
+    if len(dados) < 4:
+        return {'banker': 0, 'player': 0}
+    
+    seq = [r['resultado'] for r in dados[:4]]
+    
+    if all(r == 'BANKER' for r in seq):
+        return {'banker': PESOS['paredao'][modo], 'player': 0}
+    if all(r == 'PLAYER' for r in seq):
+        return {'banker': 0, 'player': PESOS['paredao'][modo]}
+    
+    return {'banker': 0, 'player': 0}
+
+def estrategia_moedor(dados, modo):
+    if len(dados) < 5:
+        return {'banker': 0, 'player': 0}
+    
+    ties = sum(1 for r in dados[:5] if r['resultado'] == 'TIE')
+    
+    if ties >= 2:
+        ultima_nao_tie = next((r for r in dados if r['resultado'] != 'TIE'), None)
+        if ultima_nao_tie:
+            peso = PESOS['moedor'][modo]
+            if ultima_nao_tie['resultado'] == 'BANKER':
+                return {'banker': peso, 'player': 0}
+            else:
+                return {'banker': 0, 'player': peso}
+    
+    return {'banker': 0, 'player': 0}
+
+def estrategia_xadrez(dados, modo):
+    if len(dados) < 4:
+        return {'banker': 0, 'player': 0}
+    
+    seq = [r['resultado'] for r in dados[:4]]
+    
+    if (seq[0] != seq[1] and seq[1] != seq[2] and seq[2] != seq[3]):
+        peso = PESOS['xadrez'][modo]
+        if seq[3] == 'BANKER':
+            return {'banker': 0, 'player': peso}
+        else:
+            return {'banker': peso, 'player': 0}
+    
+    return {'banker': 0, 'player': 0}
+
+def estrategia_contragolpe(dados, modo):
+    if len(dados) < 5:
+        return {'banker': 0, 'player': 0}
+    
+    seq = [r['resultado'] for r in dados[:5]]
+    
+    if (seq[0] == seq[1] == seq[2] and 
+        seq[2] != seq[3] and 
+        seq[3] != seq[4] and 
+        seq[4] == seq[0]):
+        
+        peso = PESOS['contragolpe'][modo]
+        if seq[0] == 'BANKER':
+            return {'banker': peso, 'player': 0}
+        else:
+            return {'banker': 0, 'player': peso}
+    
+    return {'banker': 0, 'player': 0}
+
+def estrategia_reset_cluster(dados, modo):
+    if len(dados) < 6:
+        return {'banker': 0, 'player': 0}
+    
+    ties = sum(1 for r in dados[:6] if r['resultado'] == 'TIE')
+    
+    if ties >= 2:
+        antes_cluster = None
+        for r in dados:
+            if r['resultado'] != 'TIE':
+                antes_cluster = r
+                break
+        
+        if antes_cluster:
+            peso = PESOS['reset_cluster'][modo]
+            if random.random() < 0.7:
+                if antes_cluster['resultado'] == 'BANKER':
+                    return {'banker': peso, 'player': 0}
+                else:
+                    return {'banker': 0, 'player': peso}
+            else:
+                if antes_cluster['resultado'] == 'BANKER':
+                    return {'banker': 0, 'player': peso}
+                else:
+                    return {'banker': peso, 'player': 0}
+    
+    return {'banker': 0, 'player': 0}
+
+def estrategia_falsa_alternancia(dados, modo):
+    if not dados:
+        return {'banker': 0, 'player': 0}
+    
+    ultimo = dados[0]
+    if ultimo['player_score'] >= 10 or ultimo['banker_score'] >= 10:
+        peso = PESOS['falsa_alternancia'][modo]
+        if ultimo['resultado'] == 'BANKER':
+            return {'banker': peso, 'player': 0}
+        else:
+            return {'banker': 0, 'player': peso}
+    
+    return {'banker': 0, 'player': 0}
+
+# =============================================================================
+# 🔥 FUNÇÃO PARA IDENTIFICAR O MODO (CORRIGIDO - ESTAVA FALTANDO!)
+# =============================================================================
+def identificar_modo(player_pct, banker_pct, dados):
+    """Identifica o modo baseado nas porcentagens e números extremos"""
+    extremos = sum(1 for r in dados if r['player_score'] >= 10 or r['banker_score'] >= 10)
+    pct_extremos = (extremos / len(dados)) * 100 if dados else 0
+    
+    if banker_pct > 47 or player_pct > 47:
+        return "AGRESSIVO"
+    elif pct_extremos > 30:
+        return "PREDATORIO"
+    else:
+        return "EQUILIBRADO"
 
 # =============================================================================
 # FUNÇÃO PRINCIPAL DE PREVISÃO - COMPLETA (8 ESTRATÉGIAS + BÔNUS)
