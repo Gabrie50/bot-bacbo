@@ -23,7 +23,7 @@ import pg8000
 # =============================================================================
 # CONFIGURAÇÕES
 # =============================================================================
-DATABASE_URL = ""
+DATABASE_URL = "postgresql://neondb_owner:npg_l4nHebCWvok8@ep-old-field-adcep1b1-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
 # Parse da URL
 parsed = urllib.parse.urlparse(DATABASE_URL)
 DB_USER = parsed.username
@@ -1148,7 +1148,7 @@ if __name__ == "__main__":
     print("="*70)
     print("🚀 BOT BACBO - API LATEST COMO FONTE PRINCIPAL")
     print("="*70)
-    print("✅ [PRINCIPAL] API Latest: Envia para tabela (1s)")
+    print("✅ [PRINCIPAL] API Latest: Envia para tabela (0.1s)")
     print("✅ [BACKUP] WebSocket: Ativado quando Latest falha")
     print("✅ [FALLBACK] API Normal: Último recurso")
     print("✅ Alternância automática entre fontes")
@@ -1168,19 +1168,19 @@ if __name__ == "__main__":
     print("🔌 Iniciando WebSocket (modo backup)...")
     iniciar_websocket()
     
-    print("📡 [PRINCIPAL] Iniciando coletor LATEST (1s)...")
+    print("📡 [PRINCIPAL] Iniciando coletor LATEST (0.1s)...")
     threading.Thread(target=loop_latest, daemon=True).start()
     
     print("⚡ Iniciando monitor WebSocket...")
     threading.Thread(target=loop_websocket_fallback, daemon=True).start()
     
-    print("📚 [FALLBACK] Iniciando coletor API NORMAL (30s)...")
+    print("📚 [FALLBACK] Iniciando coletor API NORMAL (10s)...")
     threading.Thread(target=loop_api_fallback, daemon=True).start()
     
     print("🚀 Iniciando processador da fila...")
     threading.Thread(target=processar_fila, daemon=True).start()
     
-    print("🔄 Iniciando loop pesado (2s)...")
+    print("🔄 Iniciando loop pesado (0.1s)...")
     threading.Thread(target=loop_pesado, daemon=True).start()
     
     print("✅ Servidor rodando!")
