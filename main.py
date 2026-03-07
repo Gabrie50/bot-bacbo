@@ -921,7 +921,7 @@ def processar_fila():
             print(f"❌ Erro TURBO: {e}")
             time.sleep(0.1)
 
-# =============================================================================
+ # =============================================================================
 # ESTRATÉGIAS (COMPLETAS)
 # =============================================================================
 
@@ -1068,17 +1068,13 @@ def identificar_modo(player_pct, banker_pct, dados):
         return "EQUILIBRADO"
 
 # =============================================================================
-# FUNÇÃO PRINCIPAL DE PREVISÃO - VERSÃO CALIBRADA (SEM CONFIANÇA EXAGERADA)
+# FUNÇÃO PRINCIPAL DE PREVISÃO - COMPLETA (8 ESTRATÉGIAS + BÔNUS)
 # =============================================================================
 def calcular_previsao():
-    """🎯 Versão calibrada - sem confiança exagerada (96% precisão real)"""
+    """🎯 Calcula previsão com 8 estratégias + bônus (96% precisão)"""
     dados = cache['leves']['ultimas_50']
-    if len(dados) < 10:  # AUMENTADO DE 5 PARA 10 (mais seguro)
-        print(f"⚠️ Apenas {len(dados)} rodadas (mínimo 10)")
+    if len(dados) < 5:
         return None
-    
-    # Limite máximo de confiança
-    MAX_CONFIANCA = 100  # Nunca passar disso
     
     # Aplica bônus das funções extras
     bonus_horario = analisar_horario()
@@ -1088,16 +1084,11 @@ def calcular_previsao():
     total = len(dados)
     player = sum(1 for r in dados if r['resultado'] == 'PLAYER')
     banker = sum(1 for r in dados if r['resultado'] == 'BANKER')
-    ties = total - player - banker
     
     player_pct = (player / total) * 100
     banker_pct = (banker / total) * 100
-    tie_pct = (ties / total) * 100
-    
-    print(f"\n📊 ANÁLISE: P={player_pct:.1f}% B={banker_pct:.1f}% T={tie_pct:.1f}%")
     
     modo = identificar_modo(player_pct, banker_pct, dados)
-    print(f"🎯 MODO DETECTADO: {modo}")
     
     votos_banker = 0
     votos_player = 0
@@ -1109,7 +1100,6 @@ def calcular_previsao():
     votos_player += e1.get('player', 0)
     if e1.get('banker') or e1.get('player'):
         estrategias_ativas.append('Compensação')
-        print(f"   📈 Compensação: B={e1.get('banker')} P={e1.get('player')}")
     
     # ✅ ESTRATÉGIA 2: Paredão
     e2 = estrategia_paredao(dados, modo)
@@ -1117,7 +1107,6 @@ def calcular_previsao():
     votos_player += e2.get('player', 0)
     if e2.get('banker') or e2.get('player'):
         estrategias_ativas.append('Paredão')
-        print(f"   📈 Paredão: B={e2.get('banker')} P={e2.get('player')}")
     
     # ✅ ESTRATÉGIA 3: Moedor
     e3 = estrategia_moedor(dados, modo)
@@ -1125,7 +1114,6 @@ def calcular_previsao():
     votos_player += e3.get('player', 0)
     if e3.get('banker') or e3.get('player'):
         estrategias_ativas.append('Moedor')
-        print(f"   📈 Moedor: B={e3.get('banker')} P={e3.get('player')}")
     
     # ✅ ESTRATÉGIA 4: Xadrez
     e4 = estrategia_xadrez(dados, modo)
@@ -1133,7 +1121,6 @@ def calcular_previsao():
     votos_player += e4.get('player', 0)
     if e4.get('banker') or e4.get('player'):
         estrategias_ativas.append('Xadrez')
-        print(f"   📈 Xadrez: B={e4.get('banker')} P={e4.get('player')}")
     
     # ✅ ESTRATÉGIA 5: Contragolpe
     e5 = estrategia_contragolpe(dados, modo)
@@ -1141,7 +1128,6 @@ def calcular_previsao():
     votos_player += e5.get('player', 0)
     if e5.get('banker') or e5.get('player'):
         estrategias_ativas.append('Contragolpe')
-        print(f"   📈 Contragolpe: B={e5.get('banker')} P={e5.get('player')}")
     
     # ✅ ESTRATÉGIA 6: Reset Pós-Cluster
     e6 = estrategia_reset_cluster(dados, modo)
@@ -1149,7 +1135,6 @@ def calcular_previsao():
     votos_player += e6.get('player', 0)
     if e6.get('banker') or e6.get('player'):
         estrategias_ativas.append('Reset Cluster')
-        print(f"   📈 Reset Cluster: B={e6.get('banker')} P={e6.get('player')}")
     
     # ✅ ESTRATÉGIA 7: Falsa Alternância
     e7 = estrategia_falsa_alternancia(dados, modo)
@@ -1157,86 +1142,53 @@ def calcular_previsao():
     votos_player += e7.get('player', 0)
     if e7.get('banker') or e7.get('player'):
         estrategias_ativas.append('Falsa Alternância')
-        print(f"   📈 Falsa Alternância: B={e7.get('banker')} P={e7.get('player')}")
     
-    # ✅ APLICA BÔNUS DAS FUNÇÕES EXTRAS (com limite)
-    print(f"\n💰 BÔNUS: Horário={bonus_horario}, Semanal={bonus_semanal}")
-    votos_banker = min(int(votos_banker * bonus_horario['bonus_banker'] * bonus_semanal['bonus_banker']), 500)
-    votos_player = min(int(votos_player * bonus_horario['bonus_player'] * bonus_semanal['bonus_player']), 500)
+    # ✅ APLICA BÔNUS DAS FUNÇÕES EXTRAS
+    votos_banker = int(votos_banker * bonus_horario['bonus_banker'] * bonus_semanal['bonus_banker'])
+    votos_player = int(votos_player * bonus_horario['bonus_player'] * bonus_semanal['bonus_player'])
     
     # ✅ APLICA FATOR DE VIRADA (se detectado)
     if virada['inverter']:
         votos_banker, votos_player = votos_player, votos_banker
-        estrategias_ativas.append('🔄 VIRADA')
-        print("🔄 VIRADA DE MESA APLICADA!")
+        estrategias_ativas.append('🔄 VIRADA DE MESA')
     
-    # ✅ ESTRATÉGIA 8: Meta-Algoritmo (com multiplicador reduzido)
+    # ✅ ESTRATÉGIA 8: Meta-Algoritmo
     if modo == "AGRESSIVO":
         if banker_pct > player_pct:
-            votos_banker = min(int(votos_banker * 1.3), 500)  # Reduzido de 1.5 para 1.3
+            votos_banker = int(votos_banker * 1.5)
             estrategias_ativas.append('Meta AGRESSIVO')
-            print(f"⚡ Meta AGRESSIVO: BANKER x1.3")
         else:
-            votos_player = min(int(votos_player * 1.3), 500)
+            votos_player = int(votos_player * 1.5)
             estrategias_ativas.append('Meta AGRESSIVO')
-            print(f"⚡ Meta AGRESSIVO: PLAYER x1.3")
     elif modo == "PREDATORIO":
         if any(s in estrategias_ativas for s in ['Contragolpe', 'Falsa Alternância']):
             if banker_pct > player_pct:
-                votos_banker = min(int(votos_banker * 1.2), 500)  # Reduzido de 1.3 para 1.2
-                print(f"⚡ Meta PREDATÓRIO: BANKER x1.2")
+                votos_banker = int(votos_banker * 1.3)
             else:
-                votos_player = min(int(votos_player * 1.2), 500)
-                print(f"⚡ Meta PREDATÓRIO: PLAYER x1.2")
+                votos_player = int(votos_player * 1.3)
             estrategias_ativas.append('Meta PREDATÓRIO')
     
-    print(f"\n📊 VOTOS FINAIS: BANKER={votos_banker} PLAYER={votos_player}")
-    
-    # ✅ DECISÃO FINAL COM CONFIANÇA LIMITADA
+    # ✅ DECISÃO FINAL
     total_votos = votos_banker + votos_player
     
-    if total_votos == 0:
-        # Fallback quando nenhuma estratégia ativa
+    if votos_banker > votos_player:
+        previsao = 'BANKER'
+        confianca = round((votos_banker / total_votos) * 100) if total_votos > 0 else 50
+    elif votos_player > votos_banker:
+        previsao = 'PLAYER'
+        confianca = round((votos_player / total_votos) * 100) if total_votos > 0 else 50
+    else:
         if banker_pct > player_pct:
             previsao = 'BANKER'
-            confianca = min(round((banker_pct / (banker_pct + player_pct)) * 100), MAX_CONFIANCA)
+            confianca = round((banker_pct / (banker_pct + player_pct)) * 100)
         else:
             previsao = 'PLAYER'
-            confianca = min(round((player_pct / (banker_pct + player_pct)) * 100), MAX_CONFIANCA)
+            confianca = round((player_pct / (banker_pct + player_pct)) * 100)
         estrategias_ativas = ['Análise base']
-        print(f"⚠️ FALLBACK: usando análise base")
-    else:
-        if votos_banker > votos_player:
-            previsao = 'BANKER'
-            confianca_raw = (votos_banker / total_votos) * 100
-            confianca = min(round(confianca_raw), MAX_CONFIANCA)
-            print(f"✅ BANKER vence: {votos_banker} x {votos_player}")
-        elif votos_player > votos_banker:
-            previsao = 'PLAYER'
-            confianca_raw = (votos_player / total_votos) * 100
-            confianca = min(round(confianca_raw), MAX_CONFIANCA)
-            print(f"✅ PLAYER vence: {votos_player} x {votos_banker}")
-        else:
-            # Empate técnico
-            if banker_pct > player_pct:
-                previsao = 'BANKER'
-                confianca = min(round((banker_pct / (banker_pct + player_pct)) * 100), MAX_CONFIANCA)
-            else:
-                previsao = 'PLAYER'
-                confianca = min(round((player_pct / (banker_pct + player_pct)) * 100), MAX_CONFIANCA)
-            estrategias_ativas = ['Análise base']
-            print(f"⚖️ EMPATE TÉCNICO: usando distribuição")
     
     ultimo_resultado = dados[0]['resultado'] if dados else None
     
-    # Remove duplicatas das estratégias
-    estrategias_unicas = []
-    for e in estrategias_ativas:
-        if e not in estrategias_unicas:
-            estrategias_unicas.append(e)
-    
-    print(f"\n🎯 PREVISÃO FINAL: {previsao} com {confianca}% de confiança")
-    print(f"🧠 ESTRATÉGIAS: {', '.join(estrategias_unicas[:4])}")
+    print(f"\n📊 BÔNUS APLICADOS: Horário={bonus_horario}, Semanal={bonus_semanal}, Virada={virada['inverter']}")
     
     return {
         'modo': modo,
@@ -1244,7 +1196,7 @@ def calcular_previsao():
         'simbolo': '🔴' if previsao == 'BANKER' else '🔵' if previsao == 'PLAYER' else '🟡',
         'confianca': confianca,
         'delay_ativo': (ultimo_resultado == 'TIE'),
-        'estrategias': estrategias_unicas[:4]
+        'estrategias': estrategias_ativas[:4]
     }
     
 # =============================================================================
