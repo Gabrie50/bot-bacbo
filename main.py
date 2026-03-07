@@ -64,8 +64,8 @@ HEADERS = {
 TIMEOUT_API = 5
 MAX_RETRIES = 3
 RETRY_DELAY = 1
-INTERVALO_LATEST = 0.1  # 0.1 segundo para /latest (PRINCIPAL)
-INTERVALO_WS_FALLBACK = 1  # 1 segundo para WebSocket (backup)
+INTERVALO_LATEST = 0.3  # 0.3 segundo para /latest (PRINCIPAL)
+INTERVALO_WS_FALLBACK = 3  # 1 segundo para WebSocket (backup)
 INTERVALO_NORMAL_FALLBACK = 10  # 10 segundos para API normal (último recurso)
 PORT = int(os.environ.get("PORT", 5000))
 
@@ -1260,7 +1260,7 @@ def status_fontes():
 
 def loop_pesado():
     while True:
-        time.sleep(0.1)
+        time.sleep(0.3)
         try:
             atualizar_dados_pesados()
         except Exception as e:
@@ -1296,7 +1296,7 @@ if __name__ == "__main__":
     print("🔌 Iniciando WebSocket (modo backup)...")
     iniciar_websocket()
     
-    print("📡 [PRINCIPAL] Iniciando coletor LATEST (0.1s)...")
+    print("📡 [PRINCIPAL] Iniciando coletor LATEST (0.3s)...")
     threading.Thread(target=loop_latest, daemon=True).start()
     
     print("⚡ Iniciando monitor WebSocket...")
