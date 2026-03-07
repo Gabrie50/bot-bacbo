@@ -24,12 +24,7 @@ import pg8000
 # =============================================================================
 # CONFIGURAÇÕES
 # =============================================================================
-# Pega do ambiente Railway
-DATABASE_URL = os.environ.get("DATABASE_URL")
-if not DATABASE_URL:
-    # Fallback local
-    DATABASE_URL = "postgresql://neondb_owner:npg_G1lExoba3hOp@ep-icy-butterfly-a4lyx0q2-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require"
-
+DATABASE_URL = "postgresql://neondb_owner:npg_G1lExoba3hOp@ep-icy-butterfly-a4lyx0q2-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
 # Parse da URL
 parsed = urllib.parse.urlparse(DATABASE_URL)
 DB_USER = parsed.username
