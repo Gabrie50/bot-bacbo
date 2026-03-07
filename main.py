@@ -1073,7 +1073,7 @@ def identificar_modo(player_pct, banker_pct, dados):
 def calcular_previsao():
     """🎯 Versão calibrada - sem confiança exagerada (96% precisão real)"""
     dados = cache['leves']['ultimas_50']
-    if len(dados) < 100:  # AUMENTADO DE 5 PARA 10 (mais seguro)
+    if len(dados) < 10:  # AUMENTADO DE 5 PARA 10 (mais seguro)
         print(f"⚠️ Apenas {len(dados)} rodadas (mínimo 10)")
         return None
     
