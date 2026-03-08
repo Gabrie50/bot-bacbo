@@ -27,7 +27,7 @@ import pg8000
 # =============================================================================
 # CONFIGURAÇÕES
 # =============================================================================
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://neondb_owner:npg_6qPXcm8FzOHn@ep-young-snow-acgrqigh-pooler.sa-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require")
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://neondb_owner:npg_md9IFsDnelP6@ep-blue-hall-adejcups-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require")
 # Parse da URL
 parsed = urllib.parse.urlparse(DATABASE_URL)
 DB_USER = parsed.username
