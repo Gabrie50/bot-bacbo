@@ -823,6 +823,25 @@ def get_dados_ordenados(dados):
 
 
 # =============================================================================
+# VERIFICAÇÃO DE DELAY PÓS-EMPATE (CORRETA!)
+# =============================================================================
+def verificar_delay_pos_empate(dados):
+    """
+    Verifica se a rodada anterior foi TIE
+    Retorna True se teve empate (reduz confiança)
+    """
+    if len(dados) < 2:
+        return False
+    
+    # dados[0] é a rodada atual, dados[1] é a anterior
+    if dados[1]['resultado'] == 'TIE':
+        print("⚠️ DELAY PÓS-EMPATE ATIVO - Rodada anterior foi TIE")
+        return True
+    
+    return False
+
+
+# =============================================================================
 # DETECÇÃO DE MODO - Baseado na tese
 # =============================================================================
 def detectar_modo_tese(dados):
@@ -1301,7 +1320,7 @@ def calcular_confianca_tese(votos_banker, votos_player, estrategias_ativas, modo
 # =============================================================================
 # FUNÇÃO PRINCIPAL DE PREVISÃO (10 ESTRATÉGIAS CORRIGIDAS)
 # =============================================================================
-def calcular_previsao_corrigida():
+def calcular_previsao():
     """🎯 Calcula previsão com 10 estratégias baseadas na tese"""
     dados = cache['leves']['ultimas_50']
     
@@ -1503,8 +1522,8 @@ def atualizar_dados_leves():
     if cache['leves']['previsao']:
         cache['ultima_previsao'] = cache['leves']['previsao']
     
-    # Usa a versão corrigida
-    cache['leves']['previsao'] = calcular_previsao_corrigida()
+    # Usa a versão corrigida (mesmo nome da função original)
+    cache['leves']['previsao'] = calcular_previsao()
     cache['leves']['ultima_atualizacao'] = datetime.now(timezone.utc)
     
 # =============================================================================
