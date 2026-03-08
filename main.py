@@ -1467,7 +1467,7 @@ def status_fontes():
 
 def loop_pesado():
     while True:
-        time.sleep(0.2)
+        time.sleep(0.1)
         try:
             atualizar_dados_pesados()
         except Exception as e:
