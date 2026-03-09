@@ -851,7 +851,7 @@ def processar_fila():
             time.sleep(0.1)
 
 # =============================================================================
-# ESTRATÉGIAS DE PREVISÃO
+# ESTRATÉGIAS DE PREVISÃO - VERSÃO CORRIGIDA E OTIMIZADA
 # =============================================================================
 
 def get_dados_ordenados(dados):
@@ -859,18 +859,19 @@ def get_dados_ordenados(dados):
     return list(reversed(dados)) if dados else []
 
 def verificar_delay_pos_empate(dados):
-    """Verifica se rodada anterior foi TIE"""
+    """Verifica se rodada anterior foi TIE e retorna fator de redução"""
     if len(dados) < 2:
-        return False
-    
+        return 1.0
     if dados[1]['resultado'] == 'TIE':
         print("⚠️ DELAY PÓS-EMPATE ATIVO - Rodada anterior foi TIE")
-        return True
-    
-    return False
+        return 0.7  # Reduz confiança em 30%
+    return 1.0
 
 def detectar_modo_tese(dados):
-    """Detecta modo do algoritmo"""
+    """
+    Detecta o modo do algoritmo baseado nos dados
+    Retorna: AGRESSIVO, PREDATORIO, MOEDOR ou EQUILIBRADO
+    """
     if len(dados) < 20:
         return "EQUILIBRADO"
     
@@ -885,22 +886,33 @@ def detectar_modo_tese(dados):
     banker_pct = (banker / total) * 100
     ties_pct = (ties / total) * 100
     
+    # Conta números extremos (10+)
     extremos = sum(1 for r in dados_ord if r['player_score'] >= 10 or r['banker_score'] >= 10)
     extremos_pct = (extremos / total) * 100
     
-    if banker_pct > 47 or player_pct > 47:
+    # Modo AGRESSIVO - dominância clara (ajustado para 48%)
+    if banker_pct > 48 or player_pct > 48:
         return "AGRESSIVO"
     
-    if extremos_pct > 30:
+    # Modo PREDATÓRIO - muitos extremos (ajustado para 25%)
+    if extremos_pct > 25:
         return "PREDATORIO"
     
-    if ties_pct > 13:
+    # Modo MOEDOR - muitos empates
+    if ties_pct > 12:
         return "MOEDOR"
     
     return "EQUILIBRADO"
 
+
+# =============================================================================
+# ESTRATÉGIA 1: COMPENSAÇÃO
+# =============================================================================
 def estrategia_compensacao_tese(dados, modo):
-    """Estratégia 1: Compensação"""
+    """
+    Aposta no lado que está atrás na estatística geral
+    Acerto na tese: 69.6%
+    """
     if len(dados) < 10:
         return {'banker': 0, 'player': 0}
     
@@ -915,21 +927,32 @@ def estrategia_compensacao_tese(dados, modo):
     
     diff = abs(banker_pct - player_pct)
     
-    if diff > 4:
+    # Diferença > 5% ativa compensação
+    if diff > 5:
         if banker_pct > player_pct:
-            return {'banker': 0, 'player': 70}
+            # Banker na frente, aposta em PLAYER
+            return {'banker': 0, 'player': 80}
         else:
-            return {'banker': 70, 'player': 0}
+            # Player na frente, aposta em BANKER
+            return {'banker': 80, 'player': 0}
     
     return {'banker': 0, 'player': 0}
 
+
+# =============================================================================
+# ESTRATÉGIA 2: PAREDÃO
+# =============================================================================
 def estrategia_paredao_tese(dados, modo):
-    """Estratégia 2: Paredão"""
+    """
+    Aposta na continuação de sequências longas
+    Acerto na tese: 63.7%
+    """
     if len(dados) < 3:
         return {'banker': 0, 'player': 0}
     
     dados_ord = get_dados_ordenados(dados)
     
+    # Calcula sequência atual
     streak = 1
     streak_cor = dados_ord[0]['resultado']
     
@@ -939,73 +962,106 @@ def estrategia_paredao_tese(dados, modo):
         else:
             break
     
+    # Paredão ativo (3+ iguais)
     if streak >= 3:
+        # Verifica saturação (5+)
         if streak >= 5:
+            # Ponto de saturação: 80% de chance de reverter
             posicao = len(dados_ord) % 10
-            if posicao < 8:
+            if posicao < 8:  # 80% das vezes
                 if streak_cor == 'BANKER':
-                    return {'banker': 0, 'player': 64, 'motivo': f'Saturação: {streak}x BANKER'}
+                    return {'banker': 0, 'player': 70, 'motivo': f'Sat: {streak}x BANKER'}
                 else:
-                    return {'banker': 64, 'player': 0, 'motivo': f'Saturação: {streak}x PLAYER'}
+                    return {'banker': 70, 'player': 0, 'motivo': f'Sat: {streak}x PLAYER'}
         
+        # Continua a sequência
         if streak_cor == 'BANKER':
-            return {'banker': 64, 'player': 0}
+            return {'banker': 75, 'player': 0}
         else:
-            return {'banker': 0, 'player': 64}
+            return {'banker': 0, 'player': 75}
     
     return {'banker': 0, 'player': 0}
 
+
+# =============================================================================
+# ESTRATÉGIA 3: MOEDOR
+# =============================================================================
 def estrategia_moedor_tese(dados, modo):
-    """Estratégia 3: Moedor"""
+    """
+    Reage a clusters de empates
+    Acerto na tese: 70.0%
+    """
     if len(dados) < 5:
         return {'banker': 0, 'player': 0}
     
     dados_ord = get_dados_ordenados(dados)
     
+    # Conta empates nos últimos 5
     ties = sum(1 for r in dados_ord[:5] if r['resultado'] == 'TIE')
     
+    # Cluster de empates (2+ em 5 rodadas)
     if ties >= 2:
+        # Encontra lado dominante
         player = sum(1 for r in dados_ord if r['resultado'] == 'PLAYER')
         banker = sum(1 for r in dados_ord if r['resultado'] == 'BANKER')
         
         if banker > player:
-            return {'banker': 70, 'player': 0}
+            return {'banker': 75, 'player': 0}
         else:
-            return {'banker': 0, 'player': 70}
+            return {'banker': 0, 'player': 75}
     
     return {'banker': 0, 'player': 0}
 
+
+# =============================================================================
+# ESTRATÉGIA 4: XADREZ
+# =============================================================================
 def estrategia_xadrez_tese(dados, modo):
-    """Estratégia 4: Xadrez"""
+    """
+    Aposta na continuação da alternância
+    Acerto na tese: 60.0%
+    """
     if len(dados) < 4:
         return {'banker': 0, 'player': 0}
     
     dados_ord = get_dados_ordenados(dados)
     seq = [r['resultado'] for r in dados_ord[:4]]
     
+    # Verifica alternância perfeita: B,P,B,P ou P,B,P,B
     if (seq[0] != seq[1] and seq[1] != seq[2] and seq[2] != seq[3]):
+        
+        # Verifica saturação (4 alternâncias)
         alternancias = 0
         for i in range(1, 4):
             if dados_ord[i-1]['resultado'] != dados_ord[i]['resultado']:
                 alternancias += 1
         
-        if alternancias == 3:
+        if alternancias == 3:  # 4 rodadas alternando
+            # 40% de chance de quebrar
             posicao = len(dados_ord) % 10
-            if posicao < 4:
+            if posicao < 4:  # 40% das vezes quebra
                 if seq[3] == 'BANKER':
-                    return {'banker': 60, 'player': 0, 'motivo': 'Quebra Xadrez'}
+                    return {'banker': 70, 'player': 0, 'motivo': 'Quebra Xadrez'}
                 else:
-                    return {'banker': 0, 'player': 60, 'motivo': 'Quebra Xadrez'}
+                    return {'banker': 0, 'player': 70, 'motivo': 'Quebra Xadrez'}
         
+        # Continua alternância
         if seq[3] == 'BANKER':
-            return {'banker': 0, 'player': 60}
+            return {'banker': 0, 'player': 70}
         else:
-            return {'banker': 60, 'player': 0}
+            return {'banker': 70, 'player': 0}
     
     return {'banker': 0, 'player': 0}
 
+
+# =============================================================================
+# ESTRATÉGIA 5: CONTRAGOLPE
+# =============================================================================
 def estrategia_contragolpe_tese(dados, modo):
-    """Estratégia 5: Contragolpe"""
+    """
+    3 iguais → 1 diferente → volta ao original
+    Acerto na tese: 84.8% (A MELHOR!)
+    """
     if len(dados) < 4:
         return {'banker': 0, 'player': 0}
     
@@ -1019,47 +1075,66 @@ def estrategia_contragolpe_tese(dados, modo):
     r3 = dados_ord[2]['resultado']
     r4 = dados_ord[3]['resultado']
     
+    # Padrão: 3 iguais, depois diferente
     if r1 == r2 == r3 and r3 != r4:
+        # Volta ao original na PRÓXIMA rodada
         if r1 == 'BANKER':
-            return {'banker': 85, 'player': 0}
+            return {'banker': 90, 'player': 0}
         else:
-            return {'banker': 0, 'player': 85}
+            return {'banker': 0, 'player': 90}
     
     return {'banker': 0, 'player': 0}
 
+
+# =============================================================================
+# ESTRATÉGIA 6: RESET CLUSTER
+# =============================================================================
 def estrategia_reset_cluster_tese(dados, modo):
-    """Estratégia 6: Reset Cluster"""
+    """
+    70% volta à dominante, 30% vai à oposta após cluster de empates
+    Acerto na tese: 72.4%
+    """
     if len(dados) < 5:
         return {'banker': 0, 'player': 0}
     
     dados_ord = get_dados_ordenados(dados)
     
+    # Procura 2+ empates nos últimos 5
     ties = []
     for i, r in enumerate(dados_ord[:5]):
         if r['resultado'] == 'TIE':
             ties.append(i)
     
     if len(ties) >= 2 and (ties[-1] - ties[0] <= 3):
+        # Encontra resultado dominante antes do cluster
         for r in dados_ord:
             if r['resultado'] != 'TIE':
                 dominante = r['resultado']
+                # 70% volta à dominante, 30% vai à oposta
                 posicao = len(dados_ord) % 10
-                if posicao < 7:
+                if posicao < 7:  # 70% das vezes
                     if dominante == 'BANKER':
-                        return {'banker': 72, 'player': 0}
+                        return {'banker': 80, 'player': 0}
                     else:
-                        return {'banker': 0, 'player': 72}
-                else:
+                        return {'banker': 0, 'player': 80}
+                else:  # 30% das vezes
                     if dominante == 'BANKER':
-                        return {'banker': 0, 'player': 72}
+                        return {'banker': 0, 'player': 80}
                     else:
-                        return {'banker': 72, 'player': 0}
+                        return {'banker': 80, 'player': 0}
                 break
     
     return {'banker': 0, 'player': 0}
 
+
+# =============================================================================
+# ESTRATÉGIA 7: FALSA ALTERNÂNCIA
+# =============================================================================
 def estrategia_falsa_alternancia_tese(dados, modo):
-    """Estratégia 7: Falsa Alternância"""
+    """
+    Números extremos (9+) tendem a se repetir
+    Acerto na tese: 67.4%
+    """
     if len(dados) < 3:
         return {'banker': 0, 'player': 0}
     
@@ -1068,59 +1143,83 @@ def estrategia_falsa_alternancia_tese(dados, modo):
     if len(dados_ord) < 2:
         return {'banker': 0, 'player': 0}
     
-    r1 = dados_ord[0]
-    r2 = dados_ord[1]
+    r1 = dados_ord[0]  # Mais recente
+    r2 = dados_ord[1]  # Anterior
     
-    r1_extremo = (r1['player_score'] >= 10 or r1['banker_score'] >= 10)
+    # Verifica padrão: extremo (9+) → fraco (≤5) → extremo
+    r1_extremo = (r1['player_score'] >= 9 or r1['banker_score'] >= 9)
     r2_fraco = (r2['player_score'] <= 5 and r2['banker_score'] <= 5)
     
     if r1_extremo and r2_fraco:
+        # Aposta na repetição do extremo
         if r1['resultado'] == 'BANKER':
-            return {'banker': 67, 'player': 0}
+            return {'banker': 75, 'player': 0}
         else:
-            return {'banker': 0, 'player': 67}
+            return {'banker': 0, 'player': 75}
     
+    # Se só tem extremo recente, aposta na repetição
     if r1_extremo:
         if r1['resultado'] == 'BANKER':
-            return {'banker': 60, 'player': 0}
+            return {'banker': 65, 'player': 0}
         else:
-            return {'banker': 0, 'player': 60}
+            return {'banker': 0, 'player': 65}
     
     return {'banker': 0, 'player': 0}
 
+
+# =============================================================================
+# ESTRATÉGIA 8: META-ALGORITMO
+# =============================================================================
 def aplicar_meta_tese(votos_banker, votos_player, dados, modo):
-    """Estratégia 8: Meta-Algoritmo"""
+    """
+    Ajusta pesos baseado no modo detectado
+    Acerto na tese: 70.9%
+    """
     dados_ord = get_dados_ordenados(dados)
     
     if modo == "AGRESSIVO":
+        # No modo agressivo, favorece o lado dominante
         player_total = sum(1 for r in dados_ord if r['resultado'] == 'PLAYER')
         banker_total = sum(1 for r in dados_ord if r['resultado'] == 'BANKER')
         
         if banker_total > player_total:
-            votos_banker = int(votos_banker * 1.2)
+            votos_banker = int(votos_banker * 1.3)
         else:
-            votos_player = int(votos_player * 1.2)
+            votos_player = int(votos_player * 1.3)
         return votos_banker, votos_player, 'Meta AGRESSIVO'
     
     elif modo == "PREDATORIO":
-        votos_banker = int(votos_banker * 1.05)
-        votos_player = int(votos_player * 1.05)
+        # No modo predatório, dá peso para extremos
+        votos_banker = int(votos_banker * 1.1)
+        votos_player = int(votos_player * 1.1)
         return votos_banker, votos_player, 'Meta PREDATÓRIO'
     
     elif modo == "MOEDOR":
-        votos_banker = int(votos_banker * 1.1)
-        votos_player = int(votos_player * 1.1)
+        # No modo moedor, dá peso para empates
+        votos_banker = int(votos_banker * 1.15)
+        votos_player = int(votos_player * 1.15)
         return votos_banker, votos_player, 'Meta MOEDOR'
     
     return votos_banker, votos_player, None
 
+
+# =============================================================================
+# ESTRATÉGIA 9: PONTO DE SATURAÇÃO
+# =============================================================================
 def estrategia_saturacao_tese(dados):
-    """Estratégia 9: Ponto de Saturação"""
+    """
+    Detecta quando o algoritmo está "cansado" e vai mudar
+    - Paredão 5+ rodadas → 80% de chance de REVERTER na 6ª
+    - Xadrez 4 rodadas → 70% de chance de QUEBRAR
+    - 3+ empates em 6 rodadas → 90% de chance de SAIR
+    Acerto na tese: 72.4%
+    """
     if len(dados) < 6:
         return {'banker': 0, 'player': 0, 'motivo': None}
     
     dados_ord = get_dados_ordenados(dados)
     
+    # 1️⃣ PAREDÃO COM 5+ (saturação)
     streak = 1
     streak_cor = dados_ord[0]['resultado']
     
@@ -1131,106 +1230,126 @@ def estrategia_saturacao_tese(dados):
             break
     
     if streak >= 5 and streak_cor in ['BANKER', 'PLAYER']:
+        # 80% de chance de reverter na 6ª rodada
         posicao = len(dados_ord) % 10
-        if posicao < 8:
+        if posicao < 8:  # 80% das vezes
             if streak_cor == 'BANKER':
-                return {'banker': 0, 'player': 72, 'motivo': f'Saturação: {streak}x BANKER'}
+                return {'banker': 0, 'player': 75, 'motivo': f'Sat: {streak}x BANKER'}
             else:
-                return {'banker': 72, 'player': 0, 'motivo': f'Saturação: {streak}x PLAYER'}
+                return {'banker': 75, 'player': 0, 'motivo': f'Sat: {streak}x PLAYER'}
     
+    # 2️⃣ XADREZ LONGO (4 alternâncias)
     if len(dados_ord) >= 4:
         ultimas_4 = [r['resultado'] for r in dados_ord[:4]]
         if len(set(ultimas_4)) == 4 and 'TIE' not in ultimas_4:
+            # 70% de chance de quebrar
             posicao = len(dados_ord) % 10
-            if posicao < 7:
+            if posicao < 7:  # 70% das vezes
                 if ultimas_4[-1] == 'BANKER':
-                    return {
-                        'banker': 72, 'player': 0,
-                        'motivo': 'Saturação do Xadrez'
-                    }
+                    return {'banker': 75, 'player': 0, 'motivo': 'Sat Xadrez'}
                 else:
-                    return {
-                        'banker': 0, 'player': 72,
-                        'motivo': 'Saturação do Xadrez'
-                    }
+                    return {'banker': 0, 'player': 75, 'motivo': 'Sat Xadrez'}
     
+    # 3️⃣ MUITOS EMPATES (saturação de ties)
     ties = sum(1 for r in dados_ord[:6] if r['resultado'] == 'TIE')
     if ties >= 3:
+        # 90% de chance de sair dos empates
         posicao = len(dados_ord) % 10
-        if posicao < 9:
+        if posicao < 9:  # 90% das vezes
+            # 50/50 entre Banker e Player
             if (len(dados_ord) // 2) % 2 == 0:
-                return {'banker': 72, 'player': 0, 'motivo': 'Saturação de Empates'}
+                return {'banker': 75, 'player': 0, 'motivo': 'Sat Empates'}
             else:
-                return {'banker': 0, 'player': 72, 'motivo': 'Saturação de Empates'}
+                return {'banker': 0, 'player': 75, 'motivo': 'Sat Empates'}
     
     return {'banker': 0, 'player': 0, 'motivo': None}
 
+
+# =============================================================================
+# ESTRATÉGIA 10: EFEITO CALENDÁRIO
+# =============================================================================
 def estrategia_horario_tese():
-    """Estratégia 10: Efeito Calendário"""
+    """
+    Ajuste por horário - baseado na tese
+    00h-06h: +3% de confiança
+    18h-00h: -3% de confiança
+    """
     hora = datetime.now().hour
-    
     hora_brasilia = (hora - 3) % 24
     
-    if 0 <= hora_brasilia <= 5:
+    if 0 <= hora_brasilia <= 5:  # Madrugada
         return {
             'fator_confianca': 1.03,
             'peso_bonus': 3,
             'periodo': 'MADRUGADA'
         }
-    elif 6 <= hora_brasilia <= 17:
+    elif 6 <= hora_brasilia <= 17:  # Dia
         return {
             'fator_confianca': 1.0,
             'peso_bonus': 0,
             'periodo': 'DIA'
         }
-    else:
+    else:  # Noite
         return {
             'fator_confianca': 0.97,
             'peso_bonus': -3,
             'periodo': 'NOITE'
         }
 
-def calcular_confianca_tese(votos_banker, votos_player, estrategias_ativas, modo, ajuste_horario, tem_delay):
-    """Calcula confiança de forma realista"""
-    
+
+# =============================================================================
+# CÁLCULO DE CONFIANÇA REALISTA
+# =============================================================================
+def calcular_confianca_tese(votos_banker, votos_player, estrategias_ativas, modo, ajuste_horario, fator_delay):
+    """
+    Calcula confiança de forma realista - NUNCA 100%
+    """
     total_votos = votos_banker + votos_player
     
     if total_votos == 0:
-        return 60
+        return 50
     
     if votos_banker > votos_player:
         confianca_base = (votos_banker / total_votos) * 100
     else:
         confianca_base = (votos_player / total_votos) * 100
     
+    # Bônus por número de estratégias ativas
     bonus_estrategias = min(10, len(estrategias_ativas) * 2)
     confianca = confianca_base + bonus_estrategias
     
+    # Redução se houver conflito (votos para ambos os lados)
     if votos_banker > 0 and votos_player > 0:
         proporcao = max(votos_banker, votos_player) / total_votos
-        if proporcao < 0.6:
+        if proporcao < 0.6:  # Muito conflito
             confianca = confianca * 0.85
     
+    # Aplica fator do horário
     confianca = confianca * ajuste_horario['fator_confianca']
     
-    if tem_delay:
-        confianca = confianca * 0.7
+    # Aplica delay pós-empate
+    confianca = confianca * fator_delay
     
-    if modo == "AGRESSIVO":
-        max_confianca = 92
-    elif modo == "PREDATORIO":
-        max_confianca = 88
-    elif modo == "MOEDOR":
-        max_confianca = 86
-    else:
-        max_confianca = 90
+    # Limites máximos por modo
+    limites = {
+        'AGRESSIVO': 92,
+        'PREDATORIO': 88,
+        'MOEDOR': 86,
+        'EQUILIBRADO': 90
+    }
     
-    max_confianca = max_confianca + ajuste_horario['peso_bonus']
+    max_confianca = limites.get(modo, 90) + ajuste_horario['peso_bonus']
     
     return min(max_confianca, max(50, round(confianca)))
 
+
+# =============================================================================
+# FUNÇÃO PRINCIPAL DE PREVISÃO
+# =============================================================================
 def calcular_previsao():
-    """Calcula previsão com todas as estratégias"""
+    """
+    Função principal que integra todas as 10 estratégias
+    """
     dados = cache['leves']['ultimas_50']
     
     if len(dados) < 5:
@@ -1242,20 +1361,24 @@ def calcular_previsao():
             'estrategias': ['Aguardando dados...']
         }
     
+    # Ordena dados corretamente (mais recentes primeiro)
     dados_ord = get_dados_ordenados(dados)
     
-    tem_delay = False
-    if len(dados_ord) >= 2 and dados_ord[1]['resultado'] == 'TIE':
-        print("⚠️ DELAY PÓS-EMPATE DETECTADO - Reduzindo confiança")
-        tem_delay = True
+    # Verifica delay pós-empate
+    fator_delay = verificar_delay_pos_empate(dados_ord)
     
+    # Detecta modo
     modo = detectar_modo_tese(dados_ord)
+    
+    # Aplica efeito calendário
     ajuste_horario = estrategia_horario_tese()
     
+    # Inicializa votos
     votos_banker = 0
     votos_player = 0
     estrategias_ativas = []
     
+    # Executa as 7 estratégias base
     estrategias = [
         ('Compensação', estrategia_compensacao_tese(dados_ord, modo)),
         ('Paredão', estrategia_paredao_tese(dados_ord, modo)),
@@ -1278,6 +1401,7 @@ def calcular_previsao():
             else:
                 estrategias_ativas.append(nome)
     
+    # Estratégia 9: Saturação
     e9 = estrategia_saturacao_tese(dados_ord)
     if e9['banker'] > 0 or e9['player'] > 0:
         votos_banker += e9['banker']
@@ -1285,15 +1409,18 @@ def calcular_previsao():
         if e9['motivo']:
             estrategias_ativas.append(f"Saturação ({e9['motivo']})")
     
+    # Estratégia 8: Meta-Algoritmo
     votos_banker, votos_player, meta_nome = aplicar_meta_tese(
         votos_banker, votos_player, dados_ord, modo
     )
     if meta_nome:
         estrategias_ativas.append(meta_nome)
     
+    # Adiciona informação do horário
     if ajuste_horario['peso_bonus'] != 0:
         estrategias_ativas.append(f"Horário ({ajuste_horario['periodo']})")
     
+    # Decisão final
     if votos_banker > votos_player:
         previsao = 'BANKER'
         simbolo = '🔴'
@@ -1301,19 +1428,21 @@ def calcular_previsao():
         previsao = 'PLAYER'
         simbolo = '🔵'
     else:
+        # Empate - usa tendência das últimas 10
         player = sum(1 for r in dados_ord[:10] if r['resultado'] == 'PLAYER')
         banker = sum(1 for r in dados_ord[:10] if r['resultado'] == 'BANKER')
         previsao = 'BANKER' if banker > player else 'PLAYER'
         simbolo = '🔴' if previsao == 'BANKER' else '🔵'
         estrategias_ativas = ['Tendência recente']
     
+    # Calcula confiança final
     confianca = calcular_confianca_tese(
         votos_banker, 
         votos_player, 
         estrategias_ativas, 
         modo,
         ajuste_horario,
-        tem_delay
+        fator_delay
     )
     
     return {
@@ -1321,35 +1450,40 @@ def calcular_previsao():
         'previsao': previsao,
         'simbolo': simbolo,
         'confianca': confianca,
-        'estrategias': estrategias_ativas[:4]
+        'estrategias': estrategias_ativas[:4]  # Mostra no máximo 4
     }
+
 
 # =============================================================================
 # SISTEMA DE APRENDIZADO
 # =============================================================================
-
 def verificar_previsoes_anteriores():
-    """Verifica acertos de previsões anteriores"""
+    """Verifica acertos de previsões anteriores e atualiza estatísticas"""
     if cache.get('ultima_previsao') and cache.get('ultimo_resultado_real'):
         ultima = cache['ultima_previsao']
         resultado_real = cache['ultimo_resultado_real']
         
         acertou = (ultima['previsao'] == resultado_real)
         
+        # Salva no banco
         salvar_previsao(ultima, resultado_real, acertou)
         
+        # Atualiza estatísticas gerais
         cache['estatisticas']['total_previsoes'] += 1
         if acertou:
             cache['estatisticas']['acertos'] += 1
         else:
             cache['estatisticas']['erros'] += 1
         
+        # Atualiza estatísticas das estratégias
         for estrategia in ultima.get('estrategias', []):
             nome_clean = estrategia.replace('🔴', '').replace('🔵', '').replace('🟡', '').replace('⏸️', '').strip()
             
+            # Remove detalhes entre parênteses
             if '(' in nome_clean:
                 nome_clean = nome_clean.split('(')[0].strip()
             
+            # Mapeamento para 10 estratégias
             if 'Compensação' in nome_clean:
                 nome_final = 'Compensação'
             elif 'Paredão' in nome_clean:
@@ -1382,6 +1516,7 @@ def verificar_previsoes_anteriores():
                 else:
                     cache['estatisticas']['estrategias'][nome_final]['erros'] += 1
         
+        # Adiciona ao histórico recente
         previsao_historico = {
             'data': datetime.now().strftime('%d/%m %H:%M:%S'),
             'previsao': ultima['previsao'],
@@ -1402,6 +1537,7 @@ def verificar_previsoes_anteriores():
         cache['ultima_previsao'] = None
         cache['ultimo_resultado_real'] = None
 
+
 def calcular_precisao():
     """Calcula precisão atual"""
     total = cache['estatisticas']['total_previsoes']
@@ -1409,12 +1545,12 @@ def calcular_precisao():
         return 0
     return round((cache['estatisticas']['acertos'] / total) * 100)
 
-# =============================================================================
-# ATUALIZAÇÃO DE DADOS LEVES (VERSÃO ÚNICA CORRIGIDA)
-# =============================================================================
 
+# =============================================================================
+# ATUALIZAÇÃO DE DADOS LEVES
+# =============================================================================
 def atualizar_dados_leves():
-    """Atualiza dados leves e previsão (função única)"""
+    """Atualiza dados leves e previsão"""
     verificar_previsoes_anteriores()
     
     cache['leves']['ultimas_50'] = get_ultimas_50()
@@ -1426,7 +1562,7 @@ def atualizar_dados_leves():
     
     cache['leves']['previsao'] = calcular_previsao()
     cache['leves']['ultima_atualizacao'] = datetime.now(timezone.utc)
-
+    
 # =============================================================================
 # ROTAS FLASK
 # =============================================================================
