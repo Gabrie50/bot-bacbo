@@ -857,6 +857,7 @@ def processar_fila():
 # ✅ NÃO RESETA NADA DO BANCO
 # ✅ EMPATE NÃO É CONSIDERADO ERRO/ACERTO
 # ✅ ESTATÍSTICAS PERSISTEM CORRETAMENTE
+# ✅ RESPEITA A DISTRIBUIÇÃO REAL (Banker 48% x Player 38%)
 # =============================================================================
 
 def get_dados_ordenados(dados):
@@ -901,10 +902,10 @@ def detectar_modo_tese(dados):
 
 
 # =============================================================================
-# ESTRATÉGIA 1: COMPENSAÇÃO (PESOS AJUSTADOS)
+# ESTRATÉGIA 1: COMPENSAÇÃO (CORRIGIDA - PESOS REDUZIDOS)
 # =============================================================================
 def estrategia_compensacao_tese(dados, modo):
-    """Aposta no lado que está atrás na estatística geral"""
+    """Aposta no lado que está atrás - MAS RESPEITA O MODO"""
     if len(dados) < 10:
         return {'banker': 0, 'player': 0}
     
@@ -919,11 +920,17 @@ def estrategia_compensacao_tese(dados, modo):
     
     diff = abs(banker_pct - player_pct)
     
-    if diff > 5:
+    # Só ativa se diferença for significativa (aumentado para 8%)
+    if diff > 8:
+        if modo == "MOEDOR":
+            # No modo moedor, NÃO usa compensação (confunde)
+            return {'banker': 0, 'player': 0}
+        
         if banker_pct > player_pct:
-            return {'banker': 0, 'player': 70}
+            # Banker na frente, aposta em PLAYER (mas com peso menor)
+            return {'banker': 0, 'player': 50}  # Peso reduzido de 70 para 50
         else:
-            return {'banker': 70, 'player': 0}
+            return {'banker': 50, 'player': 0}
     
     return {'banker': 0, 'player': 0}
 
@@ -1084,10 +1091,10 @@ def estrategia_reset_cluster_tese(dados, modo):
 
 
 # =============================================================================
-# ESTRATÉGIA 7: FALSA ALTERNÂNCIA (CORRIGIDA)
+# ESTRATÉGIA 7: FALSA ALTERNÂNCIA (CORRIGIDA - RESPEITA PADRÃO REAL)
 # =============================================================================
 def estrategia_falsa_alternancia_tese(dados, modo):
-    """Números extremos (9+) - NÃO SE REPETEM"""
+    """Números extremos - VERSÃO CORRIGIDA"""
     if len(dados) < 3:
         return {'banker': 0, 'player': 0}
     
@@ -1097,36 +1104,67 @@ def estrategia_falsa_alternancia_tese(dados, modo):
         return {'banker': 0, 'player': 0}
     
     r1 = dados_ord[0]
+    r2 = dados_ord[1]
     
+    # Extremo no último resultado
     r1_extremo = (r1['player_score'] >= 9 or r1['banker_score'] >= 9)
     
-    if r1_extremo:
-        # Número extremo tende a NÃO SE REPETIR
+    # Extremo + resultado fraco no anterior = padrão de alternância
+    r2_fraco = (r2['player_score'] <= 5 and r2['banker_score'] <= 5)
+    
+    if r1_extremo and r2_fraco:
+        # Padrão: extremo → fraco → ? (aposta na CONTINUIDADE do extremo)
         if r1['resultado'] == 'BANKER':
-            return {'banker': 0, 'player': 65}
+            return {'banker': 60, 'player': 0}  # Mantém BANKER
         else:
-            return {'banker': 65, 'player': 0}
+            return {'banker': 0, 'player': 60}  # Mantém PLAYER
+    
+    # Extremo isolado - aposta na REPETIÇÃO
+    if r1_extremo:
+        if r1['resultado'] == 'BANKER':
+            return {'banker': 55, 'player': 0}
+        else:
+            return {'banker': 0, 'player': 55}
     
     return {'banker': 0, 'player': 0}
 
 
 # =============================================================================
-# ESTRATÉGIA 8: META-ALGORITMO (CORRIGIDO)
+# ESTRATÉGIA 8: META-ALGORITMO (CORRIGIDO - RESPEITA O MODO)
 # =============================================================================
 def aplicar_meta_tese(votos_banker, votos_player, dados, modo):
-    """Ajusta pesos baseado na distribuição real"""
+    """Ajusta pesos baseado no modo e na distribuição real"""
     dados_ord = get_dados_ordenados(dados)
     
     player_total = sum(1 for r in dados_ord if r['resultado'] == 'PLAYER')
     banker_total = sum(1 for r in dados_ord if r['resultado'] == 'BANKER')
     
-    if modo == "AGRESSIVO":
+    print(f"📊 MODO DETECTADO: {modo} - Banker {banker_total} x Player {player_total}")
+    
+    if modo == "MOEDOR":
+        # No modo moedor, DÁ PESO EXTRA para o lado dominante
+        if banker_total > player_total:
+            votos_banker = int(votos_banker * 1.4)  # +40% para Banker
+            return votos_banker, votos_player, f'Meta MOEDOR (Banker +40%)'
+        else:
+            votos_player = int(votos_player * 1.4)  # +40% para Player
+            return votos_banker, votos_player, f'Meta MOEDOR (Player +40%)'
+    
+    elif modo == "AGRESSIVO":
         if banker_total > player_total:
             votos_banker = int(votos_banker * 1.2)
-            return votos_banker, votos_player, f'Meta (Banker {banker_total}x{player_total})'
+            return votos_banker, votos_player, f'Meta AGRESSIVO (Banker)'
         else:
             votos_player = int(votos_player * 1.2)
-            return votos_banker, votos_player, f'Meta (Player {player_total}x{banker_total})'
+            return votos_banker, votos_player, f'Meta AGRESSIVO (Player)'
+    
+    elif modo == "PREDATORIO":
+        if banker_total > player_total:
+            votos_banker = int(votos_banker * 1.1)
+            return votos_banker, votos_player, f'Meta PREDATÓRIO (Banker)'
+        else:
+            votos_player = int(votos_player * 1.1)
+            return votos_banker, votos_player, f'Meta PREDATÓRIO (Player)'
     
     return votos_banker, votos_player, None
 
@@ -1211,7 +1249,7 @@ def calcular_confianca_tese(votos_banker, votos_player, estrategias_ativas, modo
 
 
 # =============================================================================
-# FUNÇÃO PRINCIPAL DE PREVISÃO
+# FUNÇÃO PRINCIPAL DE PREVISÃO (COM LOGS DETALHADOS)
 # =============================================================================
 def calcular_previsao():
     """Função principal que integra todas as 10 estratégias"""
@@ -1231,16 +1269,23 @@ def calcular_previsao():
     modo = detectar_modo_tese(dados_ord)
     ajuste_horario = estrategia_horario_tese()
     
-    # Mostra distribuição atual
+    # Distribuição atual
     player_50 = sum(1 for r in dados_ord[:50] if r['resultado'] == 'PLAYER')
     banker_50 = sum(1 for r in dados_ord[:50] if r['resultado'] == 'BANKER')
     ties_50 = sum(1 for r in dados_ord[:50] if r['resultado'] == 'TIE')
     
-    print(f"\n📊 DISTRIBUIÇÃO ATUAL: Banker {banker_50} x Player {player_50} x Tie {ties_50}")
+    print(f"\n{'='*60}")
+    print(f"📊 ANÁLISE ATUAL:")
+    print(f"   Banker: {banker_50} ({banker_50/(banker_50+player_50)*100:.1f}% das não-empates)")
+    print(f"   Player: {player_50} ({player_50/(banker_50+player_50)*100:.1f}% das não-empates)")
+    print(f"   Ties: {ties_50}")
+    print(f"   Modo detectado: {modo}")
+    print(f"{'='*60}")
     
     votos_banker = 0
     votos_player = 0
     estrategias_ativas = []
+    votos_detalhados = []
     
     estrategias = [
         ('Compensação', estrategia_compensacao_tese(dados_ord, modo)),
@@ -1259,6 +1304,7 @@ def calcular_previsao():
         if b > 0 or p > 0:
             votos_banker += b
             votos_player += p
+            votos_detalhados.append(f"{nome}: B{b} P{p}")
             if 'motivo' in votos:
                 estrategias_ativas.append(f"{nome} ({votos['motivo']})")
             else:
@@ -1268,31 +1314,52 @@ def calcular_previsao():
     if e9['banker'] > 0 or e9['player'] > 0:
         votos_banker += e9['banker']
         votos_player += e9['player']
+        votos_detalhados.append(f"Saturação: B{e9['banker']} P{e9['player']}")
         if e9['motivo']:
             estrategias_ativas.append(f"Saturação ({e9['motivo']})")
     
+    # Mostra votos antes do meta
+    print(f"\n📊 VOTOS DAS ESTRATÉGIAS:")
+    for v in votos_detalhados:
+        print(f"   {v}")
+    print(f"   TOTAL ANTES DO META: Banker {votos_banker} x Player {votos_player}")
+    
+    # Aplica meta
     votos_banker, votos_player, meta_nome = aplicar_meta_tese(votos_banker, votos_player, dados_ord, modo)
     if meta_nome:
         estrategias_ativas.append(meta_nome)
     
+    print(f"\n📊 VOTOS APÓS META: Banker {votos_banker} x Player {votos_player}")
+    
     if ajuste_horario['peso_bonus'] != 0:
         estrategias_ativas.append(f"Horário ({ajuste_horario['periodo']})")
     
-    print(f"📈 VOTOS PARCIAIS: Banker {votos_banker} x Player {votos_player}")
-    
+    # Decisão final
     if votos_banker > votos_player:
         previsao = 'BANKER'
         simbolo = '🔴'
+        motivo = "Banker tem mais votos"
     elif votos_player > votos_banker:
         previsao = 'PLAYER'
         simbolo = '🔵'
+        motivo = "Player tem mais votos"
     else:
         # Empate - usa distribuição real como critério
-        previsao = 'BANKER' if banker_50 > player_50 else 'PLAYER'
-        simbolo = '🔴' if previsao == 'BANKER' else '🔵'
+        if banker_50 > player_50:
+            previsao = 'BANKER'
+            simbolo = '🔴'
+            motivo = "Empate técnico - Banker lidera"
+        else:
+            previsao = 'PLAYER'
+            simbolo = '🔵'
+            motivo = "Empate técnico - Player lidera"
         estrategias_ativas = ['Distribuição real']
     
     confianca = calcular_confianca_tese(votos_banker, votos_player, estrategias_ativas, modo, ajuste_horario, fator_delay)
+    
+    print(f"\n🎯 DECISÃO FINAL: {simbolo} {previsao} com {confianca}%")
+    print(f"   Motivo: {motivo}")
+    print(f"{'='*60}\n")
     
     return {
         'modo': modo,
