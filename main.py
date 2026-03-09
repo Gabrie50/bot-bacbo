@@ -1546,12 +1546,18 @@ if __name__ == "__main__":
     print("="*70)
     print("🚀 BOT BACBO - PREVISÃO EM TEMPO REAL + 94% DE ACERTO")
     print("="*70)
-    print("✅ [PRINCIPAL] API Latest: Envia para tabela (0.3s)")
-    print("✅ [BACKUP] WebSocket: Ativado quando Latest falha")
-    print("✅ [FALLBACK] API Normal: Último recurso")
-    print("✅ 8 Estratégias otimizadas com 94% de precisão")
-    print("✅ PREVISÃO ATUALIZA EM TEMPO REAL com cada rodada")
-    print("✅ Confiança REALISTA (nunca 100%)")
+    
+    # Inicializa banco
+    if not init_db():
+        print("⚠️ Banco não disponível - continuando sem banco de dados")
+    
+    # CARGA HISTÓRICA - DESCOMENTE ESTA LINHA!
+    carregar_historico_completo()  # <--- REMOVA O # NA FRENTE
+    
+    print("📊 Carregando dados...")
+    atualizar_dados_leves()
+    atualizar_dados_pesados()
+    print(f"📊 {cache['leves']['total_rodadas']} rodadas no banco")
     print("="*70)
     
     # Inicializa banco
