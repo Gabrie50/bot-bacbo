@@ -850,8 +850,13 @@ def processar_fila():
             print(f"❌ Erro TURBO: {e}")
             time.sleep(0.1)
 
+
+
 # =============================================================================
-# ESTRATÉGIAS DE PREVISÃO - VERSÃO CORRIGIDA E OTIMIZADA
+# ESTRATÉGIAS DE PREVISÃO - VERSÃO FINAL CORRIGIDA
+# ✅ NÃO RESETA NADA DO BANCO
+# ✅ EMPATE NÃO É CONSIDERADO ERRO/ACERTO
+# ✅ ESTATÍSTICAS PERSISTEM CORRETAMENTE
 # =============================================================================
 
 def get_dados_ordenados(dados):
@@ -896,7 +901,7 @@ def detectar_modo_tese(dados):
 
 
 # =============================================================================
-# ESTRATÉGIA 1: COMPENSAÇÃO
+# ESTRATÉGIA 1: COMPENSAÇÃO (PESOS AJUSTADOS)
 # =============================================================================
 def estrategia_compensacao_tese(dados, modo):
     """Aposta no lado que está atrás na estatística geral"""
@@ -916,9 +921,9 @@ def estrategia_compensacao_tese(dados, modo):
     
     if diff > 5:
         if banker_pct > player_pct:
-            return {'banker': 0, 'player': 80}
+            return {'banker': 0, 'player': 70}
         else:
-            return {'banker': 80, 'player': 0}
+            return {'banker': 70, 'player': 0}
     
     return {'banker': 0, 'player': 0}
 
@@ -947,14 +952,14 @@ def estrategia_paredao_tese(dados, modo):
             posicao = len(dados_ord) % 10
             if posicao < 8:
                 if streak_cor == 'BANKER':
-                    return {'banker': 0, 'player': 70, 'motivo': f'Sat: {streak}x BANKER'}
+                    return {'banker': 0, 'player': 65, 'motivo': f'Sat: {streak}x BANKER'}
                 else:
-                    return {'banker': 70, 'player': 0, 'motivo': f'Sat: {streak}x PLAYER'}
+                    return {'banker': 65, 'player': 0, 'motivo': f'Sat: {streak}x PLAYER'}
         
         if streak_cor == 'BANKER':
-            return {'banker': 75, 'player': 0}
+            return {'banker': 70, 'player': 0}
         else:
-            return {'banker': 0, 'player': 75}
+            return {'banker': 0, 'player': 70}
     
     return {'banker': 0, 'player': 0}
 
@@ -976,9 +981,9 @@ def estrategia_moedor_tese(dados, modo):
         banker = sum(1 for r in dados_ord if r['resultado'] == 'BANKER')
         
         if banker > player:
-            return {'banker': 75, 'player': 0}
+            return {'banker': 70, 'player': 0}
         else:
-            return {'banker': 0, 'player': 75}
+            return {'banker': 0, 'player': 70}
     
     return {'banker': 0, 'player': 0}
 
@@ -1004,14 +1009,14 @@ def estrategia_xadrez_tese(dados, modo):
             posicao = len(dados_ord) % 10
             if posicao < 4:
                 if seq[3] == 'BANKER':
-                    return {'banker': 70, 'player': 0, 'motivo': 'Quebra Xadrez'}
+                    return {'banker': 65, 'player': 0, 'motivo': 'Quebra Xadrez'}
                 else:
-                    return {'banker': 0, 'player': 70, 'motivo': 'Quebra Xadrez'}
+                    return {'banker': 0, 'player': 65, 'motivo': 'Quebra Xadrez'}
         
         if seq[3] == 'BANKER':
-            return {'banker': 0, 'player': 70}
+            return {'banker': 0, 'player': 65}
         else:
-            return {'banker': 70, 'player': 0}
+            return {'banker': 65, 'player': 0}
     
     return {'banker': 0, 'player': 0}
 
@@ -1036,9 +1041,9 @@ def estrategia_contragolpe_tese(dados, modo):
     
     if r1 == r2 == r3 and r3 != r4:
         if r1 == 'BANKER':
-            return {'banker': 90, 'player': 0}
+            return {'banker': 85, 'player': 0}
         else:
-            return {'banker': 0, 'player': 90}
+            return {'banker': 0, 'player': 85}
     
     return {'banker': 0, 'player': 0}
 
@@ -1065,24 +1070,24 @@ def estrategia_reset_cluster_tese(dados, modo):
                 posicao = len(dados_ord) % 10
                 if posicao < 7:
                     if dominante == 'BANKER':
-                        return {'banker': 80, 'player': 0}
+                        return {'banker': 75, 'player': 0}
                     else:
-                        return {'banker': 0, 'player': 80}
+                        return {'banker': 0, 'player': 75}
                 else:
                     if dominante == 'BANKER':
-                        return {'banker': 0, 'player': 80}
+                        return {'banker': 0, 'player': 75}
                     else:
-                        return {'banker': 80, 'player': 0}
+                        return {'banker': 75, 'player': 0}
                 break
     
     return {'banker': 0, 'player': 0}
 
 
 # =============================================================================
-# ESTRATÉGIA 7: FALSA ALTERNÂNCIA
+# ESTRATÉGIA 7: FALSA ALTERNÂNCIA (CORRIGIDA)
 # =============================================================================
 def estrategia_falsa_alternancia_tese(dados, modo):
-    """Números extremos (9+) tendem a se repetir"""
+    """Números extremos (9+) - NÃO SE REPETEM"""
     if len(dados) < 3:
         return {'banker': 0, 'player': 0}
     
@@ -1092,52 +1097,36 @@ def estrategia_falsa_alternancia_tese(dados, modo):
         return {'banker': 0, 'player': 0}
     
     r1 = dados_ord[0]
-    r2 = dados_ord[1]
     
     r1_extremo = (r1['player_score'] >= 9 or r1['banker_score'] >= 9)
-    r2_fraco = (r2['player_score'] <= 5 and r2['banker_score'] <= 5)
-    
-    if r1_extremo and r2_fraco:
-        if r1['resultado'] == 'BANKER':
-            return {'banker': 75, 'player': 0}
-        else:
-            return {'banker': 0, 'player': 75}
     
     if r1_extremo:
+        # Número extremo tende a NÃO SE REPETIR
         if r1['resultado'] == 'BANKER':
-            return {'banker': 65, 'player': 0}
-        else:
             return {'banker': 0, 'player': 65}
+        else:
+            return {'banker': 65, 'player': 0}
     
     return {'banker': 0, 'player': 0}
 
 
 # =============================================================================
-# ESTRATÉGIA 8: META-ALGORITMO
+# ESTRATÉGIA 8: META-ALGORITMO (CORRIGIDO)
 # =============================================================================
 def aplicar_meta_tese(votos_banker, votos_player, dados, modo):
-    """Ajusta pesos baseado no modo detectado"""
+    """Ajusta pesos baseado na distribuição real"""
     dados_ord = get_dados_ordenados(dados)
     
+    player_total = sum(1 for r in dados_ord if r['resultado'] == 'PLAYER')
+    banker_total = sum(1 for r in dados_ord if r['resultado'] == 'BANKER')
+    
     if modo == "AGRESSIVO":
-        player_total = sum(1 for r in dados_ord if r['resultado'] == 'PLAYER')
-        banker_total = sum(1 for r in dados_ord if r['resultado'] == 'BANKER')
-        
         if banker_total > player_total:
-            votos_banker = int(votos_banker * 1.3)
+            votos_banker = int(votos_banker * 1.2)
+            return votos_banker, votos_player, f'Meta (Banker {banker_total}x{player_total})'
         else:
-            votos_player = int(votos_player * 1.3)
-        return votos_banker, votos_player, 'Meta AGRESSIVO'
-    
-    elif modo == "PREDATORIO":
-        votos_banker = int(votos_banker * 1.1)
-        votos_player = int(votos_player * 1.1)
-        return votos_banker, votos_player, 'Meta PREDATÓRIO'
-    
-    elif modo == "MOEDOR":
-        votos_banker = int(votos_banker * 1.15)
-        votos_player = int(votos_player * 1.15)
-        return votos_banker, votos_player, 'Meta MOEDOR'
+            votos_player = int(votos_player * 1.2)
+            return votos_banker, votos_player, f'Meta (Player {player_total}x{banker_total})'
     
     return votos_banker, votos_player, None
 
@@ -1165,28 +1154,9 @@ def estrategia_saturacao_tese(dados):
         posicao = len(dados_ord) % 10
         if posicao < 8:
             if streak_cor == 'BANKER':
-                return {'banker': 0, 'player': 75, 'motivo': f'Sat: {streak}x BANKER'}
+                return {'banker': 0, 'player': 70, 'motivo': f'Sat: {streak}x BANKER'}
             else:
-                return {'banker': 75, 'player': 0, 'motivo': f'Sat: {streak}x PLAYER'}
-    
-    if len(dados_ord) >= 4:
-        ultimas_4 = [r['resultado'] for r in dados_ord[:4]]
-        if len(set(ultimas_4)) == 4 and 'TIE' not in ultimas_4:
-            posicao = len(dados_ord) % 10
-            if posicao < 7:
-                if ultimas_4[-1] == 'BANKER':
-                    return {'banker': 75, 'player': 0, 'motivo': 'Sat Xadrez'}
-                else:
-                    return {'banker': 0, 'player': 75, 'motivo': 'Sat Xadrez'}
-    
-    ties = sum(1 for r in dados_ord[:6] if r['resultado'] == 'TIE')
-    if ties >= 3:
-        posicao = len(dados_ord) % 10
-        if posicao < 9:
-            if (len(dados_ord) // 2) % 2 == 0:
-                return {'banker': 75, 'player': 0, 'motivo': 'Sat Empates'}
-            else:
-                return {'banker': 0, 'player': 75, 'motivo': 'Sat Empates'}
+                return {'banker': 70, 'player': 0, 'motivo': f'Sat: {streak}x PLAYER'}
     
     return {'banker': 0, 'player': 0, 'motivo': None}
 
@@ -1223,7 +1193,7 @@ def calcular_confianca_tese(votos_banker, votos_player, estrategias_ativas, modo
     else:
         confianca_base = (votos_player / total_votos) * 100
     
-    bonus_estrategias = min(10, len(estrategias_ativas) * 2)
+    bonus_estrategias = min(8, len(estrategias_ativas) * 2)
     confianca = confianca_base + bonus_estrategias
     
     if votos_banker > 0 and votos_player > 0:
@@ -1260,6 +1230,13 @@ def calcular_previsao():
     fator_delay = verificar_delay_pos_empate(dados_ord)
     modo = detectar_modo_tese(dados_ord)
     ajuste_horario = estrategia_horario_tese()
+    
+    # Mostra distribuição atual
+    player_50 = sum(1 for r in dados_ord[:50] if r['resultado'] == 'PLAYER')
+    banker_50 = sum(1 for r in dados_ord[:50] if r['resultado'] == 'BANKER')
+    ties_50 = sum(1 for r in dados_ord[:50] if r['resultado'] == 'TIE')
+    
+    print(f"\n📊 DISTRIBUIÇÃO ATUAL: Banker {banker_50} x Player {player_50} x Tie {ties_50}")
     
     votos_banker = 0
     votos_player = 0
@@ -1301,6 +1278,8 @@ def calcular_previsao():
     if ajuste_horario['peso_bonus'] != 0:
         estrategias_ativas.append(f"Horário ({ajuste_horario['periodo']})")
     
+    print(f"📈 VOTOS PARCIAIS: Banker {votos_banker} x Player {votos_player}")
+    
     if votos_banker > votos_player:
         previsao = 'BANKER'
         simbolo = '🔴'
@@ -1308,11 +1287,10 @@ def calcular_previsao():
         previsao = 'PLAYER'
         simbolo = '🔵'
     else:
-        player = sum(1 for r in dados_ord[:10] if r['resultado'] == 'PLAYER')
-        banker = sum(1 for r in dados_ord[:10] if r['resultado'] == 'BANKER')
-        previsao = 'BANKER' if banker > player else 'PLAYER'
+        # Empate - usa distribuição real como critério
+        previsao = 'BANKER' if banker_50 > player_50 else 'PLAYER'
         simbolo = '🔴' if previsao == 'BANKER' else '🔵'
-        estrategias_ativas = ['Tendência recente']
+        estrategias_ativas = ['Distribuição real']
     
     confianca = calcular_confianca_tese(votos_banker, votos_player, estrategias_ativas, modo, ajuste_horario, fator_delay)
     
@@ -1326,7 +1304,7 @@ def calcular_previsao():
 
 
 # =============================================================================
-# SISTEMA DE APRENDIZADO - VERSÃO CORRIGIDA (PROBLEMA RESOLVIDO!)
+# SISTEMA DE APRENDIZADO - VERSÃO FINAL (NUNCA RESETA NADA!)
 # =============================================================================
 def verificar_previsoes_anteriores():
     """Verifica acertos de previsões anteriores e atualiza estatísticas"""
@@ -1334,43 +1312,50 @@ def verificar_previsoes_anteriores():
         ultima = cache['ultima_previsao']
         resultado_real = cache['ultimo_resultado_real']
         
+        # ✅ EMPATE NÃO É CONSIDERADO ERRO NEM ACERTO
+        if resultado_real == 'TIE':
+            print("⏸️ Resultado foi TIE - Ignorando para estatísticas")
+            cache['ultima_previsao'] = None
+            cache['ultimo_resultado_real'] = None
+            return
+        
         acertou = (ultima['previsao'] == resultado_real)
         
         # Salva no banco
         salvar_previsao(ultima, resultado_real, acertou)
         
-        # Atualiza estatísticas gerais
+        # Atualiza estatísticas gerais (SÓ INCREMENTA, NUNCA RESETA)
         cache['estatisticas']['total_previsoes'] += 1
         if acertou:
             cache['estatisticas']['acertos'] += 1
         else:
             cache['estatisticas']['erros'] += 1
         
-        # DEBUG - Mostra o que está sendo processado
         print(f"\n📊 PROCESSANDO PREVISÃO #{cache['estatisticas']['total_previsoes']}")
         print(f"   Previsão: {ultima['simbolo']} {ultima['previsao']} vs Real: {resultado_real} = {'✅' if acertou else '❌'}")
-        print(f"   Estratégias ativas: {ultima['estrategias']}")
         
-        # MAPEAMENTO CORRIGIDO - Mais abrangente
+        # MAPEAMENTO CORRIGIDO
         mapeamento_estrategias = {
             'Compensação': ['Compensação', 'Compensacao', 'Compensa'],
             'Paredão': ['Paredão', 'Paredao', 'Pare'],
-            'Moedor': ['Moedor', 'Moedor'],
+            'Moedor': ['Moedor'],
             'Xadrez': ['Xadrez', 'Xadre'],
             'Contragolpe': ['Contragolpe', 'Contra'],
             'Reset Cluster': ['Reset', 'Cluster'],
             'Falsa Alternância': ['Falsa', 'Alternância', 'Alternancia'],
-            'Meta-Algoritmo': ['Meta', 'Algoritmo'],
+            'Meta-Algoritmo': ['Meta'],
             'Saturação': ['Saturação', 'Saturacao', 'Sat'],
             'Horário': ['Horário', 'Horario']
         }
         
         # Processa cada estratégia ativa
         for estrategia in ultima.get('estrategias', []):
-            # Limpa a string
             nome_clean = estrategia.replace('🔴', '').replace('🔵', '').replace('🟡', '').replace('⏸️', '').strip()
             
-            # Encontra qual estratégia corresponde
+            # Remove parênteses e conteúdo
+            if '(' in nome_clean:
+                nome_clean = nome_clean.split('(')[0].strip()
+            
             nome_final = None
             for chave, variacoes in mapeamento_estrategias.items():
                 for variacao in variacoes:
@@ -1380,7 +1365,6 @@ def verificar_previsoes_anteriores():
                 if nome_final:
                     break
             
-            # Se encontrou, atualiza estatísticas
             if nome_final and nome_final in cache['estatisticas']['estrategias']:
                 cache['estatisticas']['estrategias'][nome_final]['total'] += 1
                 if acertou:
@@ -1388,8 +1372,6 @@ def verificar_previsoes_anteriores():
                 else:
                     cache['estatisticas']['estrategias'][nome_final]['erros'] += 1
                 print(f"   ✅ Registrado: {nome_final}")
-            else:
-                print(f"   ⚠️ Estratégia não mapeada: '{nome_clean}'")
         
         # Adiciona ao histórico recente
         previsao_historico = {
@@ -1421,38 +1403,18 @@ def calcular_precisao():
 
 
 # =============================================================================
-# FUNÇÃO DE EMERGÊNCIA PARA RESETAR ESTATÍSTICAS
+# ⚠️ FUNÇÃO DE EMERGÊNCIA REMOVIDA PERMANENTEMENTE ⚠️
 # =============================================================================
-def resetar_estatisticas_emergencia():
-    """Reseta estatísticas em caso de sequência de erros"""
-    print("\n⚠️⚠️⚠️ SEQUÊNCIA DE ERROS DETECTADA - Resetando aprendizado ⚠️⚠️⚠️")
-    
-    for nome in cache['estatisticas']['estrategias']:
-        cache['estatisticas']['estrategias'][nome]['acertos'] = 0
-        cache['estatisticas']['estrategias'][nome]['erros'] = 0
-        cache['estatisticas']['estrategias'][nome]['total'] = 0
-    
-    cache['estatisticas']['total_previsoes'] = 0
-    cache['estatisticas']['acertos'] = 0
-    cache['estatisticas']['erros'] = 0
-    cache['estatisticas']['ultimas_20_previsoes'] = []
-    
-    print("✅ Estatísticas resetadas - Sistema vai recalibrar")
-    return True
+# A função resetar_estatisticas_emergencia foi removida para 
+# garantir que os dados do banco NUNCA sejam perdidos.
 
 
 # =============================================================================
-# ATUALIZAÇÃO DE DADOS LEVES (COM VERIFICAÇÃO DE EMERGÊNCIA)
+# ATUALIZAÇÃO DE DADOS LEVES (SEM RESET)
 # =============================================================================
 def atualizar_dados_leves():
-    """Atualiza dados leves e previsão"""
+    """Atualiza dados leves e previsão - NUNCA RESETA NADA"""
     verificar_previsoes_anteriores()
-    
-    # Verifica se precisa resetar (3 erros seguidos)
-    if len(cache['estatisticas']['ultimas_20_previsoes']) >= 3:
-        ultimas_3 = cache['estatisticas']['ultimas_20_previsoes'][:3]
-        if all(not p['acertou'] for p in ultimas_3):
-            resetar_estatisticas_emergencia()
     
     cache['leves']['ultimas_50'] = get_ultimas_50()
     cache['leves']['ultimas_20'] = get_ultimas_20()
