@@ -1103,7 +1103,7 @@ def calcular_indice_manipulacao(dados):
 
 
 # =============================================================================
-# FUNÇÕES DO BANCO DE DADOS (ATUALIZADO)
+# FUNÇÕES DO BANCO DE DADOS (ATUALIZADO E CORRIGIDO)
 # =============================================================================
 
 def get_db_connection():
@@ -1169,25 +1169,28 @@ def init_db():
             )
         ''')
 
-        # Tabela de análise de erros (DETALHADA)
+        # Primeiro dropar a tabela se existir para recriar com estrutura correta
+        cur.execute('DROP TABLE IF EXISTS analise_erros CASCADE')
+        
+        # Tabela de análise de erros (DETALHADA) - VERSÃO CORRIGIDA
         cur.execute('''
-            CREATE TABLE IF NOT EXISTS analise_erros (
+            CREATE TABLE analise_erros (
                 id SERIAL PRIMARY KEY,
                 data_hora TIMESTAMPTZ,
                 previsao_feita TEXT,
                 resultado_real TEXT,
                 confianca INTEGER,
                 modo TEXT,
-                streak_atual INTEGER,
-                banker_50 INT,
-                player_50 INT,
-                diferenca_percentual FLOAT,
+                streak_atual INTEGER DEFAULT 0,
+                banker_50 INTEGER DEFAULT 0,
+                player_50 INTEGER DEFAULT 0,
+                diferenca_percentual FLOAT DEFAULT 0,
                 ultimos_5_resultados TEXT,
                 ultimos_10_resultados TEXT,
                 agentes_ativos TEXT,
                 pesos_agentes JSONB,
-                indice_manipulacao INT,
-                foi_manipulado BOOLEAN,
+                indice_manipulacao INTEGER DEFAULT 0,
+                foi_manipulado BOOLEAN DEFAULT FALSE,
                 padrao_detectado TEXT,
                 causa_erro TEXT,
                 acertou BOOLEAN,
@@ -1195,15 +1198,25 @@ def init_db():
             )
         ''')
 
-        cur.execute('CREATE INDEX IF NOT EXISTS idx_erros_data ON analise_erros(data_hora DESC)')
-        cur.execute('CREATE INDEX IF NOT EXISTS idx_erros_acertou ON analise_erros(acertou)')
-        cur.execute('CREATE INDEX IF NOT EXISTS idx_erros_causa ON analise_erros(causa_erro)')
+        # Criar índices depois da tabela
+        try:
+            cur.execute('CREATE INDEX IF NOT EXISTS idx_erros_data ON analise_erros(data_hora DESC)')
+        except:
+            pass
+        try:
+            cur.execute('CREATE INDEX IF NOT EXISTS idx_erros_acertou ON analise_erros(acertou)')
+        except:
+            pass
+        try:
+            cur.execute('CREATE INDEX IF NOT EXISTS idx_erros_causa ON analise_erros(causa_erro)')
+        except:
+            pass
 
         # Tabela de aprendizado com erros
         cur.execute('''
             CREATE TABLE IF NOT EXISTS aprendizado_erros (
                 id SERIAL PRIMARY KEY,
-                erro_id INTEGER REFERENCES analise_erros(id),
+                erro_id INTEGER,
                 data_analise TIMESTAMPTZ DEFAULT NOW(),
                 causa_provavel TEXT,
                 confianca_causa INTEGER,
@@ -1234,6 +1247,10 @@ def init_db():
         cur.close()
         conn.close()
         print("✅ Tabelas criadas/verificadas com sucesso")
+        
+        # Verifica e corrige novamente após criação
+        verificar_e_corrigir_banco()
+        
         return True
     except Exception as e:
         print(f"❌ Erro ao criar tabelas: {e}")
@@ -1282,7 +1299,6 @@ def salvar_rodada(rodada, fonte):
 def verificar_e_corrigir_banco():
     """
     Verifica se todas as colunas necessárias existem e adiciona se faltarem
-    Isso evita erros de 'column does not exist'
     """
     print("\n🔧 Verificando estrutura do banco de dados...")
     
@@ -1294,7 +1310,48 @@ def verificar_e_corrigir_banco():
     try:
         cur = conn.cursor()
         
-        # Verifica quais colunas existem na tabela analise_erros
+        # Verifica se a tabela existe
+        cur.execute("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_name = 'analise_erros'
+            )
+        """)
+        tabela_existe = cur.fetchone()[0]
+        
+        if not tabela_existe:
+            print("📊 Tabela analise_erros não existe - recriando...")
+            cur.execute('''
+                CREATE TABLE analise_erros (
+                    id SERIAL PRIMARY KEY,
+                    data_hora TIMESTAMPTZ,
+                    previsao_feita TEXT,
+                    resultado_real TEXT,
+                    confianca INTEGER,
+                    modo TEXT,
+                    streak_atual INTEGER DEFAULT 0,
+                    banker_50 INTEGER DEFAULT 0,
+                    player_50 INTEGER DEFAULT 0,
+                    diferenca_percentual FLOAT DEFAULT 0,
+                    ultimos_5_resultados TEXT,
+                    ultimos_10_resultados TEXT,
+                    agentes_ativos TEXT,
+                    pesos_agentes JSONB,
+                    indice_manipulacao INTEGER DEFAULT 0,
+                    foi_manipulado BOOLEAN DEFAULT FALSE,
+                    padrao_detectado TEXT,
+                    causa_erro TEXT,
+                    acertou BOOLEAN,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            ''')
+            conn.commit()
+            print("✅ Tabela analise_erros recriada com sucesso!")
+            cur.close()
+            conn.close()
+            return True
+        
+        # Se a tabela existe, verifica as colunas
         cur.execute("""
             SELECT column_name 
             FROM information_schema.columns 
@@ -1315,14 +1372,8 @@ def verificar_e_corrigir_banco():
             ('diferenca_percentual', 'FLOAT DEFAULT 0'),
             ('agentes_ativos', 'TEXT'),
             ('pesos_agentes', 'JSONB'),
-            ('indice_manipulacao', 'INT DEFAULT 0'),
             ('foi_manipulado', 'BOOLEAN DEFAULT FALSE'),
-            ('acertou', 'BOOLEAN'),
-            ('modo', 'TEXT'),
-            ('confianca', 'INTEGER'),
-            ('previsao_feita', 'TEXT'),
-            ('resultado_real', 'TEXT'),
-            ('data_hora', 'TIMESTAMPTZ')
+            ('acertou', 'BOOLEAN')
         ]
         
         colunas_adicionadas = 0
@@ -1336,33 +1387,6 @@ def verificar_e_corrigir_banco():
                     colunas_adicionadas += 1
                 except Exception as e:
                     print(f"   ⚠️ Erro ao adicionar coluna '{coluna}': {e}")
-        
-        # Verifica índices
-        cur.execute("""
-            SELECT indexname 
-            FROM pg_indexes 
-            WHERE tablename = 'analise_erros'
-        """)
-        indices_existentes = [row[0] for row in cur.fetchall()]
-        
-        indices_necessarios = [
-            'idx_erros_data',
-            'idx_erros_acertou',
-            'idx_erros_causa',
-            'idx_erros_padrao'
-        ]
-        
-        for idx in indices_necessarios:
-            if idx not in indices_existentes:
-                if idx == 'idx_erros_data':
-                    cur.execute('CREATE INDEX IF NOT EXISTS idx_erros_data ON analise_erros(data_hora DESC)')
-                elif idx == 'idx_erros_acertou':
-                    cur.execute('CREATE INDEX IF NOT EXISTS idx_erros_acertou ON analise_erros(acertou)')
-                elif idx == 'idx_erros_causa':
-                    cur.execute('CREATE INDEX IF NOT EXISTS idx_erros_causa ON analise_erros(causa_erro)')
-                elif idx == 'idx_erros_padrao':
-                    cur.execute('CREATE INDEX IF NOT EXISTS idx_erros_padrao ON analise_erros(padrao_detectado)')
-                print(f"   ✅ Índice '{idx}' criado")
         
         conn.commit()
         cur.close()
@@ -1438,29 +1462,59 @@ def salvar_previsao_completa_segura(previsao, resultado_real, acertou, contexto,
             
             # TENTATIVA 2: Inserção simplificada (só com colunas essenciais)
             try:
-                cur.execute('''
-                    INSERT INTO analise_erros 
-                    (data_hora, previsao_feita, resultado_real, confianca, modo, 
-                     indice_manipulacao, foi_manipulado, acertou)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                ''', (
-                    datetime.now(timezone.utc),
-                    previsao['previsao'],
-                    resultado_real,
-                    previsao['confianca'],
-                    previsao.get('modo', 'RL_PURO'),
-                    indice_manipulacao,
-                    foi_manipulado,
-                    acertou
-                ))
+                # Primeiro verifica quais colunas existem
+                cur.execute("""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name = 'analise_erros'
+                """)
+                colunas = [row[0] for row in cur.fetchall()]
+                
+                # Colunas básicas que sempre devem existir
+                colunas_basicas = ['data_hora', 'previsao_feita', 'resultado_real', 'confianca', 'modo', 'acertou']
+                colunas_presentes = [c for c in colunas_basicas if c in colunas]
+                
+                if 'indice_manipulacao' in colunas:
+                    colunas_presentes.append('indice_manipulacao')
+                if 'foi_manipulado' in colunas:
+                    colunas_presentes.append('foi_manipulado')
+                if 'causa_erro' in colunas and causa_erro:
+                    colunas_presentes.append('causa_erro')
+                
+                placeholders = ','.join(['%s'] * len(colunas_presentes))
+                valores = []
+                
+                for col in colunas_presentes:
+                    if col == 'data_hora':
+                        valores.append(datetime.now(timezone.utc))
+                    elif col == 'previsao_feita':
+                        valores.append(previsao['previsao'])
+                    elif col == 'resultado_real':
+                        valores.append(resultado_real)
+                    elif col == 'confianca':
+                        valores.append(previsao['confianca'])
+                    elif col == 'modo':
+                        valores.append(previsao.get('modo', 'RL_PURO'))
+                    elif col == 'acertou':
+                        valores.append(acertou)
+                    elif col == 'indice_manipulacao':
+                        valores.append(indice_manipulacao)
+                    elif col == 'foi_manipulado':
+                        valores.append(foi_manipulado)
+                    elif col == 'causa_erro':
+                        valores.append(causa_erro)
+                
+                query = f"INSERT INTO analise_erros ({','.join(colunas_presentes)}) VALUES ({placeholders})"
+                cur.execute(query, valores)
+                
                 conn.commit()
                 cur.close()
                 conn.close()
-                print("✅ Versão simplificada salva com sucesso")
+                print("✅ Versão adaptativa salva com sucesso")
                 return True
                 
             except Exception as e2:
-                print(f"❌ Versão simplificada também falhou: {e2}")
+                print(f"❌ Versão adaptativa também falhou: {e2}")
                 conn.rollback()
                 cur.close()
                 conn.close()
@@ -1532,7 +1586,7 @@ def get_total_rapido():
     except Exception as e:
         print(f"⚠️ Erro get_total: {e}")
         return 0
-
+        
 # =============================================================================
 # FUNÇÕES PESADAS
 # =============================================================================
@@ -2720,12 +2774,12 @@ if __name__ == "__main__":
     print("   • 10000+ rodadas: 75-85% (especialista)")
     print("="*70)
 
-    # Inicializa banco de dados
+     # Inicializa banco de dados
     if not init_db():
         print("⚠️ Banco não disponível - continuando sem banco de dados")
-        
-    # 🔧 VERIFICA E CORRIGE O BANCO AUTOMATICAMENTE
-    verificar_e_corrigir_banco()
+    else:
+        # 🔧 VERIFICA E CORRIGE O BANCO AUTOMATICAMENTE (só se conectou)
+        verificar_e_corrigir_banco()
     
     # Tenta carregar JSON (opcional)
     try:
