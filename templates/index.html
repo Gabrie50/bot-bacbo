@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🧠 BacBo AI - 10 Agentes com Neuroevolução</title>
+    <title>🧠 BacBo AI - 12 Agentes com Neuroevolução + Anti-Queda</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -22,7 +22,7 @@
         }
 
         .container {
-            max-width: 1400px;
+            max-width: 1600px;
             margin: 0 auto;
         }
 
@@ -161,7 +161,7 @@
 
         .previsao-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr 1fr 1fr;
+            grid-template-columns: repeat(4, 1fr);
             gap: 20px;
         }
 
@@ -242,6 +242,18 @@
             color: #9370db;
         }
 
+        .agente-tag.avancado {
+            background: #ff69b420;
+            border-color: #ff69b4;
+            color: #ff69b4;
+        }
+
+        .agente-tag.anti {
+            background: #00ffff20;
+            border-color: #00ffff;
+            color: #00ffff;
+        }
+
         .delay-warning {
             background: #ffaa0020;
             border: 1px solid #ffaa00;
@@ -259,10 +271,10 @@
             100% { opacity: 1; }
         }
 
-        /* Cards de Estatísticas de IA */
+        /* Stats da IA - Grid expandido */
         .stats-ia-grid {
             display: grid;
-            grid-template-columns: repeat(6, 1fr);
+            grid-template-columns: repeat(8, 1fr);
             gap: 15px;
             margin-bottom: 25px;
         }
@@ -296,6 +308,8 @@
         .stats-ia-acerto { color: #00ff88; }
         .stats-ia-erro { color: #ff4d4d; }
         .stats-ia-geracao { color: #ffaa00; }
+        .stats-ia-manipulacao { color: #ff69b4; }
+        .stats-ia-saude { color: #00ffff; }
 
         /* Tabela de Agentes */
         .agentes-table {
@@ -338,6 +352,29 @@
             color: #ffaa00;
         }
 
+        .agente-saude {
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 12px;
+            background: #1e2227;
+            display: inline-block;
+        }
+
+        .saude-alta {
+            color: #00ff88;
+            border-left: 3px solid #00ff88;
+        }
+
+        .saude-media {
+            color: #ffaa00;
+            border-left: 3px solid #ffaa00;
+        }
+
+        .saude-baixa {
+            color: #ff4d4d;
+            border-left: 3px solid #ff4d4d;
+        }
+
         .agente-forca {
             font-size: 12px;
             padding: 4px 8px;
@@ -360,14 +397,20 @@
             border-left: 3px solid #ff4d4d;
         }
 
-        /* Gráfico de Evolução */
-        .evolucao-container {
+        /* Gráficos duplos */
+        .graficos-duplos {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 25px;
+        }
+
+        .grafico-container {
             background: #15181c;
             border: 1px solid #2a2f35;
             border-radius: 12px;
             padding: 20px;
-            margin-bottom: 25px;
-            height: 200px;
+            height: 250px;
         }
 
         /* Timeline de Previsões */
@@ -404,6 +447,11 @@
             border-left: 4px solid #ff4d4d;
         }
 
+        .timeline-manipulado {
+            border-left: 4px solid #ff69b4;
+            background: #ff69b410;
+        }
+
         .timeline-header {
             display: flex;
             justify-content: space-between;
@@ -413,6 +461,13 @@
         .timeline-previsao {
             font-weight: 700;
             font-size: 16px;
+        }
+
+        .timeline-confianca {
+            font-size: 12px;
+            padding: 2px 6px;
+            border-radius: 10px;
+            background: #1e2227;
         }
 
         .timeline-agentes {
@@ -585,6 +640,24 @@
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }
         }
+
+        /* Badges */
+        .badge-manipulacao {
+            background: #ff69b420;
+            color: #ff69b4;
+            border: 1px solid #ff69b4;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+        }
+
+        .info-badge {
+            background: #2a2f35;
+            color: #8a8f99;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+        }
     </style>
 </head>
 <body>
@@ -593,12 +666,12 @@
         <div class="header">
             <h1>
                 <i class="bi bi-cpu"></i>
-                BacBo - 10 Agentes com Neuroevolução
+                BacBo - 12 Agentes com Neuroevolução + Anti-Queda
                 <span class="geracao-badge" id="geracaoAtual">Geração 0</span>
             </h1>
             <div class="ia-badge">
                 <span class="ia-dot"></span>
-                <span id="liveStatus">RL + NEUROEVOLUÇÃO</span>
+                <span id="liveStatus">5 CAMADAS ANTI-QUEDA</span>
                 <span class="update-time" id="updateTime">carregando...</span>
             </div>
         </div>
@@ -608,7 +681,7 @@
             <div class="previsao-header">
                 <div class="previsao-titulo">
                     <i class="bi bi-brain"></i>
-                    DECISÃO DOS 10 AGENTES
+                    DECISÃO DOS 12 AGENTES
                 </div>
                 <div class="modo-badge" id="modoAlgoritmo">ANALISANDO...</div>
             </div>
@@ -643,7 +716,7 @@
             </div>
         </div>
 
-        <!-- Stats da IA -->
+        <!-- Stats da IA - Expandido -->
         <div class="stats-ia-grid">
             <div class="stats-ia-card">
                 <div class="stats-ia-valor stats-ia-geracao" id="geracaoNumero">0</div>
@@ -651,15 +724,15 @@
             </div>
             <div class="stats-ia-card">
                 <div class="stats-ia-valor" id="totalRodadasIA">0</div>
-                <div class="stats-ia-label">RODADAS TREINADAS</div>
+                <div class="stats-ia-label">RODADAS</div>
             </div>
             <div class="stats-ia-card">
                 <div class="stats-ia-valor stats-ia-acerto" id="melhorPrecisao">0%</div>
-                <div class="stats-ia-label">MELHOR AGENTE</div>
+                <div class="stats-ia-label">TOP AGENTE</div>
             </div>
             <div class="stats-ia-card">
                 <div class="stats-ia-valor" id="totalPrevisoesIA">0</div>
-                <div class="stats-ia-label">TOTAL PREVISÕES</div>
+                <div class="stats-ia-label">PREVISÕES</div>
             </div>
             <div class="stats-ia-card">
                 <div class="stats-ia-valor stats-ia-acerto" id="acertosIA">0</div>
@@ -669,13 +742,22 @@
                 <div class="stats-ia-valor stats-ia-erro" id="errosIA">0</div>
                 <div class="stats-ia-label">ERROS</div>
             </div>
+            <div class="stats-ia-card">
+                <div class="stats-ia-valor stats-ia-manipulacao" id="manipulacoesIA">0</div>
+                <div class="stats-ia-label">MANIPULAÇÕES</div>
+            </div>
+            <div class="stats-ia-card">
+                <div class="stats-ia-valor stats-ia-saude" id="saudeMediaIA">100%</div>
+                <div class="stats-ia-label">SAÚDE MÉDIA</div>
+            </div>
         </div>
 
-        <!-- Tabela dos 10 Agentes -->
+        <!-- Tabela dos 12 Agentes -->
         <div class="card">
             <div class="card-title">
                 <i class="bi bi-people"></i>
-                OS 10 AGENTES - PESOS EVOLUTIVOS
+                OS 12 AGENTES - PESOS EVOLUTIVOS
+                <span class="info-badge" id="agentesAtivosCount">12 ativos</span>
             </div>
             <table class="agentes-table">
                 <thead>
@@ -685,29 +767,36 @@
                         <th>Erros</th>
                         <th>Precisão</th>
                         <th>Pesos (B/P)</th>
+                        <th>Saúde</th>
                         <th>Força</th>
                     </tr>
                 </thead>
                 <tbody id="agentesTableBody">
                     <tr>
-                        <td colspan="6" class="text-center">Carregando agentes...</td>
+                        <td colspan="7" class="text-center">Carregando agentes...</td>
                     </tr>
                 </tbody>
             </table>
         </div>
 
-        <!-- Gráfico de Evolução -->
-        <div class="evolucao-container">
-            <canvas id="evolucaoChart"></canvas>
+        <!-- Gráficos Duplos -->
+        <div class="graficos-duplos">
+            <div class="grafico-container">
+                <canvas id="evolucaoChart"></canvas>
+            </div>
+            <div class="grafico-container">
+                <canvas id="saudeChart"></canvas>
+            </div>
         </div>
 
-        <!-- Timeline de Previsões -->
+        <!-- Timeline e Histórico -->
         <div class="row">
             <div class="col-5">
                 <div class="card">
                     <div class="card-title">
                         <i class="bi bi-clock-history"></i>
                         ÚLTIMAS 20 DECISÕES
+                        <span class="badge-manipulacao" id="manipuladasRecent">0 manipuladas</span>
                     </div>
                     <div class="timeline-grid" id="timelineGrid">
                         <div class="loading">Carregando...</div>
@@ -772,6 +861,7 @@
 
         // Variáveis globais
         let evolucaoChart = null;
+        let saudeChart = null;
         let dadosCompletos = [];
         let filtroAtual = null;
         let limiteAtual = CONFIG.LIMITE_PADRAO;
@@ -807,6 +897,12 @@
             exibirHistorico(dadosCompletos);
         }
 
+        function getClasseSaude(saude) {
+            if (saude >= 80) return 'saude-alta';
+            if (saude >= 60) return 'saude-media';
+            return 'saude-baixa';
+        }
+
         function getClasseForca(precisao) {
             if (precisao >= 70) return 'forca-alta';
             if (precisao >= 50) return 'forca-media';
@@ -818,16 +914,18 @@
             if (nome.includes('Paredão')) return 'paredao';
             if (nome.includes('Saturação')) return 'saturacao';
             if (nome.includes('Meta')) return 'meta';
+            if (nome.includes('Avançada')) return 'avancado';
+            if (nome.includes('Anti')) return 'anti';
             return '';
         }
 
         // =========================================================================
-        // GRÁFICO DE EVOLUÇÃO
+        // GRÁFICOS
         // =========================================================================
-        function criarGraficoEvolucao() {
-            const ctx = document.getElementById('evolucaoChart').getContext('2d');
-            
-            evolucaoChart = new Chart(ctx, {
+        function criarGraficos() {
+            // Gráfico de Evolução
+            const ctxEvolucao = document.getElementById('evolucaoChart').getContext('2d');
+            evolucaoChart = new Chart(ctxEvolucao, {
                 type: 'line',
                 data: {
                     labels: [],
@@ -843,6 +941,14 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Evolução da Precisão',
+                            color: '#8a8f99',
+                            font: { size: 12 }
+                        }
+                    },
                     scales: {
                         y: {
                             beginAtZero: true,
@@ -852,7 +958,49 @@
                         },
                         x: {
                             grid: { display: false },
+                            ticks: { color: '#8a8f99', maxRotation: 45 }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+
+            // Gráfico de Saúde
+            const ctxSaude = document.getElementById('saudeChart').getContext('2d');
+            saudeChart = new Chart(ctxSaude, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Saúde dos Agentes',
+                        data: [],
+                        backgroundColor: '#00ff88',
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Saúde dos Agentes',
+                            color: '#8a8f99',
+                            font: { size: 12 }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            grid: { color: '#2a2f35' },
                             ticks: { color: '#8a8f99' }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#8a8f99', maxRotation: 45 }
                         }
                     },
                     plugins: {
@@ -869,29 +1017,43 @@
             const tbody = document.getElementById('agentesTableBody');
             
             if (!agentes || agentes.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="text-center">Nenhum agente disponível</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" class="text-center">Nenhum agente disponível</td></tr>';
                 return;
             }
 
+            document.getElementById('agentesAtivosCount').textContent = `${agentes.length} ativos`;
+
             let html = '';
+            let totalSaude = 0;
+            
             agentes.forEach(a => {
                 const precisao = a.precisao || 0;
+                const saude = a.saude || 100;
+                const forca = a.forca || precisao;
+                
+                totalSaude += saude;
+                
+                const saudeClass = getClasseSaude(saude);
                 const forcaClass = getClasseForca(precisao);
                 const agenteClass = getClasseAgente(a.nome);
                 
                 html += `
                     <tr>
-                        <td class="agente-nome">${a.nome}</td>
+                        <td class="agente-nome ${agenteClass}">${a.nome}</td>
                         <td class="agente-acertos">${a.acertos}</td>
                         <td class="agente-erros">${a.erros}</td>
                         <td class="agente-precisao ${forcaClass}">${precisao}%</td>
-                        <td class="agente-pesos">B:${a.pesos.banker.toFixed(2)} P:${a.pesos.player.toFixed(2)}</td>
-                        <td><span class="agente-forca ${forcaClass}">${a.forca || precisao}%</span></td>
+                        <td class="agente-pesos">B:${(a.pesos?.banker || 1).toFixed(2)} P:${(a.pesos?.player || 1).toFixed(2)}</td>
+                        <td><span class="agente-saude ${saudeClass}">${saude}%</span></td>
+                        <td><span class="agente-forca ${forcaClass}">${forca.toFixed(1)}%</span></td>
                     </tr>
                 `;
             });
 
             tbody.innerHTML = html;
+            
+            const saudeMedia = agentes.length > 0 ? (totalSaude / agentes.length).toFixed(1) : 100;
+            document.getElementById('saudeMediaIA').textContent = saudeMedia + '%';
         }
 
         function atualizarTimeline(previsoes) {
@@ -903,19 +1065,28 @@
             }
 
             let html = '';
+            let manipuladasCount = 0;
+            
             previsoes.slice(0, 20).forEach(p => {
                 const acertou = p.acertou || false;
-                const classe = acertou ? 'timeline-acerto' : 'timeline-erro';
+                const manipulada = p.manipulado || false;
+                
+                if (manipulada) manipuladasCount++;
+                
+                let classe = acertou ? 'timeline-acerto' : 'timeline-erro';
+                if (manipulada) classe = 'timeline-manipulado';
+                
                 const simbolo = p.simbolo || (p.previsao === 'BANKER' ? '🔴' : '🔵');
                 
                 html += `
                     <div class="timeline-item ${classe}">
                         <div class="timeline-header">
                             <span class="timeline-previsao">${simbolo} ${p.previsao}</span>
-                            <span>${p.confianca}%</span>
+                            <span class="timeline-confianca">${p.confianca}%</span>
                         </div>
                         <div class="timeline-resultado">
                             Real: ${p.resultado_real || p.resultado} | ${p.data}
+                            ${manipulada ? '<span class="badge-manipulacao ms-2">MANIPULADA</span>' : ''}
                         </div>
                         <div class="timeline-agentes">
                             ${(p.estrategias || []).map(e => 
@@ -927,6 +1098,7 @@
             });
 
             grid.innerHTML = html;
+            document.getElementById('manipuladasRecent').textContent = `${manipuladasCount} manipuladas`;
         }
 
         function exibirHistorico(data) {
@@ -1067,6 +1239,8 @@
                                 html += `<span class="agente-tag ${classe}">${e}</span>`;
                             });
                             agentesDiv.innerHTML = html;
+                        } else {
+                            agentesDiv.innerHTML = '<span class="agente-tag">🧠 Nenhum agente ativo</span>';
                         }
                     }
 
@@ -1079,6 +1253,10 @@
                             atualizarTimeline(s.estatisticas.ultimas_20_previsoes);
                         }
                     }
+
+                    if (s.indice_manipulacao !== undefined) {
+                        document.getElementById('manipulacoesIA').textContent = s.indice_manipulacao || 0;
+                    }
                 }
 
                 // Atualiza aprendizado
@@ -1089,6 +1267,7 @@
                     document.getElementById('geracaoNumero').textContent = a.geracao || 0;
                     document.getElementById('totalRodadasIA').textContent = a.total_rodadas || 0;
                     document.getElementById('melhorPrecisao').textContent = (a.melhor_precisao_global || 0) + '%';
+                    document.getElementById('manipulacoesIA').textContent = a.manipulacoes_detectadas || 0;
                     
                     if (a.agentes) {
                         atualizarTabelaAgentes(a.agentes);
@@ -1101,6 +1280,16 @@
                             evolucaoChart.data.labels = labels;
                             evolucaoChart.data.datasets[0].data = data;
                             evolucaoChart.update();
+                        }
+
+                        // Atualiza gráfico de saúde
+                        if (saudeChart) {
+                            const labels = a.agentes.map(ag => ag.nome.substring(0, 10));
+                            const saude = a.agentes.map(ag => ag.saude || 100);
+                            
+                            saudeChart.data.labels = labels;
+                            saudeChart.data.datasets[0].data = saude;
+                            saudeChart.update();
                         }
                     }
                 }
@@ -1116,14 +1305,17 @@
         // INICIALIZAÇÃO
         // =========================================================================
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('🚀 Iniciando BacBo com 10 Agentes + Neuroevolução');
+            console.log('🚀 Iniciando BacBo com 12 Agentes + 5 Camadas Anti-Queda');
             
-            criarGraficoEvolucao();
+            criarGraficos();
             carregarTabela(50);
             
             atualizarRelogio();
             setInterval(atualizarRelogio, CONFIG.INTERVALO_RELOGIO);
             setInterval(atualizarTudo, CONFIG.INTERVALO_ATUALIZACAO);
+            
+            // Atualização inicial
+            setTimeout(atualizarTudo, 100);
         });
     </script>
 </body>
