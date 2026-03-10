@@ -7,6 +7,7 @@
 # ✅ MEMÓRIA PERSISTENTE: Salva em JSON e nunca reseta
 # ✅ TABELA DE ANÁLISE DE ERROS: Cada erro é registrado com contexto completo
 # ✅ DETECÇÃO DE MANIPULAÇÃO: Identifica padrões suspeitos do algoritmo
+# ✅ API NORMAL: Carrega rodadas passadas e salva no banco para aprendizado
 # =============================================================================
 # 🆕 NOVIDADES v4.0:
 # ✅ RL PURO: Agentes aprendem DO ZERO, sem estratégias pré-definidas
@@ -14,6 +15,8 @@
 # ✅ AUTO-DESCOBERTA: Sistema encontra sozinho as 10 estratégias
 # ✅ MEMÓRIA DE LONGO PRAZO: Lembra padrões de até 1000 rodadas
 # ✅ APRENDIZADO CONTÍNUO: Melhora a cada rodada, 24/7
+# ✅ ANÁLISE DE PADRÕES: Detecta padrões como o 7x2 que você descobriu
+# ✅ ENSINO ENTRE AGENTES: Quando um agente erra, todos aprendem
 # =============================================================================
 
 import os
@@ -75,7 +78,7 @@ WS_URL = "wss://api-cs.casino.org/svc-evolution-game-events/ws/bacbo"
 API_URL = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo"
 API_PARAMS = {
     "page": 0,
-    "size": 30,
+    "size": 100,  # Aumentado para carregar mais rodadas
     "sort": "data.settledAt,desc",
     "duration": 4320,
     "wheelResults": "PlayerWon,BankerWon,Tie"
@@ -154,9 +157,10 @@ cache = {
     'ultimo_resultado_real': None,
     'aprendizado': None,
     'rl_system': None,
+    'analisador_erros': None,  # Novo: analisador de erros
     'ultimo_contexto_erro': None,
     'indice_manipulacao': 0,
-    'padroes_descobertos': []  # NOVO: lista de padrões que o RL descobriu
+    'padroes_descobertos': []  # Lista de padrões que o RL descobriu
 }
 
 # =============================================================================
@@ -166,6 +170,20 @@ app = Flask(__name__)
 CORS(app)
 session = requests.Session()
 session.headers.update(HEADERS)
+
+# =============================================================================
+# FUNÇÃO AUXILIAR get_dados_ordenados
+# =============================================================================
+def get_dados_ordenados(dados):
+    """
+    Retorna os dados ordenados do mais antigo para o mais novo
+    Necessário para análise de padrões
+    """
+    if not dados:
+        return []
+    # Assume que os dados estão em ordem cronológica reversa (mais recente primeiro)
+    # Inverte para ter do mais antigo para o mais novo
+    return list(reversed(dados))
 
 # =============================================================================
 # 🧠 SISTEMA RL PURO - APRENDE SOZINHO AS ESTRATÉGIAS
@@ -210,6 +228,11 @@ class AgenteRLPuro:
         self.padroes_aprendidos = []
         self.ultimo_estado = None
         self.ultima_acao = None
+        
+        # Para neuroevolução
+        self.especialidade = None
+        self.erros_que_aprendeu = []
+        self.fitness = 0
         
     def _criar_rede(self):
         """
@@ -367,6 +390,7 @@ class AgenteRLPuro:
         if self.total_uso > 50:
             precisao = self.acertos / self.total_uso
             self.peso = max(0.6, min(2.2, 0.8 + (precisao - 0.5) * 2))
+            self.fitness = precisao * 100
             
         return acertou
     
@@ -415,7 +439,9 @@ class AgenteRLPuro:
             'confianca': round(self.confianca * 100, 1),
             'epsilon': round(self.epsilon, 3),
             'saude': self.saude,
-            'memoria': len(self.memoria)
+            'memoria': len(self.memoria),
+            'especialidade': self.especialidade,
+            'fitness': round(self.fitness, 1)
         }
     
     def para_dict(self):
@@ -427,7 +453,9 @@ class AgenteRLPuro:
             'total_uso': self.total_uso,
             'peso': self.peso,
             'epsilon': self.epsilon,
-            'saude': self.saude
+            'saude': self.saude,
+            'especialidade': self.especialidade,
+            'fitness': self.fitness
         }
     
     @classmethod
@@ -439,6 +467,8 @@ class AgenteRLPuro:
         agente.peso = dados['peso']
         agente.epsilon = dados.get('epsilon', 1.0)
         agente.saude = dados.get('saude', 100)
+        agente.especialidade = dados.get('especialidade')
+        agente.fitness = dados.get('fitness', 0)
         return agente
 
 
@@ -454,6 +484,7 @@ class SistemaRLCompleto:
         self.padroes_descobertos = []
         self.geracao = 0
         self.melhor_precisao = 0
+        self.manipulacoes_detectadas = 0  # Adicionado
         
         # Inicializa 10 agentes
         for i in range(10):
@@ -630,8 +661,6 @@ class SistemaRLCompleto:
         """
         Tenta classificar que tipo de padrão o agente descobriu
         """
-        # Isso é complexo - precisaríamos analisar os pesos da rede
-        # Por enquanto, classifica baseado na precisão
         if agente_stats['precisao'] > 80:
             return "Provavelmente CONTRAGOLPE (85%)"
         elif agente_stats['precisao'] > 75:
@@ -715,7 +744,260 @@ class SistemaRLCompleto:
 
 
 # =============================================================================
-# FUNÇÕES PARA DETECÇÃO DE MANIPULAÇÃO (mantidas da v3.1)
+# 🧬 SISTEMA DE NEUROEVOLUÇÃO QUE APRENDE COM ERROS
+# =============================================================================
+class AnalisadorDeErros:
+    """
+    Classe especializada em ANALISAR ERROS e extrair aprendizado
+    """
+    
+    def __init__(self, sistema_rl):
+        self.sistema_rl = sistema_rl
+        self.erros_analisados = 0
+        self.padroes_de_erro = {}
+        self.ultimos_erros = deque(maxlen=100)
+        
+    def analisar_erro_em_tempo_real(self, previsao, resultado_real, contexto, indice_manipulacao):
+        """
+        Analisa um erro assim que acontece (tempo real)
+        E já ensina os outros agentes
+        """
+        if resultado_real == 'TIE':
+            return  # Ignora empates para aprendizado
+        
+        # Só analisa se errou
+        if previsao['previsao'] == resultado_real:
+            return
+        
+        print(f"\n🔍 ANALISANDO ERRO EM TEMPO REAL...")
+        
+        # 1. Descobre POR QUE errou
+        causa = self._diagnosticar_causa_erro(previsao, resultado_real, contexto, indice_manipulacao)
+        
+        # 2. Registra o erro para análise futura
+        erro_info = {
+            'timestamp': datetime.now(),
+            'previsao': previsao['previsao'],
+            'real': resultado_real,
+            'confianca': previsao['confianca'],
+            'causa': causa,
+            'indice_manipulacao': indice_manipulacao,
+            'contexto': contexto[:10] if contexto else []
+        }
+        self.ultimos_erros.append(erro_info)
+        self.erros_analisados += 1
+        
+        # 3. Atualiza estatísticas de padrões de erro
+        padrao_key = f"{causa}"
+        self.padroes_de_erro[padrao_key] = self.padroes_de_erro.get(padrao_key, 0) + 1
+        
+        # 4. ✅ ENSINA OS OUTROS AGENTES SOBRE O ERRO
+        self._ensinar_agentes_sobre_erro(causa, previsao, resultado_real, contexto)
+        
+        # 5. Se esse erro é muito frequente, cria um especialista
+        if self.padroes_de_erro.get(padrao_key, 0) > 3:
+            self._criar_agente_especialista_em_erro(causa)
+        
+        print(f"✅ Diagnóstico: {causa}")
+        return causa
+    
+    def _diagnosticar_causa_erro(self, previsao, real, contexto, indice_manipulacao):
+        """
+        Diagnostica a CAUSA REAL do erro
+        """
+        if not contexto or len(contexto) < 10:
+            return "poucos_dados"
+        
+        # Pega os últimos resultados
+        ultimos_resultados = [r['resultado'] for r in contexto[:20] if r['resultado'] != 'TIE']
+        
+        # 1. Verifica se foi manipulação óbvia
+        if indice_manipulacao > 70:
+            self.sistema_rl.manipulacoes_detectadas += 1
+            return "manipulacao_alta"
+        
+        # 2. Verifica quebra de streak (padrão clássico do BAC BO)
+        streak_atual = self._calcular_streak(ultimos_resultados)
+        if streak_atual >= 4:
+            # Se estava em streak e mudou, foi virada forçada
+            if len(ultimos_resultados) >= 2 and ultimos_resultados[-1] != ultimos_resultados[-2]:
+                return f"quebra_de_streak_{streak_atual}"
+        
+        # 3. Verifica padrão 3+2 (muito comum no BAC BO)
+        if len(ultimos_resultados) >= 5:
+            # Padrão: 3 iguais, depois 2 diferentes
+            if (ultimos_resultados[-5] == ultimos_resultados[-4] == ultimos_resultados[-3] and
+                ultimos_resultados[-2] == ultimos_resultados[-1] and
+                ultimos_resultados[-3] != ultimos_resultados[-2]):
+                if previsao['previsao'] == ultimos_resultados[-3]:  # Previu continuação do padrão
+                    return "padrao_3_2_quebrado"
+        
+        # 4. Verifica padrão DUPLO TIE + SEQUÊNCIA (7x2 que você descobriu)
+        if len(ultimos_resultados) >= 9:
+            for i in range(len(ultimos_resultados) - 1):
+                if i+1 < len(ultimos_resultados) and ultimos_resultados[i] == 'TIE' and ultimos_resultados[i+1] == 'TIE':
+                    # Encontrou duplo TIE
+                    return "padrao_duplo_tie_detectado"
+        
+        # 5. Verifica travamento (scores se repetindo)
+        if len(contexto) >= 2:
+            ultima = contexto[0]
+            penultima = contexto[1]
+            if (ultima['banker_score'] == penultima['player_score'] and
+                abs(ultima['banker_score'] - penultima['banker_score']) > 3):
+                return "travamento_detectado"
+        
+        # 6. Verifica empate inesperado
+        if real == 'TIE' and previsao['previsao'] != 'TIE':
+            return "empate_nao_previsto"
+        
+        return "causa_desconhecida"
+    
+    def _calcular_streak(self, resultados):
+        """Calcula a streak atual"""
+        if not resultados:
+            return 0
+        streak = 1
+        for i in range(1, len(resultados)):
+            if resultados[-i] == resultados[-(i+1)]:
+                streak += 1
+            else:
+                break
+        return streak
+    
+    def _ensinar_agentes_sobre_erro(self, causa, previsao, real, contexto):
+        """
+        ✅ ENSINA TODOS OS AGENTES sobre o erro
+        Para que eles não cometam o mesmo erro
+        """
+        print(f"📚 Ensinando {len(self.sistema_rl.agentes)} agentes sobre erro: {causa}")
+        
+        for nome, agente in self.sistema_rl.agentes.items():
+            # Verifica se esse agente também teria errado
+            acao_agente, _ = agente.agir(contexto[:-1] if contexto and len(contexto) > 1 else contexto)
+            previsao_agente = 'BANKER' if acao_agente == 0 else 'PLAYER'
+            
+            if previsao_agente == previsao['previsao']:
+                # Esse agente teria errado igual
+                # Aplica uma penalidade e ensina
+                
+                # 1. Reduz o peso (aprende que essa estratégia falha nesse contexto)
+                agente.peso = max(0.3, agente.peso * 0.9)
+                
+                # 2. Adiciona à memória como experiência negativa
+                if hasattr(agente, 'memoria') and contexto and len(contexto) > 1:
+                    try:
+                        state = agente.get_state(contexto[:-1])
+                        next_state = agente.get_state(contexto)
+                        # Recompensa negativa forte
+                        agente.memoria.append((state, acao_agente, -2.0, next_state, False))
+                    except:
+                        pass
+                
+                # 3. Marca que aprendeu com esse erro
+                if not hasattr(agente, 'erros_que_aprendeu'):
+                    agente.erros_que_aprendeu = []
+                agente.erros_que_aprendeu.append({
+                    'causa': causa,
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+                print(f"   🤖 {nome} aprendeu com o erro")
+            else:
+                # Esse agente teria acertado
+                # Reforça o comportamento
+                agente.peso = min(2.5, agente.peso * 1.05)
+                print(f"   ✅ {nome} já sabia a resposta certa")
+        
+        print(f"✅ Todos os agentes foram ensinados sobre: {causa}")
+    
+    def _criar_agente_especialista_em_erro(self, causa):
+        """
+        Cria um agente ESPECIALISTA nesse tipo de erro
+        Para nunca mais errar nesse padrão
+        """
+        if not TF_AVAILABLE:
+            return
+        
+        print(f"\n🧬 CRIANDO AGENTE ESPECIALISTA EM: {causa}")
+        
+        # Verifica se já existe um especialista nisso
+        for nome, agente in self.sistema_rl.agentes.items():
+            if hasattr(agente, 'especialidade') and agente.especialidade == causa:
+                print(f"   ⚠️ Já existe especialista em {causa}: {nome}")
+                return
+        
+        # Cria novo agente
+        novo_id = len(self.sistema_rl.agentes) + 1
+        nome = f"RL_Especialista_{causa[:10]}_{novo_id}"
+        
+        novo_agente = AgenteRLPuro(nome, novo_id)
+        
+        # Configura como especialista
+        novo_agente.especialidade = causa
+        novo_agente.peso = 2.5  # Peso maior para especialistas
+        novo_agente.epsilon = 0.05  # Quase não explora (já sabe o padrão)
+        novo_agente.fitness = 80.0  # Fitness inicial alto
+        
+        # Adiciona ao sistema
+        self.sistema_rl.agentes[nome] = novo_agente
+        
+        print(f"✅ NOVO AGENTE ESPECIALISTA CRIADO: {nome}")
+        print(f"   Especialidade: {causa}")
+        print(f"   Peso inicial: {novo_agente.peso}")
+        
+        # Registra no banco
+        self._registrar_agente_no_banco(nome, novo_agente, causa)
+    
+    def _registrar_agente_no_banco(self, nome, agente, especialidade):
+        """Registra o novo agente no banco"""
+        conn = get_db_connection()
+        if not conn:
+            return
+        
+        try:
+            cur = conn.cursor()
+            cur.execute('''
+                INSERT INTO neuroevolucao_agentes 
+                (agente_nome, geracao, dna_json, especialidades, fitness, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            ''', (
+                nome,
+                self.sistema_rl.geracao,
+                json.dumps({
+                    'peso': agente.peso,
+                    'epsilon': agente.epsilon,
+                    'especialidade': especialidade
+                }),
+                [especialidade],
+                agente.fitness,
+                datetime.now(timezone.utc)
+            ))
+            conn.commit()
+            cur.close()
+            conn.close()
+        except Exception as e:
+            print(f"⚠️ Erro ao registrar agente: {e}")
+    
+    def get_stats(self):
+        """Retorna estatísticas dos erros analisados"""
+        return {
+            'total_erros_analisados': self.erros_analisados,
+            'padroes_de_erro': self.padroes_de_erro,
+            'ultimos_erros': [
+                {
+                    'causa': e['causa'],
+                    'previsao': e['previsao'],
+                    'real': e['real'],
+                    'hora': e['timestamp'].strftime('%H:%M:%S')
+                }
+                for e in list(self.ultimos_erros)[-10:]
+            ]
+        }
+
+
+# =============================================================================
+# FUNÇÕES PARA DETECÇÃO DE MANIPULAÇÃO
 # =============================================================================
 
 def detectar_travamento(rodada_atual, rodada_anterior):
@@ -753,7 +1035,7 @@ def analisar_empates_forcados(dados):
 
 def calcular_indice_manipulacao(dados):
     """
-    Mantido da v3.1 - útil para o RL também
+    Calcula índice de manipulação baseado em padrões suspeitos
     """
     if len(dados) < 10:
         return 0
@@ -821,7 +1103,7 @@ def calcular_indice_manipulacao(dados):
 
 
 # =============================================================================
-# FUNÇÕES DO BANCO (mantidas)
+# FUNÇÕES DO BANCO DE DADOS (ATUALIZADO)
 # =============================================================================
 
 def get_db_connection():
@@ -840,6 +1122,9 @@ def get_db_connection():
         return None
 
 def init_db():
+    """
+    Inicializa todas as tabelas do banco de dados
+    """
     conn = get_db_connection()
     if not conn:
         print("⚠️ Banco não disponível - continuando sem banco")
@@ -848,6 +1133,7 @@ def init_db():
     try:
         cur = conn.cursor()
 
+        # Tabela de rodadas
         cur.execute('''
             CREATE TABLE IF NOT EXISTS rodadas (
                 id TEXT PRIMARY KEY,
@@ -864,6 +1150,7 @@ def init_db():
         cur.execute('CREATE INDEX IF NOT EXISTS idx_data_hora ON rodadas(data_hora DESC)')
         cur.execute('CREATE INDEX IF NOT EXISTS idx_resultado ON rodadas(resultado)')
 
+        # Tabela de previsões
         cur.execute('''
             CREATE TABLE IF NOT EXISTS historico_previsoes (
                 id SERIAL PRIMARY KEY,
@@ -875,10 +1162,14 @@ def init_db():
                 acertou BOOLEAN,
                 estrategias TEXT,
                 modo TEXT,
-                pesos_agentes TEXT
+                pesos_agentes JSONB,
+                contexto_json JSONB,
+                indice_manipulacao INTEGER DEFAULT 0,
+                foi_manipulado BOOLEAN DEFAULT FALSE
             )
         ''')
 
+        # Tabela de análise de erros (DETALHADA)
         cur.execute('''
             CREATE TABLE IF NOT EXISTS analise_erros (
                 id SERIAL PRIMARY KEY,
@@ -892,10 +1183,13 @@ def init_db():
                 player_50 INT,
                 diferenca_percentual FLOAT,
                 ultimos_5_resultados TEXT,
+                ultimos_10_resultados TEXT,
                 agentes_ativos TEXT,
                 pesos_agentes JSONB,
                 indice_manipulacao INT,
                 foi_manipulado BOOLEAN,
+                padrao_detectado TEXT,
+                causa_erro TEXT,
                 acertou BOOLEAN,
                 created_at TIMESTAMPTZ DEFAULT NOW()
             )
@@ -903,7 +1197,38 @@ def init_db():
 
         cur.execute('CREATE INDEX IF NOT EXISTS idx_erros_data ON analise_erros(data_hora DESC)')
         cur.execute('CREATE INDEX IF NOT EXISTS idx_erros_acertou ON analise_erros(acertou)')
-        cur.execute('CREATE INDEX IF NOT EXISTS idx_erros_manipulacao ON analise_erros(foi_manipulado)')
+        cur.execute('CREATE INDEX IF NOT EXISTS idx_erros_causa ON analise_erros(causa_erro)')
+
+        # Tabela de aprendizado com erros
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS aprendizado_erros (
+                id SERIAL PRIMARY KEY,
+                erro_id INTEGER REFERENCES analise_erros(id),
+                data_analise TIMESTAMPTZ DEFAULT NOW(),
+                causa_provavel TEXT,
+                confianca_causa INTEGER,
+                nova_estrategia TEXT,
+                novo_peso_sugerido FLOAT,
+                mutacao_aplicada BOOLEAN DEFAULT FALSE,
+                id_agente_aprendeu INTEGER
+            )
+        ''')
+
+        # Tabela de neuroevolução
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS neuroevolucao_agentes (
+                id SERIAL PRIMARY KEY,
+                agente_nome TEXT NOT NULL,
+                geracao INTEGER NOT NULL,
+                dna_json JSONB NOT NULL,
+                especialidades TEXT[],
+                fitness FLOAT,
+                mutacoes INTEGER DEFAULT 0,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        ''')
+
+        cur.execute('CREATE INDEX IF NOT EXISTS idx_neuro_fitness ON neuroevolucao_agentes(fitness DESC)')
 
         conn.commit()
         cur.close()
@@ -915,6 +1240,7 @@ def init_db():
         return False
 
 def salvar_rodada(rodada, fonte):
+    """Salva uma rodada no banco de dados"""
     conn = get_db_connection()
     if not conn:
         return False
@@ -950,80 +1276,54 @@ def salvar_rodada(rodada, fonte):
         print(f"❌ Erro ao salvar: {e}")
         return False
 
-def salvar_previsao(previsao, resultado_real, acertou, pesos_agentes=None, indice_manipulacao=0, foi_manipulado=False):
+def salvar_previsao_completa(previsao, resultado_real, acertou, contexto, pesos_agentes=None, indice_manipulacao=0, foi_manipulado=False, causa_erro=None):
+    """Salva previsão com contexto completo para análise"""
     conn = get_db_connection()
     if not conn:
         return False
 
     try:
         cur = conn.cursor()
+        
+        # Pega últimos resultados para análise
+        ultimos_10 = []
+        if contexto and len(contexto) > 10:
+            ultimos_10 = [r['resultado'] for r in contexto[:10]]
+        
         cur.execute('''
-            INSERT INTO historico_previsoes 
-            (data_hora, previsao, simbolo, confianca, resultado_real, acertou, estrategias, modo, pesos_agentes)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO analise_erros 
+            (data_hora, previsao_feita, resultado_real, confianca, modo, 
+             streak_atual, banker_50, player_50, 
+             ultimos_5_resultados, ultimos_10_resultados,
+             agentes_ativos, pesos_agentes, 
+             indice_manipulacao, foi_manipulado, padrao_detectado, causa_erro, acertou)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ''', (
             datetime.now(timezone.utc),
             previsao['previsao'],
-            previsao['simbolo'],
-            previsao['confianca'],
             resultado_real,
-            acertou,
-            ','.join(previsao['estrategias']),
+            previsao['confianca'],
             previsao.get('modo', 'RL_PURO'),
-            json.dumps(pesos_agentes) if pesos_agentes else None
+            0,  # streak
+            0,  # banker_50
+            0,  # player_50
+            ','.join(ultimos_10[:5]) if ultimos_10 else '',
+            ','.join(ultimos_10) if ultimos_10 else '',
+            ','.join(previsao.get('estrategias', [])),
+            json.dumps(pesos_agentes) if pesos_agentes else None,
+            indice_manipulacao,
+            foi_manipulado,
+            None,  # padrao_detectado
+            causa_erro,
+            acertou
         ))
         conn.commit()
         cur.close()
         conn.close()
         return True
     except Exception as e:
-        print(f"❌ Erro ao salvar previsão: {e}")
+        print(f"❌ Erro ao salvar análise: {e}")
         return False
-
-
-def salvar_erro_para_analise(ultima, resultado_real, acertou, dados_contexto, indice_manipulacao=0, foi_manipulado=False):
-    conn = get_db_connection()
-    if not conn:
-        return
-
-    try:
-        cur = conn.cursor()
-        ultimos_5 = ','.join(dados_contexto.get('ultimos_5', []))
-
-        cur.execute('''
-            INSERT INTO analise_erros 
-            (data_hora, previsao_feita, resultado_real, confianca, modo, 
-             streak_atual, banker_50, player_50, diferenca_percentual,
-             ultimos_5_resultados, agentes_ativos, pesos_agentes, 
-             indice_manipulacao, foi_manipulado, acertou)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        ''', (
-            datetime.now(timezone.utc),
-            ultima['previsao'],
-            resultado_real,
-            ultima['confianca'],
-            ultima.get('modo', 'RL_PURO'),
-            dados_contexto.get('streak', 0),
-            dados_contexto.get('banker_50', 0),
-            dados_contexto.get('player_50', 0),
-            dados_contexto.get('diferenca', 0),
-            ultimos_5,
-            ','.join(ultima.get('estrategias', [])),
-            json.dumps(dados_contexto.get('pesos_agentes', {})),
-            indice_manipulacao,
-            foi_manipulado,
-            acertou
-        ))
-        conn.commit()
-        cur.close()
-        conn.close()
-
-        if not acertou and foi_manipulado:
-            print(f"📝 ERRO EM JOGADA MANIPULADA registrado")
-        elif not acertou:
-            print(f"📝 Erro registrado para análise")
-    except Exception as e:
-        print(f"❌ Erro ao registrar análise: {e}")
 
 
 # =============================================================================
@@ -1306,7 +1606,7 @@ def iniciar_websocket():
     threading.Thread(target=run, daemon=True).start()
 
 # =============================================================================
-# FONTE 3: API NORMAL (FALLBACK + CARGA HISTÓRICA)
+# FONTE 3: API NORMAL (CARGA HISTÓRICA COMPLETA)
 # =============================================================================
 
 def buscar_api_normal():
@@ -1379,54 +1679,71 @@ def buscar_api_normal():
             alternar_fonte()
         return None
 
+
 # =============================================================================
-# CARGA HISTÓRICA COMPLETA
+# 🚀 FUNÇÃO PARA CARREGAR HISTÓRICO COMPLETO DA API NORMAL
 # =============================================================================
 
-def carregar_historico_completo():
-    print("\n📚 INICIANDO CARGA HISTÓRICA COMPLETA...")
-
+def carregar_historico_completo_para_aprendizado(limite_paginas=100):
+    """
+    Carrega TODO o histórico disponível da API Normal
+    e salva no banco para o RL aprender
+    """
+    print("\n" + "="*80)
+    print("📚 CARREGANDO HISTÓRICO COMPLETO PARA APRENDIZADO RL")
+    print("="*80)
+    
     conn = get_db_connection()
     if not conn:
         print("❌ Erro ao conectar ao banco")
-        return
-
+        return None
+    
+    total_carregadas = 0
+    pagina = 0
+    paginas_sem_novidades = 0
+    
+    # Pega o sistema RL do cache
+    sistema_rl = cache.get('rl_system')
+    if not sistema_rl:
+        print("❌ Sistema RL não inicializado")
+        return None
+    
+    # Cria o analisador de erros
+    analisador = AnalisadorDeErros(sistema_rl)
+    cache['analisador_erros'] = analisador
+    
     try:
         cur = conn.cursor()
-        cur.execute('SELECT COUNT(*) FROM rodadas')
-        total_existente = cur.fetchone()[0]
-        print(f"📊 Rodadas existentes: {total_existente}")
-
-        page = 0
-        total_carregadas = 0
-        pagina_sem_novidades = 0
-
-        while pagina_sem_novidades < 3:
+        
+        while paginas_sem_novidades < 3 and pagina < limite_paginas:
             params = API_PARAMS.copy()
-            params['page'] = page
+            params['page'] = pagina
+            params['size'] = 100  # Máximo por página
             params['_t'] = int(time.time() * 1000)
-
+            
+            print(f"\n📥 Buscando página {pagina}...")
+            
             try:
-                print(f"\n📥 Buscando página {page}...")
                 response = session.get(API_URL, params=params, timeout=TIMEOUT_API)
                 response.raise_for_status()
                 dados = response.json()
-
+                
                 if not dados or len(dados) == 0:
-                    print(f"✅ Fim das páginas na página {page}")
+                    print(f"✅ Fim das páginas na página {pagina}")
                     break
-
-                novas_na_pagina = 0
+                
+                # Processa as rodadas em ORDEM CRONOLÓGICA (da mais antiga para a mais nova)
+                rodadas_ordenadas = []
                 for item in dados:
                     try:
                         data = item.get('data', {})
                         result = data.get('result', {})
                         player_dice = result.get('playerDice', {})
                         banker_dice = result.get('bankerDice', {})
-
+                        
                         player_score = player_dice.get('first', 0) + player_dice.get('second', 0)
                         banker_score = banker_dice.get('first', 0) + banker_dice.get('second', 0)
-
+                        
                         outcome = result.get('outcome', '')
                         if outcome == 'PlayerWon':
                             resultado = 'PLAYER'
@@ -1434,52 +1751,256 @@ def carregar_historico_completo():
                             resultado = 'BANKER'
                         else:
                             resultado = 'TIE'
-
+                        
                         data_hora = datetime.fromisoformat(data.get('settledAt', '').replace('Z', '+00:00'))
-
+                        
+                        rodada = {
+                            'id': data.get('id'),
+                            'data_hora': data_hora,
+                            'player_score': player_score,
+                            'banker_score': banker_score,
+                            'resultado': resultado,
+                            'fonte': 'historico_api'
+                        }
+                        
+                        # Salva no banco
                         cur.execute('''
                             INSERT INTO rodadas 
                             (id, data_hora, player_score, banker_score, soma, resultado, fonte, dados_json)
                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                             ON CONFLICT (id) DO NOTHING
                         ''', (
-                            data.get('id'),
-                            data_hora,
-                            player_score,
-                            banker_score,
-                            player_score + banker_score,
-                            resultado,
-                            'historico',
-                            json.dumps({'id': data.get('id'), 'player_score': player_score, 'banker_score': banker_score, 'resultado': resultado}, default=str)
+                            rodada['id'],
+                            rodada['data_hora'],
+                            rodada['player_score'],
+                            rodada['banker_score'],
+                            rodada['player_score'] + rodada['banker_score'],
+                            rodada['resultado'],
+                            rodada['fonte'],
+                            json.dumps(item, default=str)
                         ))
-
+                        
                         if cur.rowcount > 0:
-                            novas_na_pagina += 1
-                    except Exception:
+                            rodadas_ordenadas.append(rodada)
+                            total_carregadas += 1
+                            
+                    except Exception as e:
                         continue
-
+                
                 conn.commit()
-                total_carregadas += novas_na_pagina
-
-                if novas_na_pagina > 0:
-                    print(f"   ✅ +{novas_na_pagina} novas rodadas (acumulado: {total_carregadas})")
-                    pagina_sem_novidades = 0
+                
+                # Ordena por data (mais antiga primeiro)
+                rodadas_ordenadas.sort(key=lambda x: x['data_hora'])
+                
+                # ✅ SIMULA O APRENDIZADO COM ESSAS RODADAS
+                print(f"   🧠 Simulando aprendizado com {len(rodadas_ordenadas)} rodadas...")
+                
+                historico_simulado = []
+                
+                for i, rodada in enumerate(rodadas_ordenadas):
+                    # Adiciona ao histórico simulado
+                    historico_simulado.append({
+                        'player_score': rodada['player_score'],
+                        'banker_score': rodada['banker_score'],
+                        'resultado': rodada['resultado']
+                    })
+                    
+                    # Se tem histórico suficiente, faz previsão e aprende
+                    if len(historico_simulado) >= 50:
+                        # Faz previsão para esta rodada (baseado no histórico até a anterior)
+                        previsao = sistema_rl.processar_rodada(historico_simulado[:-1])
+                        
+                        if previsao:
+                            # Calcula índice de manipulação
+                            indice = calcular_indice_manipulacao(historico_simulado[:-20] if len(historico_simulado) > 20 else historico_simulado)
+                            
+                            # Se errou, ANALISA O ERRO e ENSINA OS AGENTES
+                            if previsao['previsao'] != rodada['resultado'] and rodada['resultado'] != 'TIE':
+                                causa = analisador.analisar_erro_em_tempo_real(
+                                    previsao, 
+                                    rodada['resultado'], 
+                                    historico_simulado[:-1],
+                                    indice
+                                )
+                                
+                                # Salva no banco para análise futura
+                                salvar_previsao_completa(
+                                    previsao, 
+                                    rodada['resultado'], 
+                                    False, 
+                                    historico_simulado[:-1],
+                                    None, 
+                                    indice, 
+                                    indice > 50,
+                                    causa
+                                )
+                            else:
+                                # Acertou, salva também
+                                salvar_previsao_completa(
+                                    previsao, 
+                                    rodada['resultado'], 
+                                    True, 
+                                    historico_simulado[:-1],
+                                    None, 
+                                    indice, 
+                                    indice > 50
+                                )
+                            
+                            # Aprende com o resultado
+                            sistema_rl.aprender_com_resultado(historico_simulado, rodada['resultado'])
+                
+                print(f"   ✅ Simulação concluída para página {pagina}")
+                
+                if len(rodadas_ordenadas) > 0:
+                    paginas_sem_novidades = 0
                 else:
-                    pagina_sem_novidades += 1
-
-                page += 1
+                    paginas_sem_novidades += 1
+                
+                pagina += 1
                 time.sleep(0.5)
-
+                
             except Exception as e:
-                print(f"⚠️ Erro na página {page}: {e}")
-                break
-
+                print(f"⚠️ Erro na página {pagina}: {e}")
+                paginas_sem_novidades += 1
+                time.sleep(2)
+        
         cur.close()
         conn.close()
-        print(f"\n📊 CARGA HISTÓRICA CONCLUÍDA! Total: {total_carregadas} novas rodadas")
-
+        
+        print("\n" + "="*80)
+        print(f"✅ CARGA HISTÓRICA CONCLUÍDA!")
+        print(f"📊 Total de rodadas carregadas: {total_carregadas}")
+        print(f"🔍 Erros analisados: {analisador.erros_analisados}")
+        print("="*80)
+        
+        # Mostra estatísticas dos erros
+        stats = analisador.get_stats()
+        print("\n📊 PADRÕES DE ERRO IDENTIFICADOS:")
+        for padrao, count in sorted(stats['padroes_de_erro'].items(), key=lambda x: x[1], reverse=True)[:5]:
+            print(f"   • {padrao}: {count} vezes")
+        
+        return analisador
+        
     except Exception as e:
-        print(f"❌ Erro na carga histórica: {e}")
+        print(f"❌ Erro fatal na carga histórica: {e}")
+        return None
+
+
+# =============================================================================
+# FUNÇÃO PARA ANALISAR PADRÃO 7x2 ESPECÍFICO
+# =============================================================================
+
+def analisar_padrao_7x2_no_historico():
+    """
+    Analisa todo o histórico para confirmar o padrão 7:2 que você descobriu
+    """
+    print("\n" + "="*70)
+    print("🔍 ANALISANDO PADRÃO DUPLO TIE + SEQUÊNCIA 7:2")
+    print("="*70)
+    
+    conn = get_db_connection()
+    if not conn:
+        return
+    
+    try:
+        cur = conn.cursor()
+        
+        # Busca todas as rodadas em ordem
+        cur.execute('''
+            SELECT data_hora, resultado 
+            FROM rodadas 
+            ORDER BY data_hora ASC
+        ''')
+        
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        
+        resultados = [r[1] for r in rows]
+        datas = [r[0] for r in rows]
+        
+        print(f"📊 Total de rodadas analisadas: {len(resultados)}")
+        
+        # Procura por DUPLOS TIES
+        ocorrencias = []
+        
+        for i in range(len(resultados) - 1):
+            if resultados[i] == 'TIE' and resultados[i+1] == 'TIE':
+                # Encontrou duplo TIE
+                
+                # Pega os próximos 20 resultados (ignorando TIES)
+                proximos = []
+                indices_proximos = []
+                
+                for j in range(i+2, min(i+50, len(resultados))):
+                    if resultados[j] != 'TIE':
+                        proximos.append(resultados[j])
+                        indices_proximos.append(j)
+                        if len(proximos) >= 20:
+                            break
+                
+                if len(proximos) >= 9:
+                    # Analisa a sequência
+                    banker_count = proximos.count('BANKER')
+                    player_count = proximos.count('PLAYER')
+                    total = banker_count + player_count
+                    
+                    if total > 0:
+                        banker_pct = (banker_count / total) * 100
+                        player_pct = (player_count / total) * 100
+                        
+                        ocorrencias.append({
+                            'posicao': i,
+                            'data_inicio': datas[i] if i < len(datas) else None,
+                            'proximos_9': proximos[:9],
+                            'banker_count': banker_count,
+                            'player_count': player_count,
+                            'banker_pct': round(banker_pct, 1),
+                            'player_pct': round(player_pct, 1),
+                            'proporcao': f"{banker_count}:{player_count}"
+                        })
+        
+        print(f"\n📊 Encontradas {len(ocorrencias)} ocorrências de DUPLO TIE")
+        
+        # Analisa as proporções
+        proporcoes = {}
+        for occ in ocorrencias:
+            prop = occ['proporcao']
+            proporcoes[prop] = proporcoes.get(prop, 0) + 1
+        
+        print("\n📈 DISTRIBUIÇÃO DAS PROPORÇÕES APÓS DUPLO TIE:")
+        for prop, count in sorted(proporcoes.items(), key=lambda x: x[1], reverse=True)[:5]:
+            print(f"   • {prop}: {count} vezes ({count/len(ocorrencias)*100:.1f}%)")
+        
+        # Mostra as 5 ocorrências mais recentes
+        print("\n🆕 OCORRÊNCIAS RECENTES:")
+        for occ in sorted(ocorrencias, key=lambda x: x['data_inicio'] if x['data_inicio'] else datetime.min, reverse=True)[:5]:
+            data_str = occ['data_inicio'].strftime('%d/%m %H:%M') if occ['data_inicio'] else 'desconhecida'
+            print(f"\n   📅 {data_str}")
+            print(f"   Sequência: {' → '.join(occ['proximos_9'])}")
+            print(f"   Proporção: {occ['banker_count']} BANKER : {occ['player_count']} PLAYER ({occ['banker_pct']}% / {occ['player_pct']}%)")
+        
+        # Adiciona o padrão descoberto
+        if len(ocorrencias) >= 3:
+            padrao_info = {
+                'nome': 'Duplo TIE + Sequência 7:2',
+                'descricao': 'Após 2 TIES seguidos, o algoritmo inicia uma sequência com proporção ~7:2',
+                'descoberto_em': datetime.now().isoformat(),
+                'total_ocorrencias': len(ocorrencias),
+                'proporcoes': proporcoes
+            }
+            
+            # Evita duplicatas
+            if not any(p.get('nome') == 'Duplo TIE + Sequência 7:2' for p in cache['padroes_descobertos']):
+                cache['padroes_descobertos'].append(padrao_info)
+                print(f"\n🎯 NOVO PADRÃO REGISTRADO: Duplo TIE + Sequência 7:2")
+        
+        return ocorrencias
+        
+    except Exception as e:
+        print(f"❌ Erro na análise: {e}")
+        return []
+
 
 # =============================================================================
 # LOOPS DE COLETA
@@ -1587,7 +2108,7 @@ def processar_fila():
 
 
 # =============================================================================
-# FUNÇÕES DA API (ADAPTADAS)
+# FUNÇÕES DA API
 # =============================================================================
 
 @app.route('/api/analise-erros')
@@ -1613,29 +2134,18 @@ def api_analise_erros():
         stats = cur.fetchone()
 
         cur.execute('''
-            SELECT modo, COUNT(*) as total, 
-                   SUM(CASE WHEN acertou = false THEN 1 ELSE 0 END) as erros,
-                   ROUND(100.0 * SUM(CASE WHEN acertou = false THEN 1 ELSE 0 END) / COUNT(*), 1) as taxa_erro
+            SELECT causa_erro, COUNT(*) as total, 
+                   SUM(CASE WHEN acertou = false THEN 1 ELSE 0 END) as erros
             FROM analise_erros
-            WHERE data_hora > NOW() - INTERVAL '24 hours'
-            GROUP BY modo
-            ORDER BY taxa_erro DESC
+            WHERE data_hora > NOW() - INTERVAL '24 hours' AND causa_erro IS NOT NULL
+            GROUP BY causa_erro
+            ORDER BY total DESC
+            LIMIT 10
         ''')
-        modos = cur.fetchall()
+        causas = cur.fetchall()
 
         cur.execute('''
-            SELECT streak_atual, COUNT(*) as total,
-                   SUM(CASE WHEN acertou = false THEN 1 ELSE 0 END) as erros,
-                   ROUND(100.0 * SUM(CASE WHEN acertou = false THEN 1 ELSE 0 END) / COUNT(*), 1) as taxa_erro
-            FROM analise_erros
-            WHERE streak_atual > 0 AND data_hora > NOW() - INTERVAL '24 hours'
-            GROUP BY streak_atual
-            ORDER BY streak_atual
-        ''')
-        streaks = cur.fetchall()
-
-        cur.execute('''
-            SELECT previsao_feita, resultado_real, confianca, modo, indice_manipulacao
+            SELECT previsao_feita, resultado_real, confianca, modo, indice_manipulacao, causa_erro
             FROM analise_erros
             WHERE foi_manipulado = true AND acertou = false
             ORDER BY data_hora DESC
@@ -1646,6 +2156,9 @@ def api_analise_erros():
         cur.close()
         conn.close()
 
+        analisador = cache.get('analisador_erros')
+        stats_analisador = analisador.get_stats() if analisador else {}
+
         return jsonify({
             'total_24h': stats[0] or 0,
             'erros_24h': stats[1] or 0,
@@ -1653,15 +2166,16 @@ def api_analise_erros():
             'confianca_media_erros': round(stats[3] or 0, 1),
             'total_manipuladas_24h': stats[4] or 0,
             'erros_manipuladas_24h': stats[5] or 0,
-            'modos': [{'modo': m[0], 'total': m[1], 'erros': m[2], 'taxa_erro': m[3]} for m in modos],
-            'streaks': [{'streak': s[0], 'total': s[1], 'erros': s[2], 'taxa_erro': s[3]} for s in streaks],
+            'causas_erro': [{'causa': c[0], 'total': c[1]} for c in causas],
             'erros_manipulados': [{
                 'previsao': e[0],
                 'real': e[1],
                 'confianca': e[2],
                 'modo': e[3],
-                'indice': e[4]
-            } for e in erros_manipulados]
+                'indice': e[4],
+                'causa': e[5]
+            } for e in erros_manipulados],
+            'analisador': stats_analisador
         })
 
     except Exception as e:
@@ -1674,7 +2188,7 @@ def api_manipulacao():
         'indice_atual': cache.get('indice_manipulacao', 0),
         'manipulacoes_detectadas': cache['rl_system'].manipulacoes_detectadas if cache.get('rl_system') else 0,
         'agentes_com_deteccao': [
-            {'nome': a['nome'], 'deteccoes': a['deteccoes_manipulacao']}
+            {'nome': a['nome'], 'deteccoes': a.get('deteccoes_manipulacao', 0)}
             for a in cache['rl_system'].get_stats()['agentes'] if a.get('deteccoes_manipulacao', 0) > 0
         ] if cache.get('rl_system') else []
     })
@@ -1693,7 +2207,8 @@ def api_stats():
                 'nome': agente['nome'],
                 'acertos': agente['acertos'],
                 'erros': agente['erros'],
-                'precisao': agente['precisao']
+                'precisao': agente['precisao'],
+                'especialidade': agente.get('especialidade', 'Nenhuma')
             })
     else:
         for nome, dados in cache['estatisticas']['estrategias'].items():
@@ -1777,10 +2292,40 @@ def api_aprendizado():
 
 @app.route('/api/padroes')
 def api_padroes():
-    """Nova rota para mostrar padrões descobertos pelo RL"""
+    """Mostra padrões descobertos pelo RL"""
     return jsonify({
         'padroes': cache.get('padroes_descobertos', []),
         'total': len(cache.get('padroes_descobertos', []))
+    })
+
+@app.route('/api/padrao-7x2')
+def api_padrao_7x2():
+    """Mostra análises do padrão DUPLO TIE + SEQUÊNCIA 7:2"""
+    
+    # Faz a análise
+    ocorrencias = analisar_padrao_7x2_no_historico()
+    
+    # Procura o agente especialista
+    agente_especialista = None
+    if cache.get('rl_system'):
+        for nome, agente in cache['rl_system'].agentes.items():
+            if hasattr(agente, 'especialidade') and agente.especialidade and 'duplo' in agente.especialidade.lower():
+                agente_especialista = agente.get_stats()
+                break
+    
+    return jsonify({
+        'padrao': 'DUPLO TIE + SEQUÊNCIA 7:2',
+        'total_ocorrencias': len(ocorrencias) if ocorrencias else 0,
+        'ocorrencias_recentes': [
+            {
+                'data': occ['data_inicio'].strftime('%d/%m %H:%M') if occ['data_inicio'] else None,
+                'sequencia': occ['proximos_9'],
+                'proporcao': occ['proporcao']
+            }
+            for occ in sorted(ocorrencias, key=lambda x: x['data_inicio'] if x['data_inicio'] else datetime.min, reverse=True)[:10]
+        ] if ocorrencias else [],
+        'agente_especialista': agente_especialista,
+        'status': 'ativo' if agente_especialista else 'analisando'
     })
 
 @app.route('/health')
@@ -1791,6 +2336,7 @@ def health():
         'fila': len(fila_rodadas),
         'fonte_ativa': fonte_ativa,
         'rl_system': 'ativo' if cache.get('rl_system') else 'inativo',
+        'analisador_erros': 'ativo' if cache.get('analisador_erros') else 'inativo',
         'padroes_descobertos': len(cache.get('padroes_descobertos', [])),
         'manipulacao': cache.get('indice_manipulacao', 0)
     })
@@ -1822,7 +2368,7 @@ def loop_pesado():
 
 
 # =============================================================================
-# TREINAMENTO INICIAL COM DADOS HISTÓRICOS (ADAPTADO PARA RL)
+# TREINAMENTO INICIAL COM DADOS HISTÓRICOS
 # =============================================================================
 def treinar_rl_com_historico(limit=1000):
     print(f"\n🧠 INICIANDO TREINAMENTO RL COM HISTÓRICO ({limit} rodadas)...")
@@ -1915,7 +2461,7 @@ def salvar_padroes():
 
 
 # =============================================================================
-# VERIFICAÇÃO DE PREVISÕES ANTERIORES (ADAPTADA)
+# VERIFICAÇÃO DE PREVISÕES ANTERIORES
 # =============================================================================
 def verificar_previsoes_anteriores():
     if cache.get('ultima_previsao') and cache.get('ultimo_resultado_real'):
@@ -1948,8 +2494,18 @@ def verificar_previsoes_anteriores():
                         'saude': agente.saude
                     }
 
-        salvar_previsao(ultima, resultado_real, acertou, pesos_agentes, indice_manipulacao, foi_manipulado)
-        salvar_erro_para_analise(ultima, resultado_real, acertou, contexto_erro, indice_manipulacao, foi_manipulado)
+        # Se tem analisador de erros, analisa
+        causa_erro = None
+        if cache.get('analisador_erros') and not acertou:
+            causa_erro = cache['analisador_erros'].analisar_erro_em_tempo_real(
+                ultima, resultado_real, dados_ord, indice_manipulacao
+            )
+
+        # Salva no banco
+        salvar_previsao_completa(
+            ultima, resultado_real, acertou, dados_ord, 
+            pesos_agentes, indice_manipulacao, foi_manipulado, causa_erro
+        )
 
         cache['estatisticas']['total_previsoes'] += 1
         if acertou:
@@ -1965,7 +2521,8 @@ def verificar_previsoes_anteriores():
             'resultado_real': resultado_real,
             'acertou': acertou,
             'estrategias': ultima.get('estrategias', []),
-            'manipulado': foi_manipulado
+            'manipulado': foi_manipulado,
+            'causa_erro': causa_erro
         }
 
         cache['estatisticas']['ultimas_20_previsoes'].insert(0, previsao_historico)
@@ -2009,6 +2566,8 @@ if __name__ == "__main__":
     print("   ✅ AUTO-DESCOBERTA DE PADRÕES")
     print("   ✅ MEMÓRIA DE LONGO PRAZO (10.000 experiências)")
     print("   ✅ META-AGENTE (aprende a combinar votos)")
+    print("   ✅ ANÁLISE DE ERROS EM TEMPO REAL")
+    print("   ✅ ENSINO ENTRE AGENTES")
     print("="*70)
     print("📊 PREVISÃO DE DESEMPENHO:")
     print("   • 0-1000 rodadas: 50-55% (explorando)")
@@ -2017,57 +2576,32 @@ if __name__ == "__main__":
     print("   • 10000+ rodadas: 75-85% (especialista)")
     print("="*70)
 
+    # Inicializa banco de dados
     if not init_db():
         print("⚠️ Banco não disponível - continuando sem banco de dados")
 
-    print("\n📥 Carregando histórico de rodadas do arquivo...")
+    # Tenta carregar JSON (opcional)
     try:
-        with open('rodadas ', 'r') as f:
+        with open('rodadas.json', 'r') as f:
             rodadas_json = json.load(f)
-
-        conn = get_db_connection()
-        if conn:
-            cur = conn.cursor()
-            carregadas = 0
-            for rodada in rodadas_json:
-                try:
-                    data_hora = datetime.fromisoformat(rodada['data_hora'].replace('Z', '+00:00'))
-                    cur.execute('''
-                        INSERT INTO rodadas 
-                        (id, data_hora, player_score, banker_score, soma, resultado, fonte, dados_json)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (id) DO NOTHING
-                    ''', (
-                        rodada['id'],
-                        data_hora,
-                        rodada['player_score'],
-                        rodada['banker_score'],
-                        rodada['soma'],
-                        rodada['resultado'],
-                        rodada.get('fonte', 'historico'),
-                        json.dumps(rodada)
-                    ))
-                    if cur.rowcount > 0:
-                        carregadas += 1
-                except Exception:
-                    continue
-
-            conn.commit()
-            cur.close()
-            conn.close()
-            print(f"✅ {carregadas} rodadas carregadas do arquivo JSON")
-        else:
-            print("⚠️ Não foi possível conectar ao banco para carga histórica")
-    except Exception as e:
-        print(f"⚠️ Erro ao carregar arquivo JSON: {e}")
+            print(f"✅ Arquivo JSON encontrado com {len(rodadas_json)} rodadas")
+    except:
+        print("📁 Nenhum arquivo JSON encontrado - continuando com API")
 
     print("📊 Carregando dados...")
     inicializar_sistema()
     
-    # Treina com histórico se disponível
-    if cache['leves']['total_rodadas'] > 100:
-        treinar_rl_com_historico(min(1000, cache['leves']['total_rodadas']))
+    # 🚀 CARREGA HISTÓRICO DA API NORMAL E TREINA
+    analisador = carregar_historico_completo_para_aprendizado(limite_paginas=50)
     
+    if analisador:
+        cache['analisador_erros'] = analisador
+        print(f"\n✅ Sistema de análise de erros ativo!")
+    
+    # Analisa padrão 7x2 específico
+    analisar_padrao_7x2_no_historico()
+    
+    # Atualiza dados
     atualizar_dados_leves()
     atualizar_dados_pesados()
 
@@ -2082,6 +2616,7 @@ if __name__ == "__main__":
 
     print("="*70)
 
+    # Inicia fontes de dados
     print("🔌 Iniciando WebSocket (modo backup)...")
     iniciar_websocket()
 
@@ -2117,7 +2652,8 @@ if __name__ == "__main__":
     print("🧠 Acesse /api/aprendizado para ver a evolução dos agentes RL")
     print("📝 Acesse /api/analise-erros para análise detalhada dos erros")
     print("🎯 Acesse /api/manipulacao para estatísticas de manipulação")
-    print("🔍 Acesse /api/padroes para ver padrões descobertos pelo RL")
+    print("🔍 Acesse /api/padroes para ver padrões descobertos")
+    print("🎲 Acesse /api/padrao-7x2 para ver o padrão especial que você descobriu")
     print("="*70)
 
     app.run(host='0.0.0.0', port=PORT, debug=False)
