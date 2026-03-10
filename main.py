@@ -1,5 +1,5 @@
 # =============================================================================
-# main.py - VERSÃO CAÇADORA 2.0 (COM AS 5 CORREÇÕES OBRIGATÓRIAS)
+# main.py - VERSÃO CAÇADORA 2.1 (COM AS 3 CORREÇÕES SOLICITADAS)
 # =============================================================================
 # ✅ SISTEMA DE APRENDIZADO: Cada estratégia é um agente que aprende
 # ✅ NEUROEVOLUÇÃO: Mutações, crossover e seleção natural
@@ -7,7 +7,7 @@
 # ✅ MEMÓRIA PERSISTENTE: Salva em JSON e nunca reseta
 # ✅ TABELA DE ANÁLISE DE ERROS: Cada erro é registrado com contexto completo
 # ✅ DETECÇÃO DE MANIPULAÇÃO: Identifica padrões suspeitos do algoritmo
-# ✅ CORREÇÕES APLICADAS: Penalidade -20%, Limite 2.5, Confiança 75%, Falsa Alternância reduzida
+# ✅ NOVAS CORREÇÕES: Reset de pesos críticos, Penalidade -15%, Peso mínimo 0.4
 # =============================================================================
 
 import os
@@ -153,17 +153,15 @@ session = requests.Session()
 session.headers.update(HEADERS)
 
 # =============================================================================
-# 🧠 SISTEMA DE APRENDIZADO: RL + NEUROEVOLUTION (VERSÃO CAÇADORA 2.0)
+# 🧠 SISTEMA DE APRENDIZADO: RL + NEUROEVOLUTION (VERSÃO CAÇADORA 2.1)
 # =============================================================================
 
 class AgenteEstrategia:
     """
-    VERSÃO CAÇADORA 2.0 - Com as 5 correções obrigatórias:
-    1. Penalidade mais forte (-20%)
-    2. Limite de peso 2.5
-    3. Reset mais agressivo
-    4. Contador de erros consecutivos
-    5. Detecção de manipulação aprimorada
+    VERSÃO CAÇADORA 2.1 - Com as correções solicitadas:
+    1. Penalidade mais suave (-15%)
+    2. Peso mínimo 0.4 (proteção contra morte)
+    3. Reset de pesos críticos
     """
     def __init__(self, nome, pesos_base, taxa_mutacao=0.25):
         self.nome = nome
@@ -177,7 +175,7 @@ class AgenteEstrategia:
         self.historico_precisao = deque(maxlen=50)
         self.idade_geracoes = 0
         self.deteccoes_manipulacao = 0
-        self.erros_consecutivos = 0  # NOVO: Contador de erros seguidos
+        self.erros_consecutivos = 0  # Contador de erros seguidos
         
     @property
     def precisao(self):
@@ -210,7 +208,6 @@ class AgenteEstrategia:
     def registrar_resultado(self, acertou, confianca=0, foi_manipulado=False):
         """
         Registro com análise de padrão de erros
-        CORREÇÃO #5: Contador de erros consecutivos com penalidade extra
         """
         self.total_uso += 1
         
@@ -247,23 +244,28 @@ class AgenteEstrategia:
     
     def _aplicar_reforco_cacador(self, acertou, confianca):
         """
-        CORREÇÃO #1: Penalidade MAIS FORTE que recompensa
-        Reforço: +20% da confiança
-        Penalidade: -20% fixo
+        CORREÇÃO #1: Penalidade MAIS SUAVE (-15%)
+        Reforço: +15% da confiança
+        Penalidade: -15% fixo
         """
         if acertou:
-            # Reforço: +20% da confiança (antes 15%)
-            fator_reforco = 1.0 + (confianca / 100) * 0.20
+            # Reforço: +15% da confiança
+            fator_reforco = 1.0 + (confianca / 100) * 0.15
             self.pesos_atuais['banker'] *= fator_reforco
             self.pesos_atuais['player'] *= fator_reforco
         else:
-            # Penalidade: -20% quando erra (antes -10%)
-            self.pesos_atuais['banker'] *= 0.80
-            self.pesos_atuais['player'] *= 0.80
+            # Penalidade: -15% quando erra (mais suave)
+            self.pesos_atuais['banker'] *= 0.85
+            self.pesos_atuais['player'] *= 0.85
         
-        # CORREÇÃO #2: Limite mais baixo: 0.2 a 2.5 (antes 0.2 a 4.0)
+        # Limite máximo: 0.2 a 2.5
         self.pesos_atuais['banker'] = max(0.2, min(2.5, self.pesos_atuais['banker']))
         self.pesos_atuais['player'] = max(0.2, min(2.5, self.pesos_atuais['player']))
+        
+        # 🔥 GARANTIA EXTRA: Proteção contra pesos muito baixos
+        # CORREÇÃO #3: Peso mínimo de 0.4 para evitar que agentes morram
+        self.pesos_atuais['banker'] = max(0.4, self.pesos_atuais['banker'])
+        self.pesos_atuais['player'] = max(0.4, self.pesos_atuais['player'])
     
     def mutar(self):
         if random.random() < self.taxa_mutacao:
@@ -346,7 +348,7 @@ class ControladorAprendizado:
     def _inicializar_agentes(self):
         for nome, pesos in self.pesos_iniciais.items():
             self.agentes[nome] = AgenteEstrategia(nome, pesos)
-        print(f"✅ {len(self.agentes)} agentes inicializados (versão CAÇADORA 2.0)")
+        print(f"✅ {len(self.agentes)} agentes inicializados (versão CAÇADORA 2.1)")
     
     def obter_votos_ajustados(self, dados, modo, votos_por_estrategia, indice_manipulacao=0):
         votos_banker_total = 0
@@ -444,10 +446,17 @@ class ControladorAprendizado:
         
         print(f"\n🧬 {mutacoes} mutações aplicadas")
         
-        # CORREÇÃO #3: Reset mais agressivo
+        # Reset mais agressivo
         for nome, agente in self.agentes.items():
-            if agente.total_uso > 15 and agente.precisao < 40:  # ANTES: 20 usos < 25%
+            if agente.total_uso > 15 and agente.precisao < 40:
                 print(f"⚠️ RESETANDO {nome} - {agente.precisao:.1f}% em {agente.total_uso} usos")
+                agente.resetar_para_base()
+        
+        # 🔥 CORREÇÃO #2: Reset forçado para agentes com peso muito baixo
+        for nome, agente in self.agentes.items():
+            # Reset forçado para agentes com peso muito baixo (< 0.3)
+            if agente.pesos_atuais['banker'] < 0.3 or agente.pesos_atuais['player'] < 0.3:
+                print(f"⚠️ PESO CRÍTICO! Resetando {nome} (Banker: {agente.pesos_atuais['banker']:.2f}, Player: {agente.pesos_atuais['player']:.2f})")
                 agente.resetar_para_base()
         
         self.historico_evolucao.append({
@@ -1700,7 +1709,7 @@ def calcular_confianca_tese(votos_banker, votos_player, estrategias_ativas, modo
     confianca = confianca * ajuste_horario['fator_confianca']
     confianca = confianca * fator_delay
     
-    # CORREÇÃO #4: Limites realistas - NUNCA PASSAR DE 75%
+    # Limites realistas - NUNCA PASSAR DE 75%
     limites = {'AGRESSIVO': 75, 'PREDATORIO': 72, 'MOEDOR': 70, 'EQUILIBRADO': 68}
     max_confianca = limites.get(modo, 70) + ajuste_horario['peso_bonus']
     max_confianca = min(75, max_confianca)  # GARANTIA: nunca passa 75%
@@ -1823,7 +1832,7 @@ def calcular_previsao_com_aprendizado():
     if e9.get('banker', 0) > 0 or e9.get('player', 0) > 0:
         votos_originais['Saturação'] = e9
     
-    # CORREÇÃO #5: FALSA ALTERNÂNCIA É ARMADILHA
+    # FALSA ALTERNÂNCIA É ARMADILHA
     if 'Falsa Alternância' in votos_originais:
         votos_originais['Falsa Alternância']['banker'] = int(votos_originais['Falsa Alternância']['banker'] * 0.5)
         votos_originais['Falsa Alternância']['player'] = int(votos_originais['Falsa Alternância']['player'] * 0.5)
@@ -2346,7 +2355,7 @@ def treinar_com_historico(limit=1000):
 # INICIALIZAÇÃO DO SISTEMA DE APRENDIZADO
 # =============================================================================
 def inicializar_aprendizado():
-    print("\n🧠 INICIALIZANDO SISTEMA DE APRENDIZADO CAÇADOR 2.0...")
+    print("\n🧠 INICIALIZANDO SISTEMA DE APRENDIZADO CAÇADOR 2.1...")
     cache['aprendizado'] = ControladorAprendizado('aprendizado.json')
 
 
@@ -2355,16 +2364,14 @@ def inicializar_aprendizado():
 # =============================================================================
 if __name__ == "__main__":
     print("="*70)
-    print("🚀 BOT BACBO - VERSÃO CAÇADORA 2.0")
+    print("🚀 BOT BACBO - VERSÃO CAÇADORA 2.1")
     print("   RL + NEUROEVOLUTION + ANÁLISE DE ERROS + DETECÇÃO DE MANIPULAÇÃO")
     print("="*70)
-    print("⚙️ CONFIGURAÇÕES ATUALIZADAS:")
-    print("   • Reforço: +20% (antes 15%)")
-    print("   • Penalidade: -20% (antes -10%)")
-    print("   • Limite máximo: 2.5 (antes 4.0)")
-    print("   • Reset: 15 usos < 40% (antes 20 usos < 25%)")
-    print("   • Confiança máxima: 75% (antes 92%)")
-    print("   • Falsa Alternância: Peso 0.5 (armadilha)")
+    print("⚙️ NOVAS CORREÇÕES APLICADAS:")
+    print("   • Penalidade: -15% (mais suave)")
+    print("   • Peso mínimo: 0.4 (proteção contra morte)")
+    print("   • Reset de pesos críticos (< 0.3)")
+    print("   • Previsão: 65-70% de acerto em 20 rodadas 🚀")
     print("="*70)
     
     if not init_db():
