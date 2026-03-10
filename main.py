@@ -2022,7 +2022,7 @@ if __name__ == "__main__":
 
     print("\n📥 Carregando histórico de rodadas do arquivo...")
     try:
-        with open('rodadas (6).json', 'r') as f:
+        with open('rodadas ', 'r') as f:
             rodadas_json = json.load(f)
 
         conn = get_db_connection()
