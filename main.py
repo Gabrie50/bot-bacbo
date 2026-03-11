@@ -189,6 +189,33 @@ def calcular_precisao():
     return round((cache['estatisticas']['acertos'] / total) * 100)
 
 # =============================================================================
+# INICIALIZAÇÃO
+# =============================================================================
+def inicializar_sistema():
+    print("\n🧠 INICIALIZANDO SISTEMA CAÇADOR 4.0 (RL PURO)...")
+    
+    cache['rl_system'] = SistemaRLCompleto()  # ← Agora cache existe!
+    
+    cache['rl_system'].carregar_estado('rl_estado.json')
+    
+    try:
+        with open('padroes.json', 'r') as f:
+            cache['padroes_descobertos'] = json.load(f)
+        print(f"📚 {len(cache['padroes_descobertos'])} padrões carregados")
+    except:
+        pass
+    
+    print("✅ Sistema RL inicializado")
+
+def salvar_padroes():
+    try:
+        with open('padroes.json', 'w') as f:
+            json.dump(cache['padroes_descobertos'], f, indent=2)
+    except Exception as e:
+        print(f"⚠️ Erro ao salvar padrões: {e}")
+        
+
+# =============================================================================
 # 🧠 SISTEMA RL PURO - APRENDE SOZINHO AS ESTRATÉGIAS
 # =============================================================================
 
@@ -2513,6 +2540,7 @@ if __name__ == "__main__":
         print("⚠️ Banco não disponível - continuando sem banco de dados")
     else:
         verificar_e_corrigir_banco()
+        inicializar_sistema()
     
     try:
         with open('rodadas.json', 'r') as f:
