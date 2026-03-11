@@ -116,52 +116,140 @@ fontes_status = {
 fonte_ativa = 'latest'
 
 # =============================================================================
-# FILA DE PROCESSAMENTO
+# PROCESSADOR DA FILA (ADAPTADO PARA RL) - VERSÃO CORRIGIDA
 # =============================================================================
-fila_rodadas = deque(maxlen=500)
-ultimo_id_latest = None
-ultimo_id_websocket = None
-ultimo_id_api = None
 
-cache = {
-    'leves': {
-        'ultimas_50': [],
-        'ultimas_20': [],
-        'total_rodadas': 0,
-        'ultima_atualizacao': None,
-        'previsao': None
-    },
-    'pesados': {
-        'periodos': {},
-        'ultima_atualizacao': None
-    },
-    'estatisticas': {
-        'total_previsoes': 0,
-        'acertos': 0,
-        'erros': 0,
-        'ultimas_20_previsoes': [],
-        'estrategias': {
-            'RL_Agente_1': {'acertos': 0, 'erros': 0, 'total': 0},
-            'RL_Agente_2': {'acertos': 0, 'erros': 0, 'total': 0},
-            'RL_Agente_3': {'acertos': 0, 'erros': 0, 'total': 0},
-            'RL_Agente_4': {'acertos': 0, 'erros': 0, 'total': 0},
-            'RL_Agente_5': {'acertos': 0, 'erros': 0, 'total': 0},
-            'RL_Agente_6': {'acertos': 0, 'erros': 0, 'total': 0},
-            'RL_Agente_7': {'acertos': 0, 'erros': 0, 'total': 0},
-            'RL_Agente_8': {'acertos': 0, 'erros': 0, 'total': 0},
-            'RL_Agente_9': {'acertos': 0, 'erros': 0, 'total': 0},
-            'RL_Agente_10': {'acertos': 0, 'erros': 0, 'total': 0}
-        }
-    },
-    'ultima_previsao': None,
-    'ultimo_resultado_real': None,
-    'aprendizado': None,
-    'rl_system': None,
-    'analisador_erros': None,  # Novo: analisador de erros
-    'ultimo_contexto_erro': None,
-    'indice_manipulacao': 0,
-    'padroes_descobertos': []  # Lista de padrões que o RL descobriu
-}
+def processar_fila():
+    print("🚀 Processador TURBO (com RL) iniciado...")
+    
+    historico_buffer = []
+    ultima_previsao_feita = None
+
+    while True:
+        try:
+            if fila_rodadas:
+                batch = list(fila_rodadas)
+                fila_rodadas.clear()
+                
+                for rodada in batch:
+                    if salvar_rodada(rodada, 'principal'):
+                        historico_buffer.append(rodada)
+                        cache['ultimo_resultado_real'] = rodada['resultado']
+                        print(f"✅ SALVO: {rodada['player_score']} vs {rodada['banker_score']} - {rodada['resultado']}")
+                        
+                        # Se tinha uma previsão anterior, agora podemos verificar se acertou
+                        if ultima_previsao_feita:
+                            resultado_real = rodada['resultado']
+                            
+                            if resultado_real != 'TIE':  # Ignora TIE para aprendizado
+                                acertou = (ultima_previsao_feita['previsao'] == resultado_real)
+                                
+                                print(f"\n📊 VERIFICANDO PREVISÃO ANTERIOR:")
+                                print(f"   Previsão: {ultima_previsao_feita['previsao']} | Real: {resultado_real} | Acertou: {acertou}")
+                                
+                                # Pega contexto para análise
+                                contexto = cache['leves']['ultimas_50'] if cache['leves']['ultimas_50'] else []
+                                
+                                # Calcula índice de manipulação
+                                indice_manipulacao = calcular_indice_manipulacao(contexto)
+                                cache['indice_manipulacao'] = indice_manipulacao
+                                
+                                # Se tem analisador de erros, analisa
+                                causa_erro = None
+                                if cache.get('analisador_erros') and not acertou:
+                                    causa_erro = cache['analisador_erros'].analisar_erro_em_tempo_real(
+                                        ultima_previsao_feita, resultado_real, contexto, indice_manipulacao
+                                    )
+                                
+                                # Atualiza estatísticas no cache
+                                cache['estatisticas']['total_previsoes'] += 1
+                                if acertou:
+                                    cache['estatisticas']['acertos'] += 1
+                                else:
+                                    cache['estatisticas']['erros'] += 1
+                                
+                                # Adiciona ao histórico de previsões
+                                previsao_historico = {
+                                    'data': datetime.now().strftime('%d/%m %H:%M:%S'),
+                                    'previsao': ultima_previsao_feita['previsao'],
+                                    'simbolo': ultima_previsao_feita['simbolo'],
+                                    'confianca': ultima_previsao_feita['confianca'],
+                                    'resultado_real': resultado_real,
+                                    'acertou': acertou,
+                                    'estrategias': ultima_previsao_feita.get('estrategias', []),
+                                    'manipulado': indice_manipulacao > 50
+                                }
+                                
+                                cache['estatisticas']['ultimas_20_previsoes'].insert(0, previsao_historico)
+                                if len(cache['estatisticas']['ultimas_20_previsoes']) > 20:
+                                    cache['estatisticas']['ultimas_20_previsoes'].pop()
+                                
+                                # Se tem RL, ensina com o resultado
+                                if cache.get('rl_system') and len(cache['leves']['ultimas_50']) >= 50:
+                                    cache['rl_system'].aprender_com_resultado(
+                                        cache['leves']['ultimas_50'], 
+                                        resultado_real
+                                    )
+                                
+                                # Pega estatísticas atualizadas dos agentes
+                                if cache.get('rl_system'):
+                                    for nome, agente in cache['rl_system'].agentes.items():
+                                        if nome in cache['estatisticas']['estrategias']:
+                                            cache['estatisticas']['estrategias'][nome]['acertos'] = agente.acertos
+                                            cache['estatisticas']['estrategias'][nome]['erros'] = agente.erros
+                                            cache['estatisticas']['estrategias'][nome]['total'] = agente.total_uso
+                                
+                                # Mostra precisão atual
+                                precisao = calcular_precisao()
+                                print(f"📈 Precisão geral: {cache['estatisticas']['acertos']}/{cache['estatisticas']['total_previsoes']} ({precisao}%)")
+                            
+                            ultima_previsao_feita = None
+                
+                if len(historico_buffer) > 0:
+                    # Atualiza cache com últimas rodadas
+                    cache['leves']['ultimas_50'] = get_ultimas_50()
+                    cache['leves']['ultimas_20'] = get_ultimas_20()
+                    cache['leves']['total_rodadas'] = get_total_rapido()
+                    
+                    # Se tem RL e histórico suficiente, faz nova previsão
+                    if cache.get('rl_system') and len(cache['leves']['ultimas_50']) >= 50:
+                        historico_completo = cache['leves']['ultimas_50']
+                        previsao_rl = cache['rl_system'].processar_rodada(historico_completo)
+                        
+                        if previsao_rl:
+                            ultima_previsao_feita = {
+                                'modo': 'RL_PURO',
+                                'previsao': previsao_rl['previsao'],
+                                'simbolo': '🔴' if previsao_rl['previsao'] == 'BANKER' else '🔵',
+                                'confianca': previsao_rl['confianca'],
+                                'estrategias': [v['agente'] for v in previsao_rl['votos']]
+                            }
+                            cache['ultima_previsao'] = ultima_previsao_feita
+                            cache['leves']['previsao'] = ultima_previsao_feita
+                            
+                            print(f"\n🎯 NOVA PREVISÃO: {ultima_previsao_feita['previsao']} com {ultima_previsao_feita['confianca']}% de confiança")
+                    
+                    # Atualiza dados leves
+                    cache['leves']['ultima_atualizacao'] = datetime.now(timezone.utc)
+
+            time.sleep(0.01)
+
+        except Exception as e:
+            print(f"❌ Erro no processador: {e}")
+            import traceback
+            traceback.print_exc()
+            time.sleep(0.1)
+
+
+# =============================================================================
+# FUNÇÃO PARA CALCULAR PRECISÃO
+# =============================================================================
+def calcular_precisao():
+    """Calcula a precisão atual baseada nas estatísticas"""
+    total = cache['estatisticas']['total_previsoes']
+    if total == 0:
+        return 0
+    return round((cache['estatisticas']['acertos'] / total) * 100)
 
 # =============================================================================
 # INICIALIZAÇÃO FLASK
