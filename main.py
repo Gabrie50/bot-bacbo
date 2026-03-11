@@ -1691,18 +1691,13 @@ def buscar_api_normal():
 
 
 # =============================================================================
-# 🚀 FUNÇÃO PARA CARREGAR HISTÓRICO COMPLETO DA API NORMAL
+# 🚀 FUNÇÃO PARA CARREGAR HISTÓRICO COMPLETO DA API NORMAL (CORRIGIDA)
 # =============================================================================
 
 def carregar_historico_completo_para_aprendizado(limite_paginas=100):
     print("\n" + "="*80)
     print("📚 CARREGANDO HISTÓRICO COMPLETO PARA APRENDIZADO RL")
     print("="*80)
-    
-    conn = get_db_connection()
-    if not conn:
-        print("❌ Erro ao conectar ao banco")
-        return None
     
     total_carregadas = 0
     pagina = 0
@@ -1716,151 +1711,160 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
     analisador = AnalisadorDeErros(sistema_rl)
     cache['analisador_erros'] = analisador
     
-    try:
-        cur = conn.cursor()
+    while paginas_sem_novidades < 3 and pagina < limite_paginas:
+        # ✅ NOVO: Cria nova conexão para cada página
+        conn = get_db_connection()
+        if not conn:
+            print(f"⚠️ Não foi possível conectar ao banco na página {pagina}")
+            paginas_sem_novidades += 1
+            pagina += 1
+            time.sleep(2)
+            continue
         
-        while paginas_sem_novidades < 3 and pagina < limite_paginas:
-            params = API_PARAMS.copy()
-            params['page'] = pagina
-            params['size'] = 100
-            params['_t'] = int(time.time() * 1000)
+        params = API_PARAMS.copy()
+        params['page'] = pagina
+        params['size'] = 100
+        params['_t'] = int(time.time() * 1000)
+        
+        print(f"\n📥 Buscando página {pagina}...")
+        
+        try:
+            response = session.get(API_URL, params=params, timeout=TIMEOUT_API)
+            response.raise_for_status()
+            dados = response.json()
             
-            print(f"\n📥 Buscando página {pagina}...")
+            if not dados or len(dados) == 0:
+                print(f"✅ Fim das páginas na página {pagina}")
+                conn.close()
+                break
             
-            try:
-                response = session.get(API_URL, params=params, timeout=TIMEOUT_API)
-                response.raise_for_status()
-                dados = response.json()
-                
-                if not dados or len(dados) == 0:
-                    print(f"✅ Fim das páginas na página {pagina}")
-                    break
-                
-                rodadas_ordenadas = []
-                for item in dados:
-                    try:
-                        data = item.get('data', {})
-                        result = data.get('result', {})
-                        player_dice = result.get('playerDice', {})
-                        banker_dice = result.get('bankerDice', {})
-                        
-                        player_score = player_dice.get('first', 0) + player_dice.get('second', 0)
-                        banker_score = banker_dice.get('first', 0) + banker_dice.get('second', 0)
-                        
-                        outcome = result.get('outcome', '')
-                        if outcome == 'PlayerWon':
-                            resultado = 'PLAYER'
-                        elif outcome == 'BankerWon':
-                            resultado = 'BANKER'
-                        else:
-                            resultado = 'TIE'
-                        
-                        data_hora = datetime.fromisoformat(data.get('settledAt', '').replace('Z', '+00:00'))
-                        
-                        rodada = {
-                            'id': data.get('id'),
-                            'data_hora': data_hora,
-                            'player_score': player_score,
-                            'banker_score': banker_score,
-                            'resultado': resultado,
-                            'fonte': 'historico_api'
-                        }
-                        
-                        cur.execute('''
-                            INSERT INTO rodadas 
-                            (id, data_hora, player_score, banker_score, soma, resultado, fonte, dados_json)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                            ON CONFLICT (id) DO NOTHING
-                        ''', (
-                            rodada['id'],
-                            rodada['data_hora'],
-                            rodada['player_score'],
-                            rodada['banker_score'],
-                            rodada['player_score'] + rodada['banker_score'],
-                            rodada['resultado'],
-                            rodada['fonte'],
-                            json.dumps(item, default=str)
-                        ))
-                        
-                        if cur.rowcount > 0:
-                            rodadas_ordenadas.append(rodada)
-                            total_carregadas += 1
-                            
-                    except Exception as e:
-                        continue
-                
-                conn.commit()
-                rodadas_ordenadas.sort(key=lambda x: x['data_hora'])
-                
-                print(f"   🧠 Simulando aprendizado com {len(rodadas_ordenadas)} rodadas...")
-                
-                historico_simulado = []
-                
-                for i, rodada in enumerate(rodadas_ordenadas):
-                    historico_simulado.append({
-                        'player_score': rodada['player_score'],
-                        'banker_score': rodada['banker_score'],
-                        'resultado': rodada['resultado']
-                    })
+            rodadas_ordenadas = []
+            cur = conn.cursor()
+            
+            for item in dados:
+                try:
+                    data = item.get('data', {})
+                    result = data.get('result', {})
+                    player_dice = result.get('playerDice', {})
+                    banker_dice = result.get('bankerDice', {})
                     
-                    if len(historico_simulado) >= 30:
-                        previsao = sistema_rl.processar_rodada(historico_simulado[:-1])
+                    player_score = player_dice.get('first', 0) + player_dice.get('second', 0)
+                    banker_score = banker_dice.get('first', 0) + banker_dice.get('second', 0)
+                    
+                    outcome = result.get('outcome', '')
+                    if outcome == 'PlayerWon':
+                        resultado = 'PLAYER'
+                    elif outcome == 'BankerWon':
+                        resultado = 'BANKER'
+                    else:
+                        resultado = 'TIE'
+                    
+                    data_hora = datetime.fromisoformat(data.get('settledAt', '').replace('Z', '+00:00'))
+                    
+                    rodada = {
+                        'id': data.get('id'),
+                        'data_hora': data_hora,
+                        'player_score': player_score,
+                        'banker_score': banker_score,
+                        'resultado': resultado,
+                        'fonte': 'historico_api'
+                    }
+                    
+                    cur.execute('''
+                        INSERT INTO rodadas 
+                        (id, data_hora, player_score, banker_score, soma, resultado, fonte, dados_json)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (id) DO NOTHING
+                    ''', (
+                        rodada['id'],
+                        rodada['data_hora'],
+                        rodada['player_score'],
+                        rodada['banker_score'],
+                        rodada['player_score'] + rodada['banker_score'],
+                        rodada['resultado'],
+                        rodada['fonte'],
+                        json.dumps(item, default=str)
+                    ))
+                    
+                    if cur.rowcount > 0:
+                        rodadas_ordenadas.append(rodada)
+                        total_carregadas += 1
                         
-                        if previsao:
-                            indice = calcular_indice_manipulacao(historico_simulado[:-20] if len(historico_simulado) > 20 else historico_simulado)
+                except Exception as e:
+                    continue
+            
+            conn.commit()
+            cur.close()
+            conn.close()  # ✅ Fecha conexão após usar
+            
+            rodadas_ordenadas.sort(key=lambda x: x['data_hora'])
+            
+            print(f"   🧠 Simulando aprendizado com {len(rodadas_ordenadas)} rodadas...")
+            
+            historico_simulado = []
+            
+            for i, rodada in enumerate(rodadas_ordenadas):
+                historico_simulado.append({
+                    'player_score': rodada['player_score'],
+                    'banker_score': rodada['banker_score'],
+                    'resultado': rodada['resultado']
+                })
+                
+                if len(historico_simulado) >= 30:
+                    previsao = sistema_rl.processar_rodada(historico_simulado[:-1])
+                    
+                    if previsao:
+                        indice = calcular_indice_manipulacao(historico_simulado[:-20] if len(historico_simulado) > 20 else historico_simulado)
+                        
+                        if previsao['previsao'] != rodada['resultado'] and rodada['resultado'] != 'TIE':
+                            causa = analisador.analisar_erro_em_tempo_real(
+                                previsao, rodada['resultado'], historico_simulado[:-1], indice
+                            )
                             
-                            if previsao['previsao'] != rodada['resultado'] and rodada['resultado'] != 'TIE':
-                                causa = analisador.analisar_erro_em_tempo_real(
-                                    previsao, rodada['resultado'], historico_simulado[:-1], indice
-                                )
-                                
-                                salvar_previsao_completa_segura(
-                                    previsao, rodada['resultado'], False, historico_simulado[:-1],
-                                    None, indice, indice > 50, causa
-                                )
-                            else:
-                                salvar_previsao_completa_segura(
-                                    previsao, rodada['resultado'], True, historico_simulado[:-1],
-                                    None, indice, indice > 50
-                                )
-                            
-                            sistema_rl.aprender_com_resultado(historico_simulado, rodada['resultado'])
-                
-                print(f"   ✅ Simulação concluída para página {pagina}")
-                
-                if len(rodadas_ordenadas) > 0:
-                    paginas_sem_novidades = 0
-                else:
-                    paginas_sem_novidades += 1
-                
-                pagina += 1
-                time.sleep(0.5)
-                
-            except Exception as e:
-                print(f"⚠️ Erro na página {pagina}: {e}")
+                            salvar_previsao_completa_segura(
+                                previsao, rodada['resultado'], False, historico_simulado[:-1],
+                                None, indice, indice > 50, causa
+                            )
+                        else:
+                            salvar_previsao_completa_segura(
+                                previsao, rodada['resultado'], True, historico_simulado[:-1],
+                                None, indice, indice > 50
+                            )
+                        
+                        sistema_rl.aprender_com_resultado(historico_simulado, rodada['resultado'])
+            
+            print(f"   ✅ Simulação concluída para página {pagina}")
+            
+            if len(rodadas_ordenadas) > 0:
+                paginas_sem_novidades = 0
+            else:
                 paginas_sem_novidades += 1
-                time.sleep(2)
-        
-        cur.close()
-        conn.close()
-        
-        print("\n" + "="*80)
-        print(f"✅ CARGA HISTÓRICA CONCLUÍDA!")
-        print(f"📊 Total de rodadas carregadas: {total_carregadas}")
-        print(f"🔍 Erros analisados: {analisador.erros_analisados}")
-        print("="*80)
-        
-        stats = analisador.get_stats()
-        print("\n📊 PADRÕES DE ERRO IDENTIFICADOS:")
-        for padrao, count in sorted(stats['padroes_de_erro'].items(), key=lambda x: x[1], reverse=True)[:5]:
-            print(f"   • {padrao}: {count} vezes")
-        
-        return analisador
-        
-    except Exception as e:
-        print(f"❌ Erro fatal na carga histórica: {e}")
-        return None
-
+            
+            pagina += 1
+            time.sleep(0.5)
+            
+        except Exception as e:
+            print(f"⚠️ Erro na página {pagina}: {e}")
+            try:
+                conn.close()
+            except:
+                pass
+            paginas_sem_novidades += 1
+            pagina += 1
+            time.sleep(2)
+    
+    print("\n" + "="*80)
+    print(f"✅ CARGA HISTÓRICA CONCLUÍDA!")
+    print(f"📊 Total de rodadas carregadas: {total_carregadas}")
+    print(f"🔍 Erros analisados: {analisador.erros_analisados}")
+    print("="*80)
+    
+    stats = analisador.get_stats()
+    print("\n📊 PADRÕES DE ERRO IDENTIFICADOS:")
+    for padrao, count in sorted(stats['padroes_de_erro'].items(), key=lambda x: x[1], reverse=True)[:5]:
+        print(f"   • {padrao}: {count} vezes")
+    
+    return analisador
 
 # =============================================================================
 # FUNÇÃO PARA ANALISAR PADRÃO 7x2 ESPECÍFICO
