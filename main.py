@@ -72,7 +72,7 @@ except ImportError:
 # =============================================================================
 # CONFIGURAÇÕES - PG8000 COM SSL
 # =============================================================================
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://neondb_owner:npg_md9IFsDnelP6@ep-blue-hall-adejcups-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require")
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://neondb_owner:npg_bCXEV2NgQfK7@ep-holy-rain-a4wssh81-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require")
 
 # Parse da URL removendo parâmetros de conexão
 parsed = urllib.parse.urlparse(DATABASE_URL)
