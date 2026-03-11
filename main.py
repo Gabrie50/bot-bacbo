@@ -3178,24 +3178,15 @@ def salvar_padroes():
 
 
 # =============================================================================
-# MAIN - VERSÃO CORRIGIDA (INICIALIZAÇÃO NÃO BLOQUEANTE)
+# MAIN - VERSÃO CORRIGIDA (RAY EM BACKGROUND)
 # =============================================================================
 if __name__ == "__main__":
     print("="*80)
-    print("🚀 BOT BACBO - VERSÃO CAÇADORA 5.0 (RAY PARALLEL RL)")
-    print("   ESTILO ALPHAGO - 50 AGENTES JOGANDO SIMULTANEAMENTE")
-    print("="*80)
-    print("✅ CORREÇÕES + NOVIDADES:")
-    print("   ✅ LATEST otimizado - sem travamentos")
-    print("   ✅ Salvamento no banco - historico_previsoes funcionando")
-    print("   ✅ Redes neurais PyTorch - aprendizado eficiente")
-    print("   ✅ Recompensas calibradas - 2.0 para acertos, -1.5 para erros")
-    print("   ✅ Priorização de experiências - foco em erros")
-    print("   ✅ RAY PARALELISMO - 50+ agentes simultâneos")
+    print("🚀 BOT BACBO - VERSÃO CAÇADORA 5.0")
     print("="*80)
     
     # =========================================================================
-    # INICIALIZAÇÃO RÁPIDA (NÃO BLOQUEANTE PARA O FLASK)
+    # INICIALIZAÇÃO MÍNIMA (SÓ O ESSENCIAL PARA O FLASK RESPONDER)
     # =========================================================================
     
     # 1. Inicializa banco de dados (rápido)
@@ -3207,48 +3198,67 @@ if __name__ == "__main__":
     atualizar_dados_leves()
     atualizar_dados_pesados()
     
-    # 3. Carrega JSON local se existir (rápido)
-    try:
-        with open('rodadas.json', 'r') as f:
-            rodadas_json = json.load(f)
-            print(f"✅ Arquivo JSON encontrado com {len(rodadas_json)} rodadas")
-    except:
-        print("📁 Nenhum arquivo JSON encontrado - continuando com API")
-    
     total_rodadas = cache['leves']['total_rodadas']
     print(f"📊 {total_rodadas} rodadas no banco")
     
     # =========================================================================
-    # INICIALIZAÇÃO DOS SISTEMAS EM BACKGROUND (NÃO BLOQUEIA O FLASK)
+    # FLASK INICIA PRIMEIRO (CRÍTICO PARA O HEALTHCHECK)
     # =========================================================================
     
-    def inicializar_sistemas_background():
-        """Tudo que é pesado roda aqui em background após o Flask iniciar"""
+    print("\n" + "="*80)
+    print("✅ INICIANDO FLASK PRIMEIRO...")
+    print("📊 Healthcheck responderá imediatamente em /health")
+    print("🔄 Sistemas pesados iniciam em background APÓS o Flask")
+    print("="*80)
+    
+    # Flag para controlar se já inicializou os backgrounds
+    backgrounds_iniciados = False
+    
+    @app.before_request
+    def iniciar_backgrounds_se_necessario():
+        """Garante que os backgrounds iniciem após a primeira requisição"""
+        global backgrounds_iniciados
+        if not backgrounds_iniciados:
+            backgrounds_iniciados = True
+            threading.Thread(target=inicializar_tudo_background, daemon=True).start()
+    
+    def inicializar_tudo_background():
+        """Inicializa TUDO em background após o Flask estar rodando"""
         try:
-            print("\n🔄 [BACKGROUND] Inicializando sistemas pesados...")
+            print("\n🔄 [BACKGROUND] Iniciando todos os sistemas...")
             
-            # Pequena pausa para dar tempo do Flask iniciar
-            time.sleep(3)
+            # 1. Inicializa Ray (agora em background)
+            if RAY_AVAILABLE:
+                ray_iniciado = inicializar_ray_background()
+                if ray_iniciado:
+                    # Cria sistema Ray
+                    cache['ray_system'] = SistemaRayParalelo(num_agentes=50)
+                    print(f"⚡ [BACKGROUND] {cache['ray_system'].num_agentes} agentes Ray paralelos ativos")
             
-            # Inicializa sistema RL
+            # 2. Inicializa sistema RL tradicional
             inicializar_sistema()
             
             if cache.get('rl_system'):
                 stats = cache['rl_system'].get_stats()
                 print(f"🧠 [BACKGROUND] {len(cache['rl_system'].agentes)} agentes RL tradicionais ativos")
-                
-                # Carrega histórico em background (isso é PESADO)
+            
+            # 3. Carrega JSON local se existir
+            try:
+                with open('rodadas.json', 'r') as f:
+                    rodadas_json = json.load(f)
+                    print(f"✅ [BACKGROUND] Arquivo JSON encontrado com {len(rodadas_json)} rodadas")
+            except:
+                pass
+            
+            # 4. Carrega histórico em background (isso é PESADO)
+            if cache.get('rl_system'):
                 print("📚 [BACKGROUND] Carregando histórico completo para aprendizado...")
                 analisador = carregar_historico_completo_para_aprendizado(limite_paginas=50)
-                
                 if analisador:
                     cache['analisador_erros'] = analisador
                     print("✅ [BACKGROUND] Sistema de análise de erros ativo!")
             
-            if cache.get('ray_system'):
-                print(f"⚡ [BACKGROUND] {cache['ray_system'].num_agentes} agentes Ray paralelos ativos")
-            
-            # Analisa padrão 7x2 em background
+            # 5. Analisa padrão 7x2
             print("🔍 [BACKGROUND] Analisando padrão 7x2...")
             analisar_padrao_7x2_no_historico()
             
@@ -3258,9 +3268,6 @@ if __name__ == "__main__":
             print(f"❌ [BACKGROUND] Erro na inicialização: {e}")
             import traceback
             traceback.print_exc()
-    
-    # Inicia thread background para sistemas pesados
-    threading.Thread(target=inicializar_sistemas_background, daemon=True).start()
     
     # =========================================================================
     # INICIALIZAÇÃO DAS THREADS DE COLETA (TODAS EM BACKGROUND)
@@ -3288,11 +3295,6 @@ if __name__ == "__main__":
     print("🔄 Iniciando loop pesado...")
     threading.Thread(target=loop_pesado, daemon=True).start()
     
-    # Inicia treinamento paralelo com Ray em thread separada
-    if RAY_AVAILABLE:
-        print("⚡ Iniciando treinamento paralelo com Ray (50 agentes)...")
-        threading.Thread(target=loop_treinamento_ray, daemon=True).start()
-    
     # Thread para salvar estado periodicamente
     def salvar_periodicamente():
         while True:
@@ -3308,23 +3310,14 @@ if __name__ == "__main__":
     threading.Thread(target=salvar_periodicamente, daemon=True).start()
     
     # =========================================================================
-    # INICIALIZAÇÃO DO FLASK (AGORA RÁPIDA - NADA BLOQUEIA)
+    # INICIALIZAÇÃO DO FLASK
     # =========================================================================
     
     print("\n" + "="*80)
-    print("✅ INICIALIZAÇÃO RÁPIDA CONCLUÍDA! FLASK INICIANDO...")
-    print("📊 Healthcheck responderá imediatamente em /health")
-    print("🔄 Sistemas pesados rodando em background")
-    print("="*80)
-    print("\n📊 ENDPOINTS DISPONÍVEIS:")
-    print("   • /health - Status do serviço")
-    print("   • /api/stats - Estatísticas em tempo real")
-    print("   • /api/aprendizado - Evolução dos agentes RL")
-    print("   • /api/analise-erros - Análise detalhada dos erros")
-    print("   • /api/manipulacao - Estatísticas de manipulação")
-    print("   • /api/padroes - Padrões descobertos")
-    print("   • /api/padrao-7x2 - Padrão especial")
+    print("🚀 FLASK INICIANDO AGORA...")
+    print("✅ Healthcheck responderá IMEDIATAMENTE!")
+    print("🔄 Sistemas pesados iniciam após a primeira requisição")
     print("="*80)
     
-    # Força o Flask a não usar reloader que pode causar problemas com threads
+    # Força o Flask a não usar reloader
     app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
