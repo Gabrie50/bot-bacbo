@@ -1,22 +1,34 @@
+# Web Framework
 flask==2.3.3
 flask-cors==4.0.0
 
+# Banco de Dados
 pg8000==1.30.5
 
+# Requisições HTTP e WebSocket
 requests==2.31.0
 websocket-client==1.7.0
 
+# Computação Científica
 numpy==1.24.3
-pandas==2.0.3
 
+# Utilitários
 python-dotenv==1.0.0
 tqdm==4.65.0
-packaging
 
-torch==2.0.1
+# ====================================================
+# PyTorch APENAS (sem torchvision/torchaudio)
+# ====================================================
+torch==2.1.0 --index-url https://download.pytorch.org/whl/cpu
 
-evotorch==0.3.0
+# EvoTorch (sem dependências extras)
+evotorch==0.3.0 --no-deps
 cma==4.4.4
 gym==0.26.2
+packaging
+pandas
 
-ray>=2.0
+# ====================================================
+# Ray (versão mínima)
+# ====================================================
+ray==2.9.0
