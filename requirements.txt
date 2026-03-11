@@ -17,5 +17,19 @@ numpy==1.24.3
 python-dotenv==1.0.0
 tqdm==4.65.0
 
-# Machine Learning - Versões otimizadas
-tensorflow==2.15.0
+# ====================================================
+# 🚀 PyTorch + EvoTorch (substitui TensorFlow)
+# ====================================================
+
+# PyTorch (CPU version - mais leve para deploy)
+# Para versão com GPU, use: torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+torch==2.1.0
+torchvision==0.16.0
+torchaudio==2.1.0
+
+# EvoTorch para neuroevolução (opcional, mas recomendado)
+evotorch==0.3.0
+
+# Para visualização e debugging (opcional)
+matplotlib==3.7.1
+tensorboard==2.15.0
