@@ -6,16 +6,15 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copiar requirements
 COPY requirements.txt .
 
-# Instalar em camadas para melhor cache
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel
-
-# Camada 1: Dependências leves (sempre em cache)
-RUN pip install --no-cache-dir \
+# Instalar dependências Python (sem warnings de root)
+RUN pip install --no-cache-dir --root-user-action=ignore --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir --root-user-action=ignore \
     flask==2.3.3 \
     flask-cors==4.0.0 \
     pg8000==1.30.5 \
@@ -25,21 +24,28 @@ RUN pip install --no-cache-dir \
     python-dotenv==1.0.0 \
     tqdm==4.65.0
 
-# Camada 2: PyTorch (CPU only - mais leve)
-RUN pip install --no-cache-dir torch==2.1.0 --index-url https://download.pytorch.org/whl/cpu
+# PyTorch CPU only
+RUN pip install --no-cache-dir --root-user-action=ignore torch==2.1.0 --index-url https://download.pytorch.org/whl/cpu
 
-# Camada 3: EvoTorch e dependências
-RUN pip install --no-cache-dir cma==4.4.4 gym==0.26.2 packaging pandas && \
-    pip install --no-cache-dir evotorch==0.3.0 --no-deps
+# EvoTorch e dependências
+RUN pip install --no-cache-dir --root-user-action=ignore cma==4.4.4 gym==0.26.2 packaging pandas && \
+    pip install --no-cache-dir --root-user-action=ignore evotorch==0.3.0 --no-deps
 
-# Camada 4: Ray
-RUN pip install --no-cache-dir ray==2.9.0
+# Ray
+RUN pip install --no-cache-dir --root-user-action=ignore ray==2.9.0
 
 # Limpeza
-RUN pip cache purge && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+RUN pip cache purge && apt-get clean
 
+# Copiar código
 COPY . .
 
-CMD ["python", "main.py"]
+# EXPOR a porta (importante!)
+EXPOSE ${PORT:-5000}
+
+# Healthcheck explícito
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+  CMD curl -f http://localhost:${PORT:-5000}/health || exit 1
+
+# Comando para iniciar (com timeout maior para carregar modelos)
+CMD ["sh", "-c", "python main.py"]
