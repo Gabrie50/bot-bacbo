@@ -9,38 +9,37 @@
 # ✅ Priorização de experiências - foca nos erros para aprender mais rápido
 # =============================================================================
 
-import os
-import time
-import requests
-import json
-import urllib.parse
-import threading
-import websocket
-import random
-import numpy as np
-from datetime import datetime, timedelta, timezone
-from collections import deque
-from flask import Flask, render_template, jsonify
-from flask_cors import CORS
-import pg8000
-import ssl
-from pathlib import Path
-
 # =============================================================================
-# TENSORFLOW / KERAS (para RL puro)
+# PyTorch + EvoTorch (substitui TensorFlow/Keras)
 # =============================================================================
 try:
-    import tensorflow as tf
-    from tensorflow.keras.models import Sequential, Model
-    from tensorflow.keras.layers import Dense, Dropout, LSTM, Conv1D, Flatten, Input, Concatenate
-    from tensorflow.keras.optimizers import Adam
-    from tensorflow.keras.callbacks import EarlyStopping
-    from tensorflow.keras.losses import Huber
-    TF_AVAILABLE = True
-    print("✅ TensorFlow disponível - RL puro ativado")
+    import torch
+    import torch.nn as nn
+    import torch.optim as optim
+    import torch.nn.functional as F
+    from torch.utils.data import DataLoader, TensorDataset
+    
+    # Verifica se GPU está disponível
+    DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"✅ PyTorch disponível - Dispositivo: {DEVICE}")
+    
+    # Tenta importar EvoTorch (para neuroevolução)
+    try:
+        from evotorch import Problem
+        from evotorch.algorithms import SNES, PGPE
+        from evotorch.logging import StdOutLogger
+        from evotorch.neuroevolution import NEProblem
+        EVOTORCH_AVAILABLE = True
+        print("✅ EvoTorch disponível - Neuroevolução ativada")
+    except ImportError:
+        EVOTORCH_AVAILABLE = False
+        print("⚠️ EvoTorch não encontrado - Use: pip install evotorch")
+        
+    TORCH_AVAILABLE = True
 except ImportError:
-    print("⚠️ TensorFlow não encontrado - RL puro desativado")
-    TF_AVAILABLE = False
+    print("❌ PyTorch não encontrado - Instale: pip install torch torchvision")
+    TORCH_AVAILABLE = False
+    DEVICE = 'cpu'
 
 # =============================================================================
 # CONFIGURAÇÕES - PG8000 COM SSL
