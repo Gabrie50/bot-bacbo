@@ -1,13 +1,30 @@
 # =============================================================================
-# main.py - VERSÃO CAÇADORA 4.1 (RL PURO + AUTO-APRENDIZADO OTIMIZADO)
+# main.py - VERSÃO CAÇADORA 4.1 (PyTorch + EvoTorch)
 # =============================================================================
 # ✅ CORREÇÕES:
 # ✅ LATEST otimizado - sem travamentos, mantendo 0.3s
-# ✅ Salvamento no banco - analise_erros e aprendizado_erros funcionando
-# ✅ Redes neurais otimizadas - arquitetura adequada ao problema
+# ✅ Salvamento no banco - historico_previsoes, analise_erros e aprendizado_erros
+# ✅ Redes neurais PyTorch - arquitetura otimizada
 # ✅ Recompensas calibradas - aprendizado mais eficiente
 # ✅ Priorização de experiências - foca nos erros para aprender mais rápido
 # =============================================================================
+
+import os
+import time
+import requests
+import json
+import urllib.parse
+import threading
+import websocket
+import random
+import numpy as np
+from datetime import datetime, timedelta, timezone
+from collections import deque
+from flask import Flask, render_template, jsonify
+from flask_cors import CORS
+import pg8000
+import ssl
+from pathlib import Path
 
 # =============================================================================
 # PyTorch + EvoTorch (substitui TensorFlow/Keras)
@@ -179,7 +196,99 @@ def calcular_precisao():
     return round((cache['estatisticas']['acertos'] / total) * 100)
 
 # =============================================================================
-# 🧠 SISTEMA RL PURO - VERSÃO OTIMIZADA
+# 🧠 REDES NEURAIS PyTorch PARA RL
+# =============================================================================
+
+class RedeDQN(nn.Module):
+    """Rede neural DQN em PyTorch"""
+    def __init__(self, state_size, action_size):
+        super(RedeDQN, self).__init__()
+        
+        self.fc1 = nn.Linear(state_size, 128)
+        self.fc2 = nn.Linear(128, 64)
+        self.fc3 = nn.Linear(64, 32)
+        self.fc4 = nn.Linear(32, action_size)
+        
+        self.dropout = nn.Dropout(0.2)
+        self.l2_reg = 1e-5
+        
+    def forward(self, x):
+        x = torch.relu(self.fc1(x))
+        x = self.dropout(x)
+        x = torch.relu(self.fc2(x))
+        x = self.dropout(x)
+        x = torch.relu(self.fc3(x))
+        x = self.fc4(x)
+        return x
+
+
+class RedeMetaAgente(nn.Module):
+    """Rede neural para o meta-agente"""
+    def __init__(self, input_size=23, hidden_size=64):
+        super(RedeMetaAgente, self).__init__()
+        
+        self.fc1 = nn.Linear(input_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, 32)
+        self.fc3 = nn.Linear(32, 2)
+        self.dropout = nn.Dropout(0.2)
+        
+    def forward(self, x):
+        x = torch.relu(self.fc1(x))
+        x = self.dropout(x)
+        x = torch.relu(self.fc2(x))
+        x = self.fc3(x)
+        return F.softmax(x, dim=1)
+
+
+class PrioritizedReplayBuffer:
+    """Buffer de replay com priorização (versão PyTorch)"""
+    def __init__(self, capacity=10000, alpha=0.6, beta=0.4):
+        self.capacity = capacity
+        self.alpha = alpha
+        self.beta = beta
+        self.buffer = []
+        self.priorities = np.zeros(capacity, dtype=np.float32)
+        self.position = 0
+        
+    def push(self, state, action, reward, next_state, error):
+        """Adiciona experiência com prioridade baseada no erro"""
+        priority = (abs(error) + 1e-6) ** self.alpha
+        
+        if len(self.buffer) < self.capacity:
+            self.buffer.append((state, action, reward, next_state))
+        else:
+            self.buffer[self.position] = (state, action, reward, next_state)
+        
+        self.priorities[self.position] = priority
+        self.position = (self.position + 1) % self.capacity
+        
+    def sample(self, batch_size):
+        """Amostra batch baseado nas prioridades"""
+        if len(self.buffer) == self.capacity:
+            priorities = self.priorities
+        else:
+            priorities = self.priorities[:len(self.buffer)]
+        
+        probs = priorities ** self.alpha
+        probs /= probs.sum()
+        
+        indices = np.random.choice(len(self.buffer), batch_size, p=probs)
+        samples = [self.buffer[idx] for idx in indices]
+        
+        # Pesos de importância
+        total = len(self.buffer)
+        weights = (total * probs[indices]) ** (-self.beta)
+        weights /= weights.max()
+        
+        states, actions, rewards, next_states = zip(*samples)
+        
+        return (np.array(states), np.array(actions), 
+                np.array(rewards), np.array(next_states), 
+                weights, indices)
+
+
+# =============================================================================
+# 🧠 AGENTE RL PURO COM PyTorch (substitui versão TensorFlow)
 # =============================================================================
 
 class AgenteRLPuro:
@@ -198,17 +307,21 @@ class AgenteRLPuro:
         self.state_size = 30 * 5  # 5 features por rodada (resultado one-hot + scores)
         self.action_size = 2
         
-        self.memoria = deque(maxlen=10000)  # Memória maior
-        self.learning_rate = 0.001  # Learning rate mais estável
-        self.gamma = 0.95  # Fator de desconto
+        self.memoria = PrioritizedReplayBuffer(capacity=10000)
+        self.learning_rate = 0.001
+        self.gamma = 0.95
         self.epsilon = 1.0
         self.epsilon_min = 0.01
         self.epsilon_decay = 0.995
+        self.tau = 0.001  # Para atualização suave do target
         
-        # Rede neural otimizada
+        # Redes neurais PyTorch
+        self.device = DEVICE
         self.model = None
         self.target_model = None
-        self._criar_rede_otimizada()
+        self.optimizer = None
+        self.loss_fn = nn.SmoothL1Loss()  # Huber loss equivalente
+        self._criar_rede_pytorch()
         
         self.padroes_aprendidos = []
         self.ultimo_estado = None
@@ -217,50 +330,50 @@ class AgenteRLPuro:
         self.erros_que_aprendeu = []
         self.fitness = 0
         
-        # ✅ Estatísticas de aprendizado
+        # Estatísticas de aprendizado
         self.historico_perda = []
         self.ultima_precisao = 0
         self.deteccoes_manipulacao = 0
         
-    def _criar_rede_otimizada(self):
-        """Rede neural OTIMIZADA para Bac Bo"""
-        if not TF_AVAILABLE:
-            print(f"⚠️ TensorFlow não disponível - {self.nome} usará pesos simples")
-            return
-            
+        # Para EvoTorch
+        self.neuro_evolucao = None
+        if EVOTORCH_AVAILABLE:
+            self._setup_evotorch()
+        
+    def _criar_rede_pytorch(self):
+        """Cria redes neurais em PyTorch"""
         try:
-            inputs = Input(shape=(self.state_size,))
+            self.model = RedeDQN(self.state_size, self.action_size).to(self.device)
+            self.target_model = RedeDQN(self.state_size, self.action_size).to(self.device)
+            self.target_model.load_state_dict(self.model.state_dict())
             
-            # Arquitetura eficiente para o problema
-            x = Dense(128, activation='relu', kernel_regularizer='l2')(inputs)
-            x = Dropout(0.2)(x)
-            x = Dense(64, activation='relu', kernel_regularizer='l2')(x)
-            x = Dropout(0.2)(x)
-            x = Dense(32, activation='relu')(x)
+            self.optimizer = optim.Adam(self.model.parameters(), 
+                                        lr=self.learning_rate, 
+                                        weight_decay=1e-5)
             
-            outputs = Dense(self.action_size, activation='linear')(x)
-            
-            self.model = Model(inputs=inputs, outputs=outputs)
-            self.model.compile(
-                optimizer=Adam(learning_rate=self.learning_rate, clipnorm=1.0), 
-                loss=Huber()  # Huber loss é mais robusta
-            )
-            
-            self.target_model = Model(inputs=inputs, outputs=outputs)
-            self.target_model.set_weights(self.model.get_weights())
-            
-            print(f"✅ Rede neural otimizada criada para {self.nome}")
+            print(f"✅ Rede PyTorch criada para {self.nome} no dispositivo {self.device}")
         except Exception as e:
             print(f"❌ Erro ao criar rede para {self.nome}: {e}")
             self.model = None
     
-    def get_state(self, historico):
-        """Estado com mais informações"""
+    def _setup_evotorch(self):
+        """Configura EvoTorch para neuroevolução"""
+        try:
+            # Configuração básica para evolução futura
+            self.neuro_evolucao = {
+                'geracao': 0,
+                'melhor_fitness': 0,
+                'historico': []
+            }
+        except Exception as e:
+            print(f"⚠️ Erro ao configurar EvoTorch: {e}")
+    
+    def get_state_tensor(self, historico):
+        """Converte histórico para tensor PyTorch"""
         state = []
         
-        # Pega as últimas 30 rodadas
         for i, rodada in enumerate(historico[:30]):
-            # Codificação one-hot do resultado (3 valores)
+            # One-hot encoding (3 valores)
             if rodada['resultado'] == 'BANKER':
                 state.extend([1, 0, 0])
             elif rodada['resultado'] == 'PLAYER':
@@ -272,11 +385,15 @@ class AgenteRLPuro:
             state.append(rodada['player_score'] / 12)
             state.append(rodada['banker_score'] / 12)
         
-        # Padding se necessário
+        # Padding
         while len(state) < self.state_size:
             state.extend([0, 0, 0, 0, 0])
             
-        return np.array(state).reshape(1, self.state_size)
+        return torch.FloatTensor(state).unsqueeze(0).to(self.device)
+    
+    def get_state(self, historico):
+        """Mantém compatibilidade com código existente"""
+        return self.get_state_tensor(historico).cpu().numpy()
     
     def agir(self, historico):
         self.total_uso += 1
@@ -284,8 +401,8 @@ class AgenteRLPuro:
         if len(historico) < 30:
             return random.choice([0, 1]), 0.5
             
-        state = self.get_state(historico)
-        self.ultimo_estado = state
+        state_tensor = self.get_state_tensor(historico)
+        self.ultimo_estado = state_tensor
         
         # Epsilon decay adaptativo
         if self.total_uso > 1000:
@@ -297,17 +414,19 @@ class AgenteRLPuro:
         else:
             if self.model is not None:
                 try:
-                    q_values = self.model.predict(state, verbose=0)[0]
-                    acao = np.argmax(q_values)
-                    
-                    # Confiança baseada na diferença dos Q-values
-                    q_max = np.max(q_values)
-                    q_min = np.min(q_values)
-                    q_diff = q_max - q_min
-                    
-                    confianca = min(0.5 + q_diff / (abs(q_max) + 1e-8), 0.95)
-                    
+                    with torch.no_grad():
+                        q_values = self.model(state_tensor).cpu().numpy()[0]
+                        acao = np.argmax(q_values)
+                        
+                        # Confiança baseada nos Q-values
+                        q_max = np.max(q_values)
+                        q_min = np.min(q_values)
+                        q_diff = q_max - q_min
+                        
+                        confianca = min(0.5 + q_diff / (abs(q_max) + 1e-8), 0.95)
+                        
                 except Exception as e:
+                    print(f"⚠️ Erro no predict PyTorch: {e}")
                     acao = random.choice([0, 1])
                     confianca = 0.5
             else:
@@ -331,38 +450,48 @@ class AgenteRLPuro:
         resultado_int = 0 if resultado == 'BANKER' else 1
         acertou = (acao == resultado_int)
         
-        # ✅ Recompensa calibrada
+        # Recompensa calibrada
         if acertou:
             self.acertos += 1
-            recompensa = 2.0  # Recompensa maior por acertar
+            recompensa = 2.0
         else:
             self.erros += 1
-            recompensa = -1.5  # Punição por errar
+            recompensa = -1.5
         
         # Bônus por consistência
         if acertou and self.ultima_precisao > 0.6:
             recompensa += 0.5
         
         # Prepara estados para replay
-        if len(historico) > 1:
-            state = self.get_state(historico[:-1])
-            next_state = self.get_state(historico)
-            self.memoria.append((state, acao, recompensa, next_state, acertou))
+        if len(historico) > 1 and self.model is not None:
+            state = self.get_state_tensor(historico[:-1])
+            next_state = self.get_state_tensor(historico)
+            
+            # Calcula erro TD para priorização
+            with torch.no_grad():
+                current_q = self.model(state)[0, acao]
+                next_q = self.target_model(next_state).max(1)[0]
+                target_q = recompensa + self.gamma * next_q * (1 - int(resultado == 'TIE'))
+                td_error = (target_q - current_q).abs().item()
+            
+            # Adiciona à memória priorizada
+            self.memoria.push(
+                historico[:-1], acao, recompensa, historico, td_error
+            )
         
-        # Replay com batch size adaptativo
-        if len(self.memoria) > 128 and self.model is not None:
+        # Replay
+        if len(self.memoria.buffer) > 128 and self.model is not None:
             self._replay_priorizado()
         
         # Atualiza epsilon
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
         
-        # Atualiza peso baseado em performance recente
+        # Atualiza peso baseado em performance
         if self.total_uso > 100:
-            # Calcula precisão das últimas 100
-            if len(self.memoria) >= 100:
-                ultimos_100 = list(self.memoria)[-100:]
-                taxa_recente = sum(1 for m in ultimos_100 if m[4]) / 100
+            if len(self.memoria.buffer) >= 100:
+                # Aproximação da precisão recente
+                taxa_recente = self.acertos / max(self.total_uso, 1)
                 self.ultima_precisao = taxa_recente
                 
                 # Peso = 0.8 + (precisão - 0.5) * 2.5
@@ -372,62 +501,65 @@ class AgenteRLPuro:
         return acertou
     
     def _replay_priorizado(self):
-        """Replay com priorização de experiências importantes"""
-        if len(self.memoria) < 128 or self.model is None:
+        """Replay com priorização em PyTorch"""
+        if len(self.memoria.buffer) < 128 or self.model is None:
             return
             
         try:
-            # Prioriza experiências onde errou (aprendizado mais rápido)
-            experiencias = list(self.memoria)
+            batch_size = min(128, len(self.memoria.buffer))
             
-            # Separa acertos e erros
-            acertos = [e for e in experiencias if e[4]]
-            erros = [e for e in experiencias if not e[4]]
+            # Amostra batch priorizado
+            states_hist, actions, rewards, next_states_hist, weights, indices = \
+                self.memoria.sample(batch_size)
             
-            # Pega 70% de erros e 30% de acertos
-            batch_erros = random.sample(erros, min(64, len(erros))) if erros else []
-            batch_acertos = random.sample(acertos, min(64, len(acertos))) if acertos else []
+            # Converte para tensores
+            states = torch.stack([self.get_state_tensor(h) for h in states_hist]).squeeze(1)
+            next_states = torch.stack([self.get_state_tensor(h) for h in next_states_hist]).squeeze(1)
+            actions = torch.LongTensor(actions).to(self.device)
+            rewards = torch.FloatTensor(rewards).to(self.device)
+            weights = torch.FloatTensor(weights).to(self.device)
             
-            batch = batch_erros + batch_acertos
-            random.shuffle(batch)
+            # Calcula Q-values atuais
+            current_q = self.model(states).gather(1, actions.unsqueeze(1))
             
-            # Limita tamanho do batch
-            batch = batch[:128]
+            # Calcula Q-values alvo
+            with torch.no_grad():
+                next_q = self.target_model(next_states).max(1)[0]
+                target_q = rewards + self.gamma * next_q
             
-            # Treina
-            for state, acao, recompensa, next_state, acertou in batch:
-                target = recompensa
-                
-                if not acertou:
-                    try:
-                        next_q = self.target_model.predict(next_state, verbose=0)[0]
-                        target = recompensa + self.gamma * np.max(next_q)
-                    except:
-                        pass
-                
-                target_f = self.model.predict(state, verbose=0)
-                target_f[0][acao] = target
-                
-                history = self.model.fit(state, target_f, epochs=1, verbose=0)
-                
-                # Guarda perda para monitoramento
-                if history and history.history.get('loss'):
-                    self.historico_perda.append(history.history['loss'][0])
-                    if len(self.historico_perda) > 100:
-                        self.historico_perda.pop(0)
+            # Calcula loss com pesos
+            loss = (weights * self.loss_fn(current_q.squeeze(), target_q)).mean()
             
-            # Atualiza target model periodicamente
-            if random.random() < 0.01:  # 1% das vezes
-                self.target_model.set_weights(self.model.get_weights())
+            # Otimização
+            self.optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+            self.optimizer.step()
+            
+            # Atualiza prioridades
+            with torch.no_grad():
+                td_errors = (target_q - current_q.squeeze()).abs().cpu().numpy()
+                for idx, error in zip(indices, td_errors):
+                    self.memoria.priorities[idx] = (abs(error) + 1e-6) ** self.memoria.alpha
+            
+            # Atualiza target network (suave)
+            for target_param, param in zip(self.target_model.parameters(), 
+                                          self.model.parameters()):
+                target_param.data.copy_(self.tau * param.data + 
+                                       (1 - self.tau) * target_param.data)
+            
+            # Guarda perda
+            self.historico_perda.append(loss.item())
+            if len(self.historico_perda) > 100:
+                self.historico_perda.pop(0)
                 
         except Exception as e:
-            print(f"⚠️ Erro no replay de {self.nome}: {e}")
+            print(f"⚠️ Erro no replay PyTorch: {e}")
     
     def get_stats(self):
-        """Retorna estatísticas detalhadas"""
+        """Estatísticas do agente"""
         precisao = (self.acertos / self.total_uso) * 100 if self.total_uso > 0 else 0
         
-        # Calcula perda média recente
         perda_media = 0
         if self.historico_perda:
             perda_media = sum(self.historico_perda[-50:]) / len(self.historico_perda[-50:])
@@ -442,7 +574,7 @@ class AgenteRLPuro:
             'confianca': round(self.confianca * 100, 1),
             'epsilon': round(self.epsilon, 3),
             'saude': self.saude,
-            'memoria': len(self.memoria),
+            'memoria': len(self.memoria.buffer),
             'especialidade': self.especialidade or 'Nenhuma',
             'fitness': round(self.fitness, 1),
             'perda_media': round(perda_media, 4),
@@ -484,6 +616,8 @@ class SistemaRLCompleto:
     def __init__(self):
         self.agentes = {}
         self.meta_agente = None
+        self.meta_optimizer = None
+        self.meta_loss_fn = None
         self.historico_global = deque(maxlen=2000)
         self.padroes_descobertos = []
         self.geracao = 0
@@ -500,24 +634,16 @@ class SistemaRLCompleto:
             
         print(f"✅ 10 agentes RL puros inicializados")
         
-        if TF_AVAILABLE:
+        if TORCH_AVAILABLE:
             self._criar_meta_agente()
     
     def _criar_meta_agente(self):
+        """Versão PyTorch do meta-agente"""
         try:
-            inputs = Input(shape=(23,))  # 20 features dos agentes + 3 do contexto
-            x = Dense(64, activation='relu')(inputs)
-            x = Dropout(0.2)(x)
-            x = Dense(32, activation='relu')(x)
-            outputs = Dense(2, activation='softmax')(x)
-            
-            self.meta_agente = Model(inputs=inputs, outputs=outputs)
-            self.meta_agente.compile(
-                optimizer=Adam(0.0001), 
-                loss='categorical_crossentropy', 
-                metrics=['accuracy']
-            )
-            print("✅ Meta-agente criado")
+            self.meta_agente = RedeMetaAgente(input_size=23).to(DEVICE)
+            self.meta_optimizer = optim.Adam(self.meta_agente.parameters(), lr=0.0001)
+            self.meta_loss_fn = nn.CrossEntropyLoss()
+            print("✅ Meta-agente PyTorch criado")
         except Exception as e:
             print(f"⚠️ Erro ao criar meta-agente: {e}")
             self.meta_agente = None
@@ -594,15 +720,13 @@ class SistemaRLCompleto:
         }
     
     def _consultar_meta_agente(self, historico, votos):
-        """Consulta o meta-agente em caso de dúvida"""
+        """Consulta meta-agente PyTorch"""
         try:
-            # Features: pesos e confianças dos agentes
             features = []
             for voto in sorted(votos, key=lambda x: x['agente']):
                 features.append(voto['peso'])
                 features.append(voto['confianca']/100)
             
-            # Adiciona features do histórico recente
             ultimos_10 = historico[:10]
             banker_count = sum(1 for r in ultimos_10 if r['resultado'] == 'BANKER')
             player_count = sum(1 for r in ultimos_10 if r['resultado'] == 'PLAYER')
@@ -610,17 +734,18 @@ class SistemaRLCompleto:
             
             features.extend([banker_count/10, player_count/10, tie_count/10])
             
-            # Pad para tamanho fixo (23 features)
             while len(features) < 23:
                 features.append(0)
             
-            features = np.array(features).reshape(1, 23)
+            features_tensor = torch.FloatTensor(features).unsqueeze(0).to(DEVICE)
             
-            pred = self.meta_agente.predict(features, verbose=0)[0]
+            with torch.no_grad():
+                pred = self.meta_agente(features_tensor).cpu().numpy()[0]
+            
             return 'BANKER' if pred[0] > pred[1] else 'PLAYER'
             
         except Exception as e:
-            print(f"⚠️ Erro no meta-agente: {e}")
+            print(f"⚠️ Erro no meta-agente PyTorch: {e}")
             return None
     
     def aprender_com_resultado(self, historico, resultado_real):
@@ -704,6 +829,7 @@ class SistemaRLCompleto:
         return stats
     
     def salvar_estado(self, arquivo='rl_estado.json'):
+        """Salva estado incluindo pesos PyTorch"""
         try:
             estado = {
                 'geracao': self.geracao,
@@ -711,8 +837,17 @@ class SistemaRLCompleto:
                 'manipulacoes_detectadas': self.manipulacoes_detectadas,
                 'agentes': {nome: agente.para_dict() for nome, agente in self.agentes.items()}
             }
+            
+            # Salva pesos PyTorch se disponíveis
+            for nome, agente in self.agentes.items():
+                if agente.model is not None:
+                    pesos_path = f'pesos_{nome}.pt'
+                    torch.save(agente.model.state_dict(), pesos_path)
+                    estado['agentes'][nome]['pesos_file'] = pesos_path
+            
             with open(arquivo, 'w') as f:
                 json.dump(estado, f, indent=2)
+            
             print(f"💾 Estado RL salvo em {arquivo}")
             return True
         except Exception as e:
@@ -720,6 +855,7 @@ class SistemaRLCompleto:
             return False
     
     def carregar_estado(self, arquivo='rl_estado.json'):
+        """Carrega estado incluindo pesos PyTorch"""
         caminho = Path(arquivo)
         if not caminho.exists():
             print("📂 Nenhum estado RL anterior encontrado")
@@ -736,6 +872,20 @@ class SistemaRLCompleto:
             for nome, dados in estado.get('agentes', {}).items():
                 if nome in self.agentes:
                     self.agentes[nome] = AgenteRLPuro.de_dict(dados)
+                    
+                    # Carrega pesos PyTorch se existirem
+                    pesos_file = dados.get('pesos_file')
+                    if pesos_file and Path(pesos_file).exists():
+                        try:
+                            self.agentes[nome].model.load_state_dict(
+                                torch.load(pesos_file, map_location=DEVICE)
+                            )
+                            self.agentes[nome].target_model.load_state_dict(
+                                self.agentes[nome].model.state_dict()
+                            )
+                            print(f"   ✅ Pesos carregados para {nome}")
+                        except Exception as e:
+                            print(f"   ⚠️ Erro ao carregar pesos de {nome}: {e}")
                     
             print(f"✅ Estado RL carregado: geração {self.geracao}")
             return True
@@ -851,10 +1001,20 @@ class AnalisadorDeErros:
                 
                 if hasattr(agente, 'memoria') and contexto and len(contexto) > 1:
                     try:
-                        state = agente.get_state(contexto[:-1])
-                        next_state = agente.get_state(contexto)
                         # Experiência negativa com peso maior
-                        agente.memoria.append((state, acao_agente, -2.5, next_state, False))
+                        state = agente.get_state_tensor(contexto[:-1])
+                        next_state = agente.get_state_tensor(contexto)
+                        
+                        # Calcula erro TD para priorização
+                        with torch.no_grad():
+                            current_q = agente.model(state)[0, acao_agente]
+                            next_q = agente.target_model(next_state).max(1)[0]
+                            target_q = -2.5 + agente.gamma * next_q
+                            td_error = (target_q - current_q).abs().item()
+                        
+                        agente.memoria.push(
+                            contexto[:-1], acao_agente, -2.5, contexto, td_error
+                        )
                     except:
                         pass
                 
@@ -899,7 +1059,7 @@ class AnalisadorDeErros:
             print(f"⚠️ Erro ao registrar aprendizado: {e}")
     
     def _criar_agente_especialista_em_erro(self, causa):
-        if not TF_AVAILABLE:
+        if not TORCH_AVAILABLE:
             return
         
         print(f"\n🧬 CRIANDO AGENTE ESPECIALISTA EM: {causa}")
@@ -917,6 +1077,11 @@ class AnalisadorDeErros:
         novo_agente.peso = 2.5
         novo_agente.epsilon = 0.05
         novo_agente.fitness = 80.0
+        
+        # Se EvoTorch disponível, configura para evolução
+        if EVOTORCH_AVAILABLE and hasattr(novo_agente, 'neuro_evolucao'):
+            novo_agente.neuro_evolucao['geracao'] = 1
+            novo_agente.neuro_evolucao['melhor_fitness'] = 80.0
         
         self.sistema_rl.agentes[nome] = novo_agente
         print(f"✅ NOVO AGENTE ESPECIALISTA CRIADO: {nome} - Especialidade: {causa}")
@@ -1111,7 +1276,7 @@ def init_db():
         cur.execute('''
             CREATE TABLE IF NOT EXISTS historico_previsoes (
                 id SERIAL PRIMARY KEY,
-                data_hora TIMESTAMPTZ,
+                data_hora TIMESTAMPTZ DEFAULT NOW(),
                 previsao TEXT,
                 simbolo TEXT,
                 confianca INTEGER,
@@ -1126,13 +1291,11 @@ def init_db():
             )
         ''')
 
-        # Tabela analise_erros (recriada com estrutura correta)
-        cur.execute('DROP TABLE IF EXISTS analise_erros CASCADE')
-        
+        # Tabela analise_erros
         cur.execute('''
-            CREATE TABLE analise_erros (
+            CREATE TABLE IF NOT EXISTS analise_erros (
                 id SERIAL PRIMARY KEY,
-                data_hora TIMESTAMPTZ,
+                data_hora TIMESTAMPTZ DEFAULT NOW(),
                 previsao_feita TEXT,
                 resultado_real TEXT,
                 confianca INTEGER,
@@ -1237,10 +1400,10 @@ def salvar_rodada(rodada, fonte):
         return False
 
 # =============================================================================
-# 🛡️ FUNÇÃO PARA SALVAR PREVISÃO NO BANCO (CORRIGIDA)
+# 🛡️ FUNÇÃO PARA SALVAR PREVISÃO NO BANCO (CORRIGIDA - AGORA SALVA EM HISTORICO_PREVISOES)
 # =============================================================================
 def salvar_previsao_completa_segura(previsao, resultado_real, acertou, contexto, pesos_agentes=None, indice_manipulacao=0, foi_manipulado=False, causa_erro=None):
-    """Versão robusta que sempre salva no banco"""
+    """Versão robusta que sempre salva no banco - AGORA SALVA EM HISTORICO_PREVISOES"""
     conn = get_db_connection()
     if not conn:
         print("⚠️ Sem conexão com banco - não foi possível salvar previsão")
@@ -1249,46 +1412,71 @@ def salvar_previsao_completa_segura(previsao, resultado_real, acertou, contexto,
     try:
         cur = conn.cursor()
         
-        # Prepara os dados
-        ultimos_10 = []
+        # Prepara os dados para historico_previsoes
+        estrategias_str = ','.join(previsao.get('estrategias', [])) if previsao.get('estrategias') else ''
+        
+        # Converte contexto para JSON
+        contexto_json = None
         if contexto and len(contexto) > 0:
-            ultimos_10 = [r['resultado'] for r in contexto[:10] if r and 'resultado' in r]
+            # Pega apenas os últimos 10 resultados para não sobrecarregar
+            contexto_resumido = [{'resultado': r['resultado'], 
+                                  'player': r['player_score'], 
+                                  'banker': r['banker_score']} 
+                                 for r in contexto[:10] if r]
+            contexto_json = json.dumps(contexto_resumido)
         
-        # Extrai agentes ativos
-        agentes_ativos = ','.join(previsao.get('estrategias', [])) if previsao.get('estrategias') else ''
-        
-        # Converte pesos_agentes para JSON se fornecido
-        pesos_json = json.dumps(pesos_agentes) if pesos_agentes else None
-        
-        # Tenta inserir
+        # Salva em historico_previsoes
         cur.execute('''
-            INSERT INTO analise_erros 
-            (data_hora, previsao_feita, resultado_real, confianca, modo, 
-             streak_atual, banker_50, player_50, 
-             ultimos_5_resultados, ultimos_10_resultados,
-             agentes_ativos, pesos_agentes, 
-             indice_manipulacao, foi_manipulado, padrao_detectado, causa_erro, acertou)
-            VALUES (NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO historico_previsoes 
+            (data_hora, previsao, simbolo, confianca, resultado_real, acertou, 
+             estrategias, modo, pesos_agentes, contexto_json, indice_manipulacao, foi_manipulado)
+            VALUES (NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ''', (
             previsao['previsao'],
-            resultado_real,
+            previsao.get('simbolo', '🔴' if previsao['previsao'] == 'BANKER' else '🔵'),
             previsao['confianca'],
+            resultado_real,
+            acertou,
+            estrategias_str,
             previsao.get('modo', 'RL_PURO'),
-            0,  # streak_atual (calculado depois)
-            0,  # banker_50
-            0,  # player_50
-            ','.join(ultimos_10[:5]) if ultimos_10 else '',
-            ','.join(ultimos_10) if ultimos_10 else '',
-            agentes_ativos,
-            pesos_json,
+            json.dumps(pesos_agentes) if pesos_agentes else None,
+            contexto_json,
             indice_manipulacao,
-            foi_manipulado,
-            None,  # padrao_detectado
-            causa_erro,
-            acertou
+            foi_manipulado
         ))
         
         conn.commit()
+        
+        # Também salva em analise_erros para análise detalhada
+        try:
+            ultimos_10 = []
+            if contexto and len(contexto) > 0:
+                ultimos_10 = [r['resultado'] for r in contexto[:10] if r and 'resultado' in r]
+            
+            cur.execute('''
+                INSERT INTO analise_erros 
+                (data_hora, previsao_feita, resultado_real, confianca, modo, 
+                 streak_atual, ultimos_5_resultados, ultimos_10_resultados,
+                 agentes_ativos, indice_manipulacao, foi_manipulado, causa_erro, acertou)
+                VALUES (NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ''', (
+                previsao['previsao'],
+                resultado_real,
+                previsao['confianca'],
+                previsao.get('modo', 'RL_PURO'),
+                0,  # streak_atual
+                ','.join(ultimos_10[:5]) if ultimos_10 else '',
+                ','.join(ultimos_10) if ultimos_10 else '',
+                estrategias_str,
+                indice_manipulacao,
+                foi_manipulado,
+                causa_erro,
+                acertou
+            ))
+            conn.commit()
+        except Exception as e:
+            print(f"⚠️ Erro ao salvar em analise_erros: {e}")
+            conn.rollback()
         
         # Se foi um erro, também registra na tabela aprendizado_erros
         if not acertou and causa_erro:
@@ -1308,7 +1496,7 @@ def salvar_previsao_completa_segura(previsao, resultado_real, acertou, contexto,
         
         cur.close()
         conn.close()
-        print(f"✅ Previsão salva no banco: {previsao['previsao']} vs {resultado_real} - {'✅' if acertou else '❌'}")
+        print(f"✅ Previsão salva no banco (historico_previsoes): {previsao['previsao']} vs {resultado_real} - {'✅' if acertou else '❌'}")
         return True
         
     except Exception as e:
@@ -1320,6 +1508,7 @@ def salvar_previsao_completa_segura(previsao, resultado_real, acertou, contexto,
         except:
             pass
         return False
+
 
 # =============================================================================
 # FUNÇÕES DO BANCO (LEVES) - VERSÃO ROBUSTA
@@ -2087,7 +2276,7 @@ def processar_fila():
                                         ultima_previsao_feita, resultado_real, contexto, indice_manipulacao
                                     )
                                 
-                                # SALVA NO BANCO!
+                                # SALVA NO BANCO! (agora em historico_previsoes)
                                 salvar_previsao_completa_segura(
                                     ultima_previsao_feita, 
                                     resultado_real, 
@@ -2534,13 +2723,13 @@ def salvar_padroes():
 # =============================================================================
 if __name__ == "__main__":
     print("="*70)
-    print("🚀 BOT BACBO - VERSÃO CAÇADORA 4.1 (RL PURO OTIMIZADO)")
+    print("🚀 BOT BACBO - VERSÃO CAÇADORA 4.1 (PyTorch + EvoTorch)")
     print("   SISTEMA DE AUTO-APRENDIZADO - DESCOBRE PADRÕES SOZINHO")
     print("="*70)
     print("✅ CORREÇÕES APLICADAS:")
     print("   ✅ LATEST otimizado - sem travamentos")
-    print("   ✅ Salvamento no banco - analise_erros funcionando")
-    print("   ✅ Redes neurais otimizadas - aprendizado mais eficiente")
+    print("   ✅ Salvamento no banco - historico_previsoes funcionando")
+    print("   ✅ Redes neurais PyTorch - aprendizado mais eficiente")
     print("   ✅ Recompensas calibradas - 2.0 para acertos, -1.5 para erros")
     print("   ✅ Priorização de experiências - foco em erros")
     print("="*70)
