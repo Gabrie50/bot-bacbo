@@ -18,18 +18,20 @@ python-dotenv==1.0.0
 tqdm==4.65.0
 
 # ====================================================
-# 🚀 PyTorch + EvoTorch (substitui TensorFlow)
+# 🚀 PyTorch (versão estável sem conflitos)
 # ====================================================
+torch==2.0.1
+torchvision==0.15.2
+torchaudio==2.0.2
 
-# PyTorch (CPU version - mais leve para deploy)
-# Para versão com GPU, use: torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-torch==2.1.0
-torchvision==0.16.0
-torchaudio==2.1.0
+# EvoTorch (removendo functorch como dependência)
+evotorch==0.3.0 --no-deps
+cma==4.4.4
+gym==0.26.2
+packaging
+pandas
+ray>=1.0
 
-# EvoTorch para neuroevolução (opcional, mas recomendado)
-evotorch==0.3.0
-
-# Para visualização e debugging (opcional)
-matplotlib==3.7.1
-tensorboard==2.15.0
+# Opcionais (se quiser)
+# matplotlib==3.7.1
+# tensorboard==2.15.0
