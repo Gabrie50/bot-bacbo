@@ -1,13 +1,5 @@
 # =============================================================================
-# main.py - VERSÃO CAÇADORA 5.0 (RAY PARALLEL RL - ESTILO ALPHAGO)
-# =============================================================================
-# ✅ CORREÇÕES + NOVIDADES:
-# ✅ LATEST otimizado - sem travamentos, mantendo 0.3s
-# ✅ Salvamento no banco - historico_previsoes, analise_erros e aprendizado_erros
-# ✅ Redes neurais PyTorch - arquitetura otimizada
-# ✅ Recompensas calibradas - aprendizado mais eficiente
-# ✅ Priorização de experiências - foco nos erros para aprender mais rápido
-# ✅ RAY PARALELISMO - 50+ agentes jogando simultaneamente (10x a 100x mais rápido)
+# main.py - VERSÃO CAÇADORA 5.0 (RAY PARALLEL RL - ESTILO ALPHAGO) - CORRIGIDO
 # =============================================================================
 
 import os
@@ -404,8 +396,8 @@ class AgenteRLPuro:
                 state.extend([0, 0, 1])
             
             # Scores normalizados (2 valores)
-            state.append(rodada['player_score'] / 12)
-            state.append(rodada['banker_score'] / 12)
+            state.append(rodada.get('player_score', 0) / 12)
+            state.append(rodada.get('banker_score', 0) / 12)
         
         # Padding
         while len(state) < self.state_size:
@@ -1301,7 +1293,7 @@ class SistemaRayParalelo:
     
     def __init__(self, num_agentes=50):
         self.num_agentes = num_agentes
-        self.agentes = []
+        self.agentes = []  # Lista de referências para os atores Ray
         self.state_size = 150
         self.action_size = 2
         
@@ -1329,8 +1321,8 @@ class SistemaRayParalelo:
         """Cria todos os agentes usando Ray"""
         print(f"\n🤖 Criando {self.num_agentes} agentes paralelos...")
         
-        futures = [RayAgenteParalelo.remote(i) for i in range(self.num_agentes)]
-        self.agentes = ray.get(futures)
+        # CORREÇÃO: Cria os atores e armazena as referências
+        self.agentes = [RayAgenteParalelo.remote(i) for i in range(self.num_agentes)]
         
         print(f"✅ {len(self.agentes)} agentes prontos!")
     
@@ -1454,6 +1446,12 @@ class SistemaRayParalelo:
         # Top 10 agentes
         top_agentes = sorted(stats_agentes, key=lambda x: x['precisao'], reverse=True)[:10]
         
+        media_precisao = 0
+        if stats_agentes:
+            prec_validas = [a['precisao'] for a in stats_agentes if a['total'] > 0]
+            if prec_validas:
+                media_precisao = np.mean(prec_validas)
+        
         return {
             'geracao': self.geracao,
             'episodios_totais': self.episodios_totais,
@@ -1461,8 +1459,8 @@ class SistemaRayParalelo:
             'melhor_precisao': round(self.melhor_precisao, 1),
             'num_agentes': self.num_agentes,
             'top_agentes': top_agentes,
-            'media_precisao': np.mean([a['precisao'] for a in stats_agentes if a['total'] > 0]) if stats_agentes else 0
-    }
+            'media_precisao': round(media_precisao, 1)
+        }
 
 
 # =============================================================================
@@ -1491,33 +1489,36 @@ def loop_treinamento_ray():
         print(f"🔄 CICLO DE TREINAMENTO #{ciclo}")
         print(f"{'='*60}")
         
-        # 1. Sincroniza agentes com modelo central
-        sistema.sincronizar_agentes()
-        
-        # 2. Coleta experiências de TODOS os agentes em paralelo
-        num_exp = sistema.coletar_experiencias_massivo(num_episodios_por_agente=10)
-        
-        # 3. Treina modelo central com as experiências
-        if num_exp > 0:
-            for _ in range(5):  # Múltiplos passos de treinamento
-                loss = sistema.treinar_modelo(batch_size=256)
-                if loss:
-                    print(f"📉 Loss: {loss:.4f}")
-        
-        # 4. Avalia performance a cada 5 ciclos
-        if ciclo % 5 == 0:
-            stats = sistema.get_stats()
-            print(f"\n📊 ESTATÍSTICAS RAY:")
-            print(f"   Geração: {stats['geracao']}")
-            print(f"   Episódios totais: {stats['episodios_totais']}")
-            print(f"   Memória: {stats['memoria']} experiências")
-            print(f"   Média de precisão: {stats['media_precisao']:.1f}%")
-            print(f"   Melhor precisão: {stats['melhor_precisao']}%")
+        try:
+            # 1. Sincroniza agentes com modelo central
+            sistema.sincronizar_agentes()
             
-            print(f"\n🏆 TOP 10 AGENTES PARALELOS:")
-            for i, agente in enumerate(stats['top_agentes'][:5], 1):
-                print(f"   {i}. Agente {agente['id']}: {agente['precisao']}% "
-                      f"(acertos: {agente['acertos']})")
+            # 2. Coleta experiências de TODOS os agentes em paralelo
+            num_exp = sistema.coletar_experiencias_massivo(num_episodios_por_agente=10)
+            
+            # 3. Treina modelo central com as experiências
+            if num_exp > 0:
+                for _ in range(5):  # Múltiplos passos de treinamento
+                    loss = sistema.treinar_modelo(batch_size=256)
+                    if loss:
+                        print(f"📉 Loss: {loss:.4f}")
+            
+            # 4. Avalia performance a cada 5 ciclos
+            if ciclo % 5 == 0:
+                stats = sistema.get_stats()
+                print(f"\n📊 ESTATÍSTICAS RAY:")
+                print(f"   Geração: {stats['geracao']}")
+                print(f"   Episódios totais: {stats['episodios_totais']}")
+                print(f"   Memória: {stats['memoria']} experiências")
+                print(f"   Média de precisão: {stats['media_precisao']:.1f}%")
+                print(f"   Melhor precisão: {stats['melhor_precisao']}%")
+                
+                print(f"\n🏆 TOP 10 AGENTES PARALELOS:")
+                for i, agente in enumerate(stats['top_agentes'][:5], 1):
+                    print(f"   {i}. Agente {agente['id']}: {agente['precisao']}% "
+                          f"(acertos: {agente['acertos']})")
+        except Exception as e:
+            print(f"❌ Erro no ciclo de treinamento: {e}")
         
         time.sleep(2)
 
@@ -1818,8 +1819,8 @@ def salvar_previsao_completa_segura(previsao, resultado_real, acertou, contexto,
         if contexto and len(contexto) > 0:
             # Pega apenas os últimos 10 resultados para não sobrecarregar
             contexto_resumido = [{'resultado': r['resultado'], 
-                                  'player': r['player_score'], 
-                                  'banker': r['banker_score']} 
+                                  'player': r.get('player_score', 0), 
+                                  'banker': r.get('banker_score', 0)} 
                                  for r in contexto[:10] if r]
             contexto_json = json.dumps(contexto_resumido)
         
@@ -1925,7 +1926,7 @@ def get_ultimas_50():
         conn.close()
         return [{'player_score': r[0], 'banker_score': r[1], 'resultado': r[2]} for r in rows]
     except Exception as e:
-        print(f"⚠️ Erro get_ultimas_50 (aguardando dados)...")
+        print(f"⚠️ Erro get_ultimas_50: {e}")
         return []
     finally:
         try:
@@ -1963,7 +1964,7 @@ def get_ultimas_20():
                 continue
         return resultado
     except Exception as e:
-        print(f"⚠️ Erro get_ultimas_20 (aguardando dados)...")
+        print(f"⚠️ Erro get_ultimas_20: {e}")
         return []
     finally:
         try:
@@ -1984,13 +1985,20 @@ def get_total_rapido():
         conn.close()
         return total
     except Exception as e:
-        # Silencia o erro enquanto não há dados
+        print(f"⚠️ Erro get_total_rapido: {e}")
         return 0
     finally:
         try:
             conn.close()
         except:
             pass
+
+def atualizar_dados_leves():
+    """Atualiza dados leves no cache"""
+    cache['leves']['ultimas_50'] = get_ultimas_50()
+    cache['leves']['ultimas_20'] = get_ultimas_20()
+    cache['leves']['total_rodadas'] = get_total_rapido()
+    cache['leves']['ultima_atualizacao'] = datetime.now(timezone.utc)
 
 # =============================================================================
 # FUNÇÕES PESADAS
@@ -2011,7 +2019,7 @@ def contar_periodo(horas):
         conn.close()
         return count
     except Exception as e:
-        # Silencia o erro enquanto não há dados
+        print(f"⚠️ Erro contar_periodo: {e}")
         return 0
     finally:
         try:
@@ -2492,7 +2500,7 @@ def analisar_padrao_7x2_no_historico():
     
     conn = get_db_connection()
     if not conn:
-        return
+        return []
     
     try:
         cur = conn.cursor()
@@ -2732,9 +2740,7 @@ def processar_fila():
                 
                 # Atualiza dados leves
                 if len(historico_buffer) > 0:
-                    cache['leves']['ultimas_50'] = get_ultimas_50()
-                    cache['leves']['ultimas_20'] = get_ultimas_20()
-                    cache['leves']['total_rodadas'] = get_total_rapido()
+                    atualizar_dados_leves()
                     
                     # Faz nova previsão usando o sistema Ray se disponível
                     if cache.get('ray_system') and len(cache['leves']['ultimas_50']) >= 30:
@@ -2862,13 +2868,20 @@ def api_analise_erros():
 
 @app.route('/api/manipulacao')
 def api_manipulacao():
-    return jsonify({
-        'indice_atual': cache.get('indice_manipulacao', 0),
-        'manipulacoes_detectadas': cache['rl_system'].manipulacoes_detectadas if cache.get('rl_system') else 0,
-        'agentes_com_deteccao': [
+    manipulacoes_detectadas = 0
+    agentes_com_deteccao = []
+    
+    if cache.get('rl_system'):
+        manipulacoes_detectadas = cache['rl_system'].manipulacoes_detectadas
+        agentes_com_deteccao = [
             {'nome': a['nome'], 'deteccoes': a.get('deteccoes_manipulacao', 0)}
             for a in cache['rl_system'].get_stats()['agentes'] if a.get('deteccoes_manipulacao', 0) > 0
-        ] if cache.get('rl_system') else []
+        ]
+    
+    return jsonify({
+        'indice_atual': cache.get('indice_manipulacao', 0),
+        'manipulacoes_detectadas': manipulacoes_detectadas,
+        'agentes_com_deteccao': agentes_com_deteccao
     })
 
 
@@ -2894,7 +2907,7 @@ def api_stats():
             })
     
     # Adiciona estatísticas do sistema RL tradicional
-    elif cache.get('rl_system'):
+    if cache.get('rl_system'):
         for agente in cache['rl_system'].get_stats()['agentes']:
             estrategias_stats.append({
                 'nome': agente['nome'],
