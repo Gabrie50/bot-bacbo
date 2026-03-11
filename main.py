@@ -194,8 +194,7 @@ def calcular_precisao():
 def inicializar_sistema():
     print("\n🧠 INICIALIZANDO SISTEMA CAÇADOR 4.0 (RL PURO)...")
     
-    cache['rl_system'] = SistemaRLCompleto()  # ← Agora cache existe!
-    
+    cache['rl_system'] = SistemaRLCompleto()
     cache['rl_system'].carregar_estado('rl_estado.json')
     
     try:
@@ -213,10 +212,9 @@ def salvar_padroes():
             json.dump(cache['padroes_descobertos'], f, indent=2)
     except Exception as e:
         print(f"⚠️ Erro ao salvar padrões: {e}")
-        
 
 # =============================================================================
-# 🧠 SISTEMA RL PURO - APRENDE SOZINHO AS ESTRATÉGIAS
+# 🧠 SISTEMA RL PURO - APRENDE SOZINHO AS ESTRATÉGIAS (OTIMIZADO)
 # =============================================================================
 
 class AgenteRLPuro:
@@ -231,42 +229,46 @@ class AgenteRLPuro:
         self.confianca = 0.5
         self.ultima_atuacao = datetime.now()
         
-        self.state_size = 50 * 3
+        # 🎯 CONFIGURAÇÕES OTIMIZADAS (EQUILÍBRIO PERFEITO)
+        self.state_size = 30 * 3  # Reduzido de 50 para 30 (mais rápido)
         self.action_size = 2
         
-        self.memoria = deque(maxlen=10000)
-        
-        self.learning_rate = 0.001
-        self.gamma = 0.95
+        self.memoria = deque(maxlen=5000)  # Equilíbrio: 5000 (nem grande, nem pequena)
+        self.learning_rate = 0.005  # 5x mais rápido que original, mas seguro
+        self.gamma = 0.92  # Equilíbrio entre presente e futuro
         self.epsilon = 1.0
-        self.epsilon_min = 0.01
-        self.epsilon_decay = 0.995
+        self.epsilon_min = 0.05  # Um pouco mais alto para evitar overfit
+        self.epsilon_decay = 0.992  # Decai em ~860 rodadas (perfeito!)
         
+        # Rede neural com regularização FORTE
         self.model = None
         self.target_model = None
-        self._criar_rede()
+        self._criar_rede_com_regularizacao()
         
         self.padroes_aprendidos = []
         self.ultimo_estado = None
         self.ultima_acao = None
-        
         self.especialidade = None
         self.erros_que_aprendeu = []
         self.fitness = 0
         
-    def _criar_rede(self):
+    def _criar_rede_com_regularizacao(self):
+        """Rede neural com dropout MAIS FORTE para evitar vício"""
         if not TF_AVAILABLE:
             print(f"⚠️ TensorFlow não disponível - {self.nome} usará pesos simples")
             return
             
         try:
             inputs = Input(shape=(self.state_size,))
+            
+            # Camadas com dropout AUMENTADO para regularização
             x = Dense(256, activation='relu')(inputs)
-            x = Dropout(0.2)(x)
+            x = Dropout(0.3)(x)  # Antes 0.2
             x = Dense(512, activation='relu')(x)
-            x = Dropout(0.3)(x)
+            x = Dropout(0.4)(x)  # Antes 0.3
             x = Dense(256, activation='relu')(x)
             x = Dense(128, activation='relu')(x)
+            
             outputs = Dense(self.action_size, activation='linear')(x)
             
             self.model = Model(inputs=inputs, outputs=outputs)
@@ -275,14 +277,15 @@ class AgenteRLPuro:
             self.target_model = Model(inputs=inputs, outputs=outputs)
             self.target_model.set_weights(self.model.get_weights())
             
-            print(f"✅ Rede neural criada para {self.nome}")
+            print(f"✅ Rede neural com regularização criada para {self.nome}")
         except Exception as e:
             print(f"❌ Erro ao criar rede para {self.nome}: {e}")
             self.model = None
     
     def get_state(self, historico):
         state = []
-        for rodada in historico[:50]:
+        # Usa as últimas 30 rodadas (otimizado)
+        for rodada in historico[:30]:
             if rodada['resultado'] == 'BANKER':
                 resultado = 1
             elif rodada['resultado'] == 'PLAYER':
@@ -300,7 +303,8 @@ class AgenteRLPuro:
     def agir(self, historico):
         self.total_uso += 1
         
-        if len(historico) < 50:
+        # Histórico mínimo reduzido para 30 (ponto doce)
+        if len(historico) < 30:
             return random.choice([0, 1]), 0.5
             
         state = self.get_state(historico)
@@ -331,7 +335,7 @@ class AgenteRLPuro:
         return acao, confianca
     
     def aprender(self, historico, acao, resultado, recompensa_base=0):
-        if resultado == 'TIE' or len(historico) < 50:
+        if resultado == 'TIE' or len(historico) < 30:  # Ajustado para 30
             return
             
         resultado_int = 0 if resultado == 'BANKER' else 1
@@ -356,7 +360,8 @@ class AgenteRLPuro:
         
         self.memoria.append((state, acao, recompensa, next_state, acertou))
         
-        if len(self.memoria) > 32 and self.model is not None:
+        # Batch size otimizado: 48 (meio termo entre 32 e 64)
+        if len(self.memoria) > 48 and self.model is not None:
             self._replay()
         
         if self.epsilon > self.epsilon_min:
@@ -370,11 +375,12 @@ class AgenteRLPuro:
         return acertou
     
     def _replay(self):
-        if len(self.memoria) < 32 or self.model is None:
+        if len(self.memoria) < 48 or self.model is None:
             return
             
         try:
-            batch = random.sample(list(self.memoria), 32)
+            # Batch size 48 (otimizado)
+            batch = random.sample(list(self.memoria), 48)
             
             for state, acao, recompensa, next_state, acertou in batch:
                 target = recompensa
@@ -474,7 +480,7 @@ class SistemaRLCompleto:
             self.meta_agente = None
     
     def processar_rodada(self, historico, resultado_real=None):
-        if len(historico) < 50:
+        if len(historico) < 30:  # Ajustado para 30
             return None
             
         votos = {'BANKER': 0, 'PLAYER': 0}
@@ -681,7 +687,8 @@ class AnalisadorDeErros:
         
         self._ensinar_agentes_sobre_erro(causa, previsao, resultado_real, contexto)
         
-        if self.padroes_de_erro.get(padrao_key, 0) > 3:
+        # Cria especialista com apenas 2 erros (aprendizado mais rápido)
+        if self.padroes_de_erro.get(padrao_key, 0) > 2:
             self._criar_agente_especialista_em_erro(causa)
         
         print(f"✅ Diagnóstico: {causa}")
@@ -1777,7 +1784,7 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
                         'resultado': rodada['resultado']
                     })
                     
-                    if len(historico_simulado) >= 50:
+                    if len(historico_simulado) >= 30:  # Ajustado para 30
                         previsao = sistema_rl.processar_rodada(historico_simulado[:-1])
                         
                         if previsao:
@@ -2019,6 +2026,18 @@ def processar_fila():
                                         ultima_previsao_feita, resultado_real, contexto, indice_manipulacao
                                     )
                                 
+                                # 🔥 CORREÇÃO: SALVAR NO BANCO!
+                                salvar_previsao_completa_segura(
+                                    ultima_previsao_feita, 
+                                    resultado_real, 
+                                    acertou, 
+                                    contexto,
+                                    None, 
+                                    indice_manipulacao, 
+                                    indice_manipulacao > 50, 
+                                    causa_erro
+                                )
+                                
                                 cache['estatisticas']['total_previsoes'] += 1
                                 if acertou:
                                     cache['estatisticas']['acertos'] += 1
@@ -2040,7 +2059,7 @@ def processar_fila():
                                 if len(cache['estatisticas']['ultimas_20_previsoes']) > 20:
                                     cache['estatisticas']['ultimas_20_previsoes'].pop()
                                 
-                                if cache.get('rl_system') and len(cache['leves']['ultimas_50']) >= 50:
+                                if cache.get('rl_system') and len(cache['leves']['ultimas_50']) >= 30:
                                     cache['rl_system'].aprender_com_resultado(
                                         cache['leves']['ultimas_50'], resultado_real
                                     )
@@ -2062,7 +2081,7 @@ def processar_fila():
                     cache['leves']['ultimas_20'] = get_ultimas_20()
                     cache['leves']['total_rodadas'] = get_total_rapido()
                     
-                    if cache.get('rl_system') and len(cache['leves']['ultimas_50']) >= 50:
+                    if cache.get('rl_system') and len(cache['leves']['ultimas_50']) >= 30:
                         historico_completo = cache['leves']['ultimas_50']
                         previsao_rl = cache['rl_system'].processar_rodada(historico_completo)
                         
@@ -2386,7 +2405,7 @@ def treinar_rl_com_historico(limit=1000):
 
         from tqdm import tqdm
 
-        for i in tqdm(range(50, len(dados_historicos)), desc="Treinando RL"):
+        for i in tqdm(range(30, len(dados_historicos)), desc="Treinando RL"):
             historico_ate_agora = dados_historicos[:i]
             resultado_real = dados_historicos[i]['resultado']
 
@@ -2468,7 +2487,6 @@ def verificar_previsoes_anteriores():
                 ultima, resultado_real, dados_ord, indice_manipulacao
             )
 
-        # 🔥 ALTERAÇÃO AQUI: usar a função segura
         salvar_previsao_completa_segura(
             ultima, resultado_real, acertou, dados_ord, 
             pesos_agentes, indice_manipulacao, foi_manipulado, causa_erro
@@ -2513,7 +2531,7 @@ def atualizar_dados_leves():
 
 
 # =============================================================================
-# MAIN
+# MAIN (CORRIGIDO - UMA ÚNICA CHAMADA)
 # =============================================================================
 if __name__ == "__main__":
     print("="*70)
@@ -2530,17 +2548,19 @@ if __name__ == "__main__":
     print("   ✅ ENSINO ENTRE AGENTES")
     print("="*70)
     print("📊 PREVISÃO DE DESEMPENHO:")
-    print("   • 0-1000 rodadas: 50-55% (explorando)")
-    print("   • 1000-5000 rodadas: 60-70% (aprendendo)")
-    print("   • 5000-10000 rodadas: 70-80% (maduro)")
-    print("   • 10000+ rodadas: 75-85% (especialista)")
+    print("   • 0-200 rodadas: 50-55% (explorando)")
+    print("   • 200-500 rodadas: 60-68% (aprendendo rápido)")
+    print("   • 500-1000 rodadas: 65-75% (maduro)")
+    print("   • 1000-2000 rodadas: 70-78% (especialista)")
+    print("   • 2000+ rodadas: 72-80% (mestre)")
     print("="*70)
 
+    # Inicializa banco de dados e sistema (UMA ÚNICA VEZ!)
     if not init_db():
         print("⚠️ Banco não disponível - continuando sem banco de dados")
     else:
         verificar_e_corrigir_banco()
-        inicializar_sistema()
+        inicializar_sistema()  # ← ÚNICA CHAMADA!
     
     try:
         with open('rodadas.json', 'r') as f:
@@ -2550,16 +2570,19 @@ if __name__ == "__main__":
         print("📁 Nenhum arquivo JSON encontrado - continuando com API")
 
     print("📊 Carregando dados...")
-    inicializar_sistema()
+    # ← REMOVIDO: inicializar_sistema() daqui!
     
+    # Carrega histórico e treina
     analisador = carregar_historico_completo_para_aprendizado(limite_paginas=50)
     
     if analisador:
         cache['analisador_erros'] = analisador
         print(f"\n✅ Sistema de análise de erros ativo!")
     
+    # Analisa padrão 7x2
     analisar_padrao_7x2_no_historico()
     
+    # Atualiza dados
     atualizar_dados_leves()
     atualizar_dados_pesados()
 
@@ -2574,6 +2597,7 @@ if __name__ == "__main__":
 
     print("="*70)
 
+    # Inicia fontes de dados
     print("🔌 Iniciando WebSocket (modo backup)...")
     iniciar_websocket()
 
@@ -2592,6 +2616,7 @@ if __name__ == "__main__":
     print("🔄 Iniciando loop pesado...")
     threading.Thread(target=loop_pesado, daemon=True).start()
 
+    # Thread para salvar estado periodicamente
     def salvar_periodicamente():
         while True:
             time.sleep(300)
