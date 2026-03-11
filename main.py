@@ -1323,10 +1323,11 @@ def salvar_previsao_completa_segura(previsao, resultado_real, acertou, contexto,
         return False
 
 # =============================================================================
-# FUNÇÕES DO BANCO (LEVES)
+# FUNÇÕES DO BANCO (LEVES) - VERSÃO ROBUSTA
 # =============================================================================
 
 def get_ultimas_50():
+    """Retorna as últimas 50 rodadas com tratamento de erro"""
     conn = get_db_connection()
     if not conn:
         return []
@@ -1338,10 +1339,16 @@ def get_ultimas_50():
         conn.close()
         return [{'player_score': r[0], 'banker_score': r[1], 'resultado': r[2]} for r in rows]
     except Exception as e:
-        print(f"⚠️ Erro get_ultimas_50: {e}")
+        print(f"⚠️ Erro get_ultimas_50 (aguardando dados)...")
         return []
+    finally:
+        try:
+            conn.close()
+        except:
+            pass
 
 def get_ultimas_20():
+    """Retorna as últimas 20 rodadas formatadas para exibição"""
     conn = get_db_connection()
     if not conn:
         return []
@@ -1354,23 +1361,32 @@ def get_ultimas_20():
 
         resultado = []
         for row in rows:
-            data_str = row[0].isoformat()
-            data_dt = datetime.fromisoformat(data_str.replace('Z', '+00:00'))
-            brasilia = data_dt.astimezone(timezone(timedelta(hours=-3)))
-            cor = '🔴' if row[3] == 'BANKER' else '🔵' if row[3] == 'PLAYER' else '🟡'
-            resultado.append({
-                'hora': brasilia.strftime('%H:%M:%S'),
-                'resultado': row[3],
-                'cor': cor,
-                'player': row[1],
-                'banker': row[2]
-            })
+            try:
+                data_str = row[0].isoformat()
+                data_dt = datetime.fromisoformat(data_str.replace('Z', '+00:00'))
+                brasilia = data_dt.astimezone(timezone(timedelta(hours=-3)))
+                cor = '🔴' if row[3] == 'BANKER' else '🔵' if row[3] == 'PLAYER' else '🟡'
+                resultado.append({
+                    'hora': brasilia.strftime('%H:%M:%S'),
+                    'resultado': row[3],
+                    'cor': cor,
+                    'player': row[1],
+                    'banker': row[2]
+                })
+            except:
+                continue
         return resultado
     except Exception as e:
-        print(f"⚠️ Erro get_ultimas_20: {e}")
+        print(f"⚠️ Erro get_ultimas_20 (aguardando dados)...")
         return []
+    finally:
+        try:
+            conn.close()
+        except:
+            pass
 
 def get_total_rapido():
+    """Retorna total de rodadas com tratamento de erro"""
     conn = get_db_connection()
     if not conn:
         return 0
@@ -1382,14 +1398,20 @@ def get_total_rapido():
         conn.close()
         return total
     except Exception as e:
-        print(f"⚠️ Erro get_total: {e}")
+        # Silencia o erro enquanto não há dados
         return 0
-        
+    finally:
+        try:
+            conn.close()
+        except:
+            pass
+
 # =============================================================================
-# FUNÇÕES PESADAS
+# FUNÇÕES PESADAS - VERSÃO ROBUSTA
 # =============================================================================
 
 def contar_periodo(horas):
+    """Conta rodadas em um período com tratamento de erro"""
     conn = get_db_connection()
     if not conn:
         return 0
@@ -1403,10 +1425,16 @@ def contar_periodo(horas):
         conn.close()
         return count
     except Exception as e:
-        print(f"⚠️ Erro contar_periodo {horas}h: {e}")
+        # Silencia o erro enquanto não há dados
         return 0
+    finally:
+        try:
+            conn.close()
+        except:
+            pass
 
 def atualizar_dados_pesados():
+    """Atualiza cache com dados dos períodos"""
     cache['pesados']['periodos'] = {
         '10min': contar_periodo(0.16),
         '1h': contar_periodo(1),
@@ -1417,7 +1445,7 @@ def atualizar_dados_pesados():
         '72h': contar_periodo(72)
     }
     cache['pesados']['ultima_atualizacao'] = datetime.now(timezone.utc)
-
+    
 # =============================================================================
 # ALTERNAR FONTE ATIVA
 # =============================================================================
