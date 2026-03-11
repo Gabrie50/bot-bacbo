@@ -78,7 +78,7 @@ WS_URL = "wss://api-cs.casino.org/svc-evolution-game-events/ws/bacbo"
 API_URL = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo"
 API_PARAMS = {
     "page": 0,
-    "size": 100,  # Aumentado para carregar mais rodadas
+    "size": 100,
     "sort": "data.settledAt,desc",
     "duration": 4320,
     "wheelResults": "PlayerWon,BankerWon,Tie"
@@ -116,140 +116,52 @@ fontes_status = {
 fonte_ativa = 'latest'
 
 # =============================================================================
-# PROCESSADOR DA FILA (ADAPTADO PARA RL) - VERSÃO CORRIGIDA
+# FILA DE PROCESSAMENTO
 # =============================================================================
+fila_rodadas = deque(maxlen=500)
+ultimo_id_latest = None
+ultimo_id_websocket = None
+ultimo_id_api = None
 
-def processar_fila():
-    print("🚀 Processador TURBO (com RL) iniciado...")
-    
-    historico_buffer = []
-    ultima_previsao_feita = None
-
-    while True:
-        try:
-            if fila_rodadas:
-                batch = list(fila_rodadas)
-                fila_rodadas.clear()
-                
-                for rodada in batch:
-                    if salvar_rodada(rodada, 'principal'):
-                        historico_buffer.append(rodada)
-                        cache['ultimo_resultado_real'] = rodada['resultado']
-                        print(f"✅ SALVO: {rodada['player_score']} vs {rodada['banker_score']} - {rodada['resultado']}")
-                        
-                        # Se tinha uma previsão anterior, agora podemos verificar se acertou
-                        if ultima_previsao_feita:
-                            resultado_real = rodada['resultado']
-                            
-                            if resultado_real != 'TIE':  # Ignora TIE para aprendizado
-                                acertou = (ultima_previsao_feita['previsao'] == resultado_real)
-                                
-                                print(f"\n📊 VERIFICANDO PREVISÃO ANTERIOR:")
-                                print(f"   Previsão: {ultima_previsao_feita['previsao']} | Real: {resultado_real} | Acertou: {acertou}")
-                                
-                                # Pega contexto para análise
-                                contexto = cache['leves']['ultimas_50'] if cache['leves']['ultimas_50'] else []
-                                
-                                # Calcula índice de manipulação
-                                indice_manipulacao = calcular_indice_manipulacao(contexto)
-                                cache['indice_manipulacao'] = indice_manipulacao
-                                
-                                # Se tem analisador de erros, analisa
-                                causa_erro = None
-                                if cache.get('analisador_erros') and not acertou:
-                                    causa_erro = cache['analisador_erros'].analisar_erro_em_tempo_real(
-                                        ultima_previsao_feita, resultado_real, contexto, indice_manipulacao
-                                    )
-                                
-                                # Atualiza estatísticas no cache
-                                cache['estatisticas']['total_previsoes'] += 1
-                                if acertou:
-                                    cache['estatisticas']['acertos'] += 1
-                                else:
-                                    cache['estatisticas']['erros'] += 1
-                                
-                                # Adiciona ao histórico de previsões
-                                previsao_historico = {
-                                    'data': datetime.now().strftime('%d/%m %H:%M:%S'),
-                                    'previsao': ultima_previsao_feita['previsao'],
-                                    'simbolo': ultima_previsao_feita['simbolo'],
-                                    'confianca': ultima_previsao_feita['confianca'],
-                                    'resultado_real': resultado_real,
-                                    'acertou': acertou,
-                                    'estrategias': ultima_previsao_feita.get('estrategias', []),
-                                    'manipulado': indice_manipulacao > 50
-                                }
-                                
-                                cache['estatisticas']['ultimas_20_previsoes'].insert(0, previsao_historico)
-                                if len(cache['estatisticas']['ultimas_20_previsoes']) > 20:
-                                    cache['estatisticas']['ultimas_20_previsoes'].pop()
-                                
-                                # Se tem RL, ensina com o resultado
-                                if cache.get('rl_system') and len(cache['leves']['ultimas_50']) >= 50:
-                                    cache['rl_system'].aprender_com_resultado(
-                                        cache['leves']['ultimas_50'], 
-                                        resultado_real
-                                    )
-                                
-                                # Pega estatísticas atualizadas dos agentes
-                                if cache.get('rl_system'):
-                                    for nome, agente in cache['rl_system'].agentes.items():
-                                        if nome in cache['estatisticas']['estrategias']:
-                                            cache['estatisticas']['estrategias'][nome]['acertos'] = agente.acertos
-                                            cache['estatisticas']['estrategias'][nome]['erros'] = agente.erros
-                                            cache['estatisticas']['estrategias'][nome]['total'] = agente.total_uso
-                                
-                                # Mostra precisão atual
-                                precisao = calcular_precisao()
-                                print(f"📈 Precisão geral: {cache['estatisticas']['acertos']}/{cache['estatisticas']['total_previsoes']} ({precisao}%)")
-                            
-                            ultima_previsao_feita = None
-                
-                if len(historico_buffer) > 0:
-                    # Atualiza cache com últimas rodadas
-                    cache['leves']['ultimas_50'] = get_ultimas_50()
-                    cache['leves']['ultimas_20'] = get_ultimas_20()
-                    cache['leves']['total_rodadas'] = get_total_rapido()
-                    
-                    # Se tem RL e histórico suficiente, faz nova previsão
-                    if cache.get('rl_system') and len(cache['leves']['ultimas_50']) >= 50:
-                        historico_completo = cache['leves']['ultimas_50']
-                        previsao_rl = cache['rl_system'].processar_rodada(historico_completo)
-                        
-                        if previsao_rl:
-                            ultima_previsao_feita = {
-                                'modo': 'RL_PURO',
-                                'previsao': previsao_rl['previsao'],
-                                'simbolo': '🔴' if previsao_rl['previsao'] == 'BANKER' else '🔵',
-                                'confianca': previsao_rl['confianca'],
-                                'estrategias': [v['agente'] for v in previsao_rl['votos']]
-                            }
-                            cache['ultima_previsao'] = ultima_previsao_feita
-                            cache['leves']['previsao'] = ultima_previsao_feita
-                            
-                            print(f"\n🎯 NOVA PREVISÃO: {ultima_previsao_feita['previsao']} com {ultima_previsao_feita['confianca']}% de confiança")
-                    
-                    # Atualiza dados leves
-                    cache['leves']['ultima_atualizacao'] = datetime.now(timezone.utc)
-
-            time.sleep(0.01)
-
-        except Exception as e:
-            print(f"❌ Erro no processador: {e}")
-            import traceback
-            traceback.print_exc()
-            time.sleep(0.1)
-
-
-# =============================================================================
-# FUNÇÃO PARA CALCULAR PRECISÃO
-# =============================================================================
-def calcular_precisao():
-    """Calcula a precisão atual baseada nas estatísticas"""
-    total = cache['estatisticas']['total_previsoes']
-    if total == 0:
-        return 0
-    return round((cache['estatisticas']['acertos'] / total) * 100)
+cache = {
+    'leves': {
+        'ultimas_50': [],
+        'ultimas_20': [],
+        'total_rodadas': 0,
+        'ultima_atualizacao': None,
+        'previsao': None
+    },
+    'pesados': {
+        'periodos': {},
+        'ultima_atualizacao': None
+    },
+    'estatisticas': {
+        'total_previsoes': 0,
+        'acertos': 0,
+        'erros': 0,
+        'ultimas_20_previsoes': [],
+        'estrategias': {
+            'RL_Agente_1': {'acertos': 0, 'erros': 0, 'total': 0},
+            'RL_Agente_2': {'acertos': 0, 'erros': 0, 'total': 0},
+            'RL_Agente_3': {'acertos': 0, 'erros': 0, 'total': 0},
+            'RL_Agente_4': {'acertos': 0, 'erros': 0, 'total': 0},
+            'RL_Agente_5': {'acertos': 0, 'erros': 0, 'total': 0},
+            'RL_Agente_6': {'acertos': 0, 'erros': 0, 'total': 0},
+            'RL_Agente_7': {'acertos': 0, 'erros': 0, 'total': 0},
+            'RL_Agente_8': {'acertos': 0, 'erros': 0, 'total': 0},
+            'RL_Agente_9': {'acertos': 0, 'erros': 0, 'total': 0},
+            'RL_Agente_10': {'acertos': 0, 'erros': 0, 'total': 0}
+        }
+    },
+    'ultima_previsao': None,
+    'ultimo_resultado_real': None,
+    'aprendizado': None,
+    'rl_system': None,
+    'analisador_erros': None,
+    'ultimo_contexto_erro': None,
+    'indice_manipulacao': 0,
+    'padroes_descobertos': []
+}
 
 # =============================================================================
 # INICIALIZAÇÃO FLASK
@@ -263,25 +175,24 @@ session.headers.update(HEADERS)
 # FUNÇÃO AUXILIAR get_dados_ordenados
 # =============================================================================
 def get_dados_ordenados(dados):
-    """
-    Retorna os dados ordenados do mais antigo para o mais novo
-    Necessário para análise de padrões
-    """
     if not dados:
         return []
-    # Assume que os dados estão em ordem cronológica reversa (mais recente primeiro)
-    # Inverte para ter do mais antigo para o mais novo
     return list(reversed(dados))
+
+# =============================================================================
+# FUNÇÃO PARA CALCULAR PRECISÃO
+# =============================================================================
+def calcular_precisao():
+    total = cache['estatisticas']['total_previsoes']
+    if total == 0:
+        return 0
+    return round((cache['estatisticas']['acertos'] / total) * 100)
 
 # =============================================================================
 # 🧠 SISTEMA RL PURO - APRENDE SOZINHO AS ESTRATÉGIAS
 # =============================================================================
 
 class AgenteRLPuro:
-    """
-    Agente que APRENDE DO ZERO como o algoritmo funciona
-    SEM nenhuma estratégia pré-definida
-    """
     def __init__(self, nome, id_agente):
         self.nome = nome
         self.id = id_agente
@@ -293,81 +204,58 @@ class AgenteRLPuro:
         self.confianca = 0.5
         self.ultima_atuacao = datetime.now()
         
-        # Estado = últimas 50 rodadas (cada rodada = 3 valores)
-        self.state_size = 50 * 3  # resultado, player_score, banker_score
-        self.action_size = 2       # BANKER ou PLAYER
+        self.state_size = 50 * 3
+        self.action_size = 2
         
-        # Memória de experiências (para replay)
         self.memoria = deque(maxlen=10000)
         
-        # Hiperparâmetros
         self.learning_rate = 0.001
-        self.gamma = 0.95  # fator de desconto
-        self.epsilon = 1.0  # exploração inicial
+        self.gamma = 0.95
+        self.epsilon = 1.0
         self.epsilon_min = 0.01
         self.epsilon_decay = 0.995
         
-        # Rede neural
         self.model = None
         self.target_model = None
         self._criar_rede()
         
-        # Estatísticas de aprendizado
         self.padroes_aprendidos = []
         self.ultimo_estado = None
         self.ultima_acao = None
         
-        # Para neuroevolução
         self.especialidade = None
         self.erros_que_aprendeu = []
         self.fitness = 0
         
     def _criar_rede(self):
-        """
-        Cria a rede neural que vai APRENDER os padrões
-        """
         if not TF_AVAILABLE:
             print(f"⚠️ TensorFlow não disponível - {self.nome} usará pesos simples")
             return
             
         try:
-            # Input layer
             inputs = Input(shape=(self.state_size,))
-            
-            # Camadas densas para aprender padrões
             x = Dense(256, activation='relu')(inputs)
             x = Dropout(0.2)(x)
             x = Dense(512, activation='relu')(x)
             x = Dropout(0.3)(x)
             x = Dense(256, activation='relu')(x)
             x = Dense(128, activation='relu')(x)
-            
-            # Output layer (valores Q para cada ação)
             outputs = Dense(self.action_size, activation='linear')(x)
             
             self.model = Model(inputs=inputs, outputs=outputs)
-            self.model.compile(
-                optimizer=Adam(learning_rate=self.learning_rate),
-                loss='mse'
-            )
+            self.model.compile(optimizer=Adam(learning_rate=self.learning_rate), loss='mse')
             
-            # Target network (para estabilidade)
             self.target_model = Model(inputs=inputs, outputs=outputs)
             self.target_model.set_weights(self.model.get_weights())
             
             print(f"✅ Rede neural criada para {self.nome}")
-            
         except Exception as e:
             print(f"❌ Erro ao criar rede para {self.nome}: {e}")
             self.model = None
     
     def get_state(self, historico):
-        """
-        Converte histórico para tensor que a rede entende
-        """
         state = []
-        for rodada in historico[:50]:  # últimas 50
-            # Codifica: resultado (B/P/T) + scores
+        for rodada in historico[:50]:
             if rodada['resultado'] == 'BANKER':
                 resultado = 1
             elif rodada['resultado'] == 'PLAYER':
@@ -375,54 +263,40 @@ class AgenteRLPuro:
             else:
                 resultado = 3
                 
-            state.extend([
-                resultado,
-                rodada['player_score'] / 12,  # normaliza 0-1
-                rodada['banker_score'] / 12
-            ])
+            state.extend([resultado, rodada['player_score'] / 12, rodada['banker_score'] / 12])
         
-        # Padding se necessário
         while len(state) < self.state_size:
             state.extend([0, 0, 0])
             
         return np.array(state).reshape(1, self.state_size)
     
     def agir(self, historico):
-        """
-        Escolhe ação (ε-greedy)
-        """
         self.total_uso += 1
         
         if len(historico) < 50:
-            # Ainda não tem histórico suficiente
             return random.choice([0, 1]), 0.5
             
         state = self.get_state(historico)
         self.ultimo_estado = state
         
-        # Exploração
         if np.random.rand() <= self.epsilon:
             acao = random.choice([0, 1])
             confianca = 0.5
         else:
-            # Exploração
             if self.model is not None:
                 try:
                     q_values = self.model.predict(state, verbose=0)[0]
                     acao = np.argmax(q_values)
-                    
-                    # Confiança baseada na diferença dos Q-values
                     q_diff = abs(q_values[1] - q_values[0]) if len(q_values) > 1 else 0
                     confianca = min(0.5 + q_diff, 0.94)
                 except:
                     acao = random.choice([0, 1])
                     confianca = 0.5
             else:
-                # Fallback: peso simples
                 if self.peso > 1.0:
-                    acao = 0 if random.random() < 0.6 else 1  # tendência BANKER
+                    acao = 0 if random.random() < 0.6 else 1
                 else:
-                    acao = 1 if random.random() < 0.6 else 0  # tendência PLAYER
+                    acao = 1 if random.random() < 0.6 else 0
                 confianca = 0.5 + (abs(self.peso - 1.0) * 0.2)
         
         self.ultima_acao = acao
@@ -430,16 +304,9 @@ class AgenteRLPuro:
         return acao, confianca
     
     def aprender(self, historico, acao, resultado, recompensa_base=0):
-        """
-        Aprende com o resultado usando Q-Learning
-        """
-        if resultado == 'TIE':
-            return  # Ignora empates para aprendizado
-            
-        if len(historico) < 50:
+        if resultado == 'TIE' or len(historico) < 50:
             return
             
-        # Determina se acertou
         resultado_int = 0 if resultado == 'BANKER' else 1
         acertou = (acao == resultado_int)
         
@@ -448,33 +315,26 @@ class AgenteRLPuro:
         else:
             self.erros += 1
             
-        # Calcula recompensa
         recompensa = 1.0 if acertou else -0.5
         
-        # Bônus por consistência (detecta padrões)
         if len(self.memoria) > 100:
             ultimos_acertos = [m[2] for m in list(self.memoria)[-100:] if len(m) > 2]
             if ultimos_acertos:
                 taxa_acertos_recente = sum(ultimos_acertos) / len(ultimos_acertos)
                 if taxa_acertos_recente > 0.7:
-                    recompensa += 0.3  # Bônus por estar acertando muito
-                    print(f"🎯 {self.nome} detectou padrão! Precisão recente: {taxa_acertos_recente:.1%}")
+                    recompensa += 0.3
         
-        # Guarda na memória
-        state = self.get_state(historico[:-1])  # estado antes da rodada
-        next_state = self.get_state(historico)   # estado depois da rodada
+        state = self.get_state(historico[:-1])
+        next_state = self.get_state(historico)
         
         self.memoria.append((state, acao, recompensa, next_state, acertou))
         
-        # Treina em batch
         if len(self.memoria) > 32 and self.model is not None:
             self._replay()
         
-        # Decai epsilon
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
             
-        # Atualiza peso baseado na performance
         if self.total_uso > 50:
             precisao = self.acertos / self.total_uso
             self.peso = max(0.6, min(2.2, 0.8 + (precisao - 0.5) * 2))
@@ -483,9 +343,6 @@ class AgenteRLPuro:
         return acertou
     
     def _replay(self):
-        """
-        Replay da memória para treinar a rede
-        """
         if len(self.memoria) < 32 or self.model is None:
             return
             
@@ -493,25 +350,20 @@ class AgenteRLPuro:
             batch = random.sample(list(self.memoria), 32)
             
             for state, acao, recompensa, next_state, acertou in batch:
-                # Calcula target Q-value
                 target = recompensa
-                if not acertou:  # Se não acabou (sempre continua)
+                if not acertou:
                     try:
                         next_q = self.target_model.predict(next_state, verbose=0)[0]
                         target = recompensa + self.gamma * np.max(next_q)
                     except:
                         pass
                 
-                # Atualiza modelo
                 target_f = self.model.predict(state, verbose=0)
                 target_f[0][acao] = target
-                
                 self.model.fit(state, target_f, epochs=1, verbose=0)
             
-            # Atualiza target network periodicamente
-            if random.random() < 0.01:  # 1% de chance a cada batch
+            if random.random() < 0.01:
                 self.target_model.set_weights(self.model.get_weights())
-                
         except Exception as e:
             print(f"⚠️ Erro no replay de {self.nome}: {e}")
     
@@ -561,10 +413,6 @@ class AgenteRLPuro:
 
 
 class SistemaRLCompleto:
-    """
-    Sistema que gerencia 10 agentes RL puros
-    Eles competem e colaboram para aprender o algoritmo
-    """
     def __init__(self):
         self.agentes = {}
         self.meta_agente = None
@@ -572,57 +420,42 @@ class SistemaRLCompleto:
         self.padroes_descobertos = []
         self.geracao = 0
         self.melhor_precisao = 0
-        self.manipulacoes_detectadas = 0  # Adicionado
+        self.manipulacoes_detectadas = 0
         
-        # Inicializa 10 agentes
         for i in range(10):
             nome = f"RL_Agente_{i+1}"
             self.agentes[nome] = AgenteRLPuro(nome, i)
             
         print(f"✅ 10 agentes RL puros inicializados")
         
-        # Meta-agente (aprende a combinar os votos)
         if TF_AVAILABLE:
             self._criar_meta_agente()
     
     def _criar_meta_agente(self):
-        """
-        Meta-agente que aprende a combinar os votos dos 10 agentes
-        """
         try:
-            inputs = Input(shape=(20,))  # 10 agentes * 2 (peso + confianca)
+            inputs = Input(shape=(20,))
             x = Dense(64, activation='relu')(inputs)
             x = Dropout(0.2)(x)
             x = Dense(32, activation='relu')(x)
-            outputs = Dense(2, activation='softmax')(x)  # BANKER ou PLAYER
+            outputs = Dense(2, activation='softmax')(x)
             
             self.meta_agente = Model(inputs=inputs, outputs=outputs)
-            self.meta_agente.compile(
-                optimizer=Adam(0.0001),
-                loss='categorical_crossentropy',
-                metrics=['accuracy']
-            )
+            self.meta_agente.compile(optimizer=Adam(0.0001), loss='categorical_crossentropy', metrics=['accuracy'])
             print("✅ Meta-agente criado")
         except Exception as e:
             print(f"⚠️ Erro ao criar meta-agente: {e}")
             self.meta_agente = None
     
     def processar_rodada(self, historico, resultado_real=None):
-        """
-        Processa uma nova rodada com todos os agentes
-        """
         if len(historico) < 50:
             return None
             
-        # Cada agente vota
         votos = {'BANKER': 0, 'PLAYER': 0}
         votos_detalhados = []
         
         for nome, agente in self.agentes.items():
-            acao, confianca = agente.agir(historico[:-1])  # histórico antes da rodada atual
+            acao, confianca = agente.agir(historico[:-1])
             previsao = 'BANKER' if acao == 0 else 'PLAYER'
-            
-            # Peso do voto = peso do agente * confiança
             peso_voto = agente.peso * confianca
             votos[previsao] += peso_voto
             
@@ -634,38 +467,26 @@ class SistemaRLCompleto:
                 'peso_total': round(peso_voto, 2)
             })
         
-        # Se tem meta-agente, usa ele para decidir
         if self.meta_agente is not None and resultado_real is not None:
-            # Prepara features para meta-agente
             features = []
             for nome, agente in self.agentes.items():
                 features.extend([agente.peso, agente.confianca])
-            
             features = np.array(features).reshape(1, 20)
             
             try:
                 meta_pred = self.meta_agente.predict(features, verbose=0)[0]
                 previsao_meta = 'BANKER' if meta_pred[0] > meta_pred[1] else 'PLAYER'
-                
-                # Se meta-agente discordar do voto ponderado, usar o dele
                 if previsao_meta != max(votos, key=votos.get):
-                    votos[previsao_meta] += 5.0  # bônus para meta-agente
+                    votos[previsao_meta] += 5.0
                     print(f"🎯 Meta-agente interveio: {previsao_meta}")
             except:
                 pass
         
-        # Decisão final
         previsao_final = max(votos, key=votos.get)
-        
-        # Confiança baseada na diferença de votos
         total_votos = sum(votos.values())
-        if total_votos > 0:
-            confianca_final = (votos[previsao_final] / total_votos) * 100
-            confianca_final = min(94, max(50, round(confianca_final)))
-        else:
-            confianca_final = 50
-            
-        # Guarda histórico
+        confianca_final = (votos[previsao_final] / total_votos) * 100 if total_votos > 0 else 50
+        confianca_final = min(94, max(50, round(confianca_final)))
+        
         self.historico_global.append({
             'previsao': previsao_final,
             'confianca': confianca_final,
@@ -676,52 +497,35 @@ class SistemaRLCompleto:
         return {
             'previsao': previsao_final,
             'confianca': confianca_final,
-            'votos': votos_detalhados[:4],  # só os 4 principais para o frontend
+            'votos': votos_detalhados[:4],
             'total_agentes': len([v for v in votos_detalhados if v['peso_total'] > 0])
         }
     
     def aprender_com_resultado(self, historico, resultado_real):
-        """
-        Todos os agentes aprendem com o resultado
-        """
         if resultado_real == 'TIE':
             return
             
         acertos = 0
         for nome, agente in self.agentes.items():
-            # Determina a ação que o agente teria tomado
             acao, _ = agente.agir(historico[:-1])
             acertou = agente.aprender(historico, acao, resultado_real)
             if acertou:
                 acertos += 1
                 
-        # Estatísticas
-        precisao_rodada = acertos / len(self.agentes)
-        
-        # A cada 100 rodadas, avalia evolução
         if len(self.historico_global) % 100 == 0:
             self.geracao += 1
             self._avaliar_evolucao()
     
     def _avaliar_evolucao(self):
-        """
-        Avalia a evolução dos agentes e detecta padrões descobertos
-        """
         stats = self.get_stats()
         precisao_media = stats['precisao_media']
         
         if precisao_media > self.melhor_precisao:
             self.melhor_precisao = precisao_media
             print(f"\n🏆 NOVA MELHOR PRECISÃO: {precisao_media:.1f}% (geração {self.geracao})")
-            
-            # Tenta identificar que padrão foi descoberto
             self._detectar_padroes()
     
     def _detectar_padroes(self):
-        """
-        Tenta identificar quais padrões os agentes descobriram
-        """
-        # Análise dos agentes com melhor performance
         top_agentes = sorted(
             [a.get_stats() for a in self.agentes.values() if a.total_uso > 100],
             key=lambda x: x['precisao'],
@@ -737,24 +541,17 @@ class SistemaRLCompleto:
                     'tipo': self._classificar_padrao(agente)
                 }
                 
-                # Evita duplicatas
                 if not any(p['agente'] == padrao['agente'] for p in cache['padroes_descobertos']):
                     cache['padroes_descobertos'].append(padrao)
-                    print(f"\n🎯 RL DESCOBRIU NOVO PADRÃO!")
-                    print(f"   Agente: {padrao['agente']}")
-                    print(f"   Precisão: {padrao['precisao']:.1f}%")
-                    print(f"   Tipo: {padrao['tipo']}")
+                    print(f"\n🎯 RL DESCOBRIU NOVO PADRÃO: {padrao['agente']} - {padrao['precisao']}%")
     
     def _classificar_padrao(self, agente_stats):
-        """
-        Tenta classificar que tipo de padrão o agente descobriu
-        """
         if agente_stats['precisao'] > 80:
-            return "Provavelmente CONTRAGOLPE (85%)"
+            return "CONTRAGOLPE (85%)"
         elif agente_stats['precisao'] > 75:
-            return "Provavelmente RESET CLUSTER ou SATURAÇÃO (72-75%)"
+            return "RESET CLUSTER (72-75%)"
         elif agente_stats['precisao'] > 70:
-            return "Provavelmente MOEDOR ou COMPENSAÇÃO (70%)"
+            return "MOEDOR (70%)"
         else:
             return "Padrão não classificado"
     
@@ -781,23 +578,17 @@ class SistemaRLCompleto:
             stats['precisao_media'] = round(total_precisao / count, 1)
             
         stats['agentes'].sort(key=lambda x: x['precisao'], reverse=True)
-        
         return stats
     
     def salvar_estado(self, arquivo='rl_estado.json'):
-        """
-        Salva o estado de todos os agentes
-        """
         try:
             estado = {
                 'geracao': self.geracao,
                 'melhor_precisao': self.melhor_precisao,
                 'agentes': {nome: agente.para_dict() for nome, agente in self.agentes.items()}
             }
-            
             with open(arquivo, 'w') as f:
                 json.dump(estado, f, indent=2)
-                
             print(f"💾 Estado RL salvo em {arquivo}")
             return True
         except Exception as e:
@@ -805,9 +596,6 @@ class SistemaRLCompleto:
             return False
     
     def carregar_estado(self, arquivo='rl_estado.json'):
-        """
-        Carrega o estado dos agentes
-        """
         caminho = Path(arquivo)
         if not caminho.exists():
             print("📂 Nenhum estado RL anterior encontrado")
@@ -835,10 +623,6 @@ class SistemaRLCompleto:
 # 🧬 SISTEMA DE NEUROEVOLUÇÃO QUE APRENDE COM ERROS
 # =============================================================================
 class AnalisadorDeErros:
-    """
-    Classe especializada em ANALISAR ERROS e extrair aprendizado
-    """
-    
     def __init__(self, sistema_rl):
         self.sistema_rl = sistema_rl
         self.erros_analisados = 0
@@ -846,23 +630,13 @@ class AnalisadorDeErros:
         self.ultimos_erros = deque(maxlen=100)
         
     def analisar_erro_em_tempo_real(self, previsao, resultado_real, contexto, indice_manipulacao):
-        """
-        Analisa um erro assim que acontece (tempo real)
-        E já ensina os outros agentes
-        """
-        if resultado_real == 'TIE':
-            return  # Ignora empates para aprendizado
-        
-        # Só analisa se errou
-        if previsao['previsao'] == resultado_real:
-            return
+        if resultado_real == 'TIE' or previsao['previsao'] == resultado_real:
+            return None
         
         print(f"\n🔍 ANALISANDO ERRO EM TEMPO REAL...")
         
-        # 1. Descobre POR QUE errou
         causa = self._diagnosticar_causa_erro(previsao, resultado_real, contexto, indice_manipulacao)
         
-        # 2. Registra o erro para análise futura
         erro_info = {
             'timestamp': datetime.now(),
             'previsao': previsao['previsao'],
@@ -875,14 +649,11 @@ class AnalisadorDeErros:
         self.ultimos_erros.append(erro_info)
         self.erros_analisados += 1
         
-        # 3. Atualiza estatísticas de padrões de erro
         padrao_key = f"{causa}"
         self.padroes_de_erro[padrao_key] = self.padroes_de_erro.get(padrao_key, 0) + 1
         
-        # 4. ✅ ENSINA OS OUTROS AGENTES SOBRE O ERRO
         self._ensinar_agentes_sobre_erro(causa, previsao, resultado_real, contexto)
         
-        # 5. Se esse erro é muito frequente, cria um especialista
         if self.padroes_de_erro.get(padrao_key, 0) > 3:
             self._criar_agente_especialista_em_erro(causa)
         
@@ -890,44 +661,31 @@ class AnalisadorDeErros:
         return causa
     
     def _diagnosticar_causa_erro(self, previsao, real, contexto, indice_manipulacao):
-        """
-        Diagnostica a CAUSA REAL do erro
-        """
         if not contexto or len(contexto) < 10:
             return "poucos_dados"
         
-        # Pega os últimos resultados
         ultimos_resultados = [r['resultado'] for r in contexto[:20] if r['resultado'] != 'TIE']
         
-        # 1. Verifica se foi manipulação óbvia
         if indice_manipulacao > 70:
             self.sistema_rl.manipulacoes_detectadas += 1
             return "manipulacao_alta"
         
-        # 2. Verifica quebra de streak (padrão clássico do BAC BO)
         streak_atual = self._calcular_streak(ultimos_resultados)
-        if streak_atual >= 4:
-            # Se estava em streak e mudou, foi virada forçada
-            if len(ultimos_resultados) >= 2 and ultimos_resultados[-1] != ultimos_resultados[-2]:
-                return f"quebra_de_streak_{streak_atual}"
+        if streak_atual >= 4 and len(ultimos_resultados) >= 2 and ultimos_resultados[-1] != ultimos_resultados[-2]:
+            return f"quebra_de_streak_{streak_atual}"
         
-        # 3. Verifica padrão 3+2 (muito comum no BAC BO)
         if len(ultimos_resultados) >= 5:
-            # Padrão: 3 iguais, depois 2 diferentes
             if (ultimos_resultados[-5] == ultimos_resultados[-4] == ultimos_resultados[-3] and
                 ultimos_resultados[-2] == ultimos_resultados[-1] and
-                ultimos_resultados[-3] != ultimos_resultados[-2]):
-                if previsao['previsao'] == ultimos_resultados[-3]:  # Previu continuação do padrão
-                    return "padrao_3_2_quebrado"
+                ultimos_resultados[-3] != ultimos_resultados[-2] and
+                previsao['previsao'] == ultimos_resultados[-3]):
+                return "padrao_3_2_quebrado"
         
-        # 4. Verifica padrão DUPLO TIE + SEQUÊNCIA (7x2 que você descobriu)
         if len(ultimos_resultados) >= 9:
             for i in range(len(ultimos_resultados) - 1):
                 if i+1 < len(ultimos_resultados) and ultimos_resultados[i] == 'TIE' and ultimos_resultados[i+1] == 'TIE':
-                    # Encontrou duplo TIE
                     return "padrao_duplo_tie_detectado"
         
-        # 5. Verifica travamento (scores se repetindo)
         if len(contexto) >= 2:
             ultima = contexto[0]
             penultima = contexto[1]
@@ -935,14 +693,12 @@ class AnalisadorDeErros:
                 abs(ultima['banker_score'] - penultima['banker_score']) > 3):
                 return "travamento_detectado"
         
-        # 6. Verifica empate inesperado
         if real == 'TIE' and previsao['previsao'] != 'TIE':
             return "empate_nao_previsto"
         
         return "causa_desconhecida"
     
     def _calcular_streak(self, resultados):
-        """Calcula a streak atual"""
         if not resultados:
             return 0
         streak = 1
@@ -954,91 +710,60 @@ class AnalisadorDeErros:
         return streak
     
     def _ensinar_agentes_sobre_erro(self, causa, previsao, real, contexto):
-        """
-        ✅ ENSINA TODOS OS AGENTES sobre o erro
-        Para que eles não cometam o mesmo erro
-        """
         print(f"📚 Ensinando {len(self.sistema_rl.agentes)} agentes sobre erro: {causa}")
         
         for nome, agente in self.sistema_rl.agentes.items():
-            # Verifica se esse agente também teria errado
             acao_agente, _ = agente.agir(contexto[:-1] if contexto and len(contexto) > 1 else contexto)
             previsao_agente = 'BANKER' if acao_agente == 0 else 'PLAYER'
             
             if previsao_agente == previsao['previsao']:
-                # Esse agente teria errado igual
-                # Aplica uma penalidade e ensina
-                
-                # 1. Reduz o peso (aprende que essa estratégia falha nesse contexto)
                 agente.peso = max(0.3, agente.peso * 0.9)
                 
-                # 2. Adiciona à memória como experiência negativa
                 if hasattr(agente, 'memoria') and contexto and len(contexto) > 1:
                     try:
                         state = agente.get_state(contexto[:-1])
                         next_state = agente.get_state(contexto)
-                        # Recompensa negativa forte
                         agente.memoria.append((state, acao_agente, -2.0, next_state, False))
                     except:
                         pass
                 
-                # 3. Marca que aprendeu com esse erro
                 if not hasattr(agente, 'erros_que_aprendeu'):
                     agente.erros_que_aprendeu = []
-                agente.erros_que_aprendeu.append({
-                    'causa': causa,
-                    'timestamp': datetime.now().isoformat()
-                })
+                agente.erros_que_aprendeu.append({'causa': causa, 'timestamp': datetime.now().isoformat()})
                 
                 print(f"   🤖 {nome} aprendeu com o erro")
             else:
-                # Esse agente teria acertado
-                # Reforça o comportamento
                 agente.peso = min(2.5, agente.peso * 1.05)
                 print(f"   ✅ {nome} já sabia a resposta certa")
         
         print(f"✅ Todos os agentes foram ensinados sobre: {causa}")
     
     def _criar_agente_especialista_em_erro(self, causa):
-        """
-        Cria um agente ESPECIALISTA nesse tipo de erro
-        Para nunca mais errar nesse padrão
-        """
         if not TF_AVAILABLE:
             return
         
         print(f"\n🧬 CRIANDO AGENTE ESPECIALISTA EM: {causa}")
         
-        # Verifica se já existe um especialista nisso
         for nome, agente in self.sistema_rl.agentes.items():
             if hasattr(agente, 'especialidade') and agente.especialidade == causa:
                 print(f"   ⚠️ Já existe especialista em {causa}: {nome}")
                 return
         
-        # Cria novo agente
         novo_id = len(self.sistema_rl.agentes) + 1
         nome = f"RL_Especialista_{causa[:10]}_{novo_id}"
         
         novo_agente = AgenteRLPuro(nome, novo_id)
-        
-        # Configura como especialista
         novo_agente.especialidade = causa
-        novo_agente.peso = 2.5  # Peso maior para especialistas
-        novo_agente.epsilon = 0.05  # Quase não explora (já sabe o padrão)
-        novo_agente.fitness = 80.0  # Fitness inicial alto
+        novo_agente.peso = 2.5
+        novo_agente.epsilon = 0.05
+        novo_agente.fitness = 80.0
         
-        # Adiciona ao sistema
         self.sistema_rl.agentes[nome] = novo_agente
+        print(f"✅ NOVO AGENTE ESPECIALISTA CRIADO: {nome} - Especialidade: {causa}")
         
-        print(f"✅ NOVO AGENTE ESPECIALISTA CRIADO: {nome}")
-        print(f"   Especialidade: {causa}")
-        print(f"   Peso inicial: {novo_agente.peso}")
-        
-        # Registra no banco
         self._registrar_agente_no_banco(nome, novo_agente, causa)
     
     def _registrar_agente_no_banco(self, nome, agente, especialidade):
-        """Registra o novo agente no banco"""
         conn = get_db_connection()
         if not conn:
             return
@@ -1052,11 +777,7 @@ class AnalisadorDeErros:
             ''', (
                 nome,
                 self.sistema_rl.geracao,
-                json.dumps({
-                    'peso': agente.peso,
-                    'epsilon': agente.epsilon,
-                    'especialidade': especialidade
-                }),
+                json.dumps({'peso': agente.peso, 'epsilon': agente.epsilon, 'especialidade': especialidade}),
                 [especialidade],
                 agente.fitness,
                 datetime.now(timezone.utc)
@@ -1068,17 +789,11 @@ class AnalisadorDeErros:
             print(f"⚠️ Erro ao registrar agente: {e}")
     
     def get_stats(self):
-        """Retorna estatísticas dos erros analisados"""
         return {
             'total_erros_analisados': self.erros_analisados,
             'padroes_de_erro': self.padroes_de_erro,
             'ultimos_erros': [
-                {
-                    'causa': e['causa'],
-                    'previsao': e['previsao'],
-                    'real': e['real'],
-                    'hora': e['timestamp'].strftime('%H:%M:%S')
-                }
+                {'causa': e['causa'], 'previsao': e['previsao'], 'real': e['real'], 'hora': e['timestamp'].strftime('%H:%M:%S')}
                 for e in list(self.ultimos_erros)[-10:]
             ]
         }
@@ -1122,16 +837,12 @@ def analisar_empates_forcados(dados):
 
 
 def calcular_indice_manipulacao(dados):
-    """
-    Calcula índice de manipulação baseado em padrões suspeitos
-    """
     if len(dados) < 10:
         return 0
 
     dados_ord = list(reversed(dados)) if dados else []
     indice = 0
 
-    # Streaks de 4+
     streaks = 0
     for i in range(len(dados_ord)-3):
         if (dados_ord[i]['resultado'] == dados_ord[i+1]['resultado'] ==
@@ -1140,7 +851,6 @@ def calcular_indice_manipulacao(dados):
             streaks += 1
     indice += streaks * 10
 
-    # Streak longo
     streak_atual = 1
     for i in range(1, min(10, len(dados_ord))):
         if (dados_ord[i]['resultado'] == dados_ord[i-1]['resultado'] and
@@ -1152,14 +862,12 @@ def calcular_indice_manipulacao(dados):
     if streak_atual >= 5:
         indice += streak_atual * 8
 
-    # TIEs
     ties = sum(1 for r in dados_ord[:20] if r['resultado'] == 'TIE')
     if ties > 3:
         indice += 20
     if ties > 5:
         indice += 15
 
-    # TIEs consecutivos
     ties_seguidos = 0
     for i in range(min(5, len(dados_ord))):
         if dados_ord[i]['resultado'] == 'TIE':
@@ -1170,7 +878,6 @@ def calcular_indice_manipulacao(dados):
     if ties_seguidos >= 2:
         indice += 30
 
-    # Repetições de score
     repeticoes = 0
     for i in range(len(dados_ord)-1):
         if dados_ord[i]['banker_score'] == dados_ord[i+1]['player_score']:
@@ -1179,7 +886,6 @@ def calcular_indice_manipulacao(dados):
             repeticoes += 1
     indice += repeticoes * 5
 
-    # Padrão 3+2
     for i in range(len(dados_ord)-4):
         if (dados_ord[i]['resultado'] == dados_ord[i+1]['resultado'] == dados_ord[i+2]['resultado'] and
             dados_ord[i+2]['resultado'] != dados_ord[i+3]['resultado'] and
@@ -1210,9 +916,6 @@ def get_db_connection():
         return None
 
 def init_db():
-    """
-    Inicializa todas as tabelas do banco de dados
-    """
     conn = get_db_connection()
     if not conn:
         print("⚠️ Banco não disponível - continuando sem banco")
@@ -1221,7 +924,6 @@ def init_db():
     try:
         cur = conn.cursor()
 
-        # Tabela de rodadas
         cur.execute('''
             CREATE TABLE IF NOT EXISTS rodadas (
                 id TEXT PRIMARY KEY,
@@ -1238,7 +940,6 @@ def init_db():
         cur.execute('CREATE INDEX IF NOT EXISTS idx_data_hora ON rodadas(data_hora DESC)')
         cur.execute('CREATE INDEX IF NOT EXISTS idx_resultado ON rodadas(resultado)')
 
-        # Tabela de previsões
         cur.execute('''
             CREATE TABLE IF NOT EXISTS historico_previsoes (
                 id SERIAL PRIMARY KEY,
@@ -1257,10 +958,8 @@ def init_db():
             )
         ''')
 
-        # Primeiro dropar a tabela se existir para recriar com estrutura correta
         cur.execute('DROP TABLE IF EXISTS analise_erros CASCADE')
         
-        # Tabela de análise de erros (DETALHADA) - VERSÃO CORRIGIDA
         cur.execute('''
             CREATE TABLE analise_erros (
                 id SERIAL PRIMARY KEY,
@@ -1286,21 +985,13 @@ def init_db():
             )
         ''')
 
-        # Criar índices depois da tabela
         try:
             cur.execute('CREATE INDEX IF NOT EXISTS idx_erros_data ON analise_erros(data_hora DESC)')
-        except:
-            pass
-        try:
             cur.execute('CREATE INDEX IF NOT EXISTS idx_erros_acertou ON analise_erros(acertou)')
-        except:
-            pass
-        try:
             cur.execute('CREATE INDEX IF NOT EXISTS idx_erros_causa ON analise_erros(causa_erro)')
         except:
             pass
 
-        # Tabela de aprendizado com erros
         cur.execute('''
             CREATE TABLE IF NOT EXISTS aprendizado_erros (
                 id SERIAL PRIMARY KEY,
@@ -1315,7 +1006,6 @@ def init_db():
             )
         ''')
 
-        # Tabela de neuroevolução
         cur.execute('''
             CREATE TABLE IF NOT EXISTS neuroevolucao_agentes (
                 id SERIAL PRIMARY KEY,
@@ -1336,7 +1026,6 @@ def init_db():
         conn.close()
         print("✅ Tabelas criadas/verificadas com sucesso")
         
-        # Verifica e corrige novamente após criação
         verificar_e_corrigir_banco()
         
         return True
@@ -1345,7 +1034,6 @@ def init_db():
         return False
 
 def salvar_rodada(rodada, fonte):
-    """Salva uma rodada no banco de dados"""
     conn = get_db_connection()
     if not conn:
         return False
@@ -1385,9 +1073,6 @@ def salvar_rodada(rodada, fonte):
 # 🔧 FUNÇÃO PARA CORREÇÃO AUTOMÁTICA DO BANCO DE DADOS
 # =============================================================================
 def verificar_e_corrigir_banco():
-    """
-    Verifica se todas as colunas necessárias existem e adiciona se faltarem
-    """
     print("\n🔧 Verificando estrutura do banco de dados...")
     
     conn = get_db_connection()
@@ -1398,7 +1083,6 @@ def verificar_e_corrigir_banco():
     try:
         cur = conn.cursor()
         
-        # Verifica se a tabela existe
         cur.execute("""
             SELECT EXISTS (
                 SELECT FROM information_schema.tables 
@@ -1439,7 +1123,6 @@ def verificar_e_corrigir_banco():
             conn.close()
             return True
         
-        # Se a tabela existe, verifica as colunas
         cur.execute("""
             SELECT column_name 
             FROM information_schema.columns 
@@ -1449,7 +1132,6 @@ def verificar_e_corrigir_banco():
         
         print(f"📊 Colunas existentes: {', '.join(colunas_existentes)}")
         
-        # Lista de colunas que deveriam existir
         colunas_necessarias = [
             ('ultimos_10_resultados', 'TEXT'),
             ('padrao_detectado', 'TEXT'),
@@ -1466,7 +1148,6 @@ def verificar_e_corrigir_banco():
         
         colunas_adicionadas = 0
         
-        # Adiciona colunas que estão faltando
         for coluna, tipo in colunas_necessarias:
             if coluna not in colunas_existentes:
                 try:
@@ -1495,9 +1176,6 @@ def verificar_e_corrigir_banco():
 # 🛡️ VERSÃO SEGURA DA FUNÇÃO salvar_previsao_completa (com fallback)
 # =============================================================================
 def salvar_previsao_completa_segura(previsao, resultado_real, acertou, contexto, pesos_agentes=None, indice_manipulacao=0, foi_manipulado=False, causa_erro=None):
-    """
-    Versão SEGURA que tenta salvar e se falhar, tenta versão simplificada
-    """
     conn = get_db_connection()
     if not conn:
         return False
@@ -1505,12 +1183,10 @@ def salvar_previsao_completa_segura(previsao, resultado_real, acertou, contexto,
     try:
         cur = conn.cursor()
         
-        # Pega últimos resultados para análise
         ultimos_10 = []
         if contexto and len(contexto) > 0:
             ultimos_10 = [r['resultado'] for r in contexto[:10] if r and 'resultado' in r]
         
-        # TENTATIVA 1: Inserção completa
         try:
             cur.execute('''
                 INSERT INTO analise_erros 
@@ -1526,16 +1202,14 @@ def salvar_previsao_completa_segura(previsao, resultado_real, acertou, contexto,
                 resultado_real,
                 previsao['confianca'],
                 previsao.get('modo', 'RL_PURO'),
-                0,  # streak
-                0,  # banker_50
-                0,  # player_50
+                0, 0, 0,
                 ','.join(ultimos_10[:5]) if ultimos_10 else '',
                 ','.join(ultimos_10) if ultimos_10 else '',
                 ','.join(previsao.get('estrategias', [])) if previsao.get('estrategias') else '',
                 json.dumps(pesos_agentes) if pesos_agentes else None,
                 indice_manipulacao,
                 foi_manipulado,
-                None,  # padrao_detectado
+                None,
                 causa_erro,
                 acertou
             ))
@@ -1548,9 +1222,7 @@ def salvar_previsao_completa_segura(previsao, resultado_real, acertou, contexto,
             print(f"⚠️ Inserção completa falhou, tentando versão simplificada: {e}")
             conn.rollback()
             
-            # TENTATIVA 2: Inserção simplificada (só com colunas essenciais)
             try:
-                # Primeiro verifica quais colunas existem
                 cur.execute("""
                     SELECT column_name 
                     FROM information_schema.columns 
@@ -1558,7 +1230,6 @@ def salvar_previsao_completa_segura(previsao, resultado_real, acertou, contexto,
                 """)
                 colunas = [row[0] for row in cur.fetchall()]
                 
-                # Colunas básicas que sempre devem existir
                 colunas_basicas = ['data_hora', 'previsao_feita', 'resultado_real', 'confianca', 'modo', 'acertou']
                 colunas_presentes = [c for c in colunas_basicas if c in colunas]
                 
@@ -1971,10 +1642,6 @@ def buscar_api_normal():
 # =============================================================================
 
 def carregar_historico_completo_para_aprendizado(limite_paginas=100):
-    """
-    Carrega TODO o histórico disponível da API Normal
-    e salva no banco para o RL aprender
-    """
     print("\n" + "="*80)
     print("📚 CARREGANDO HISTÓRICO COMPLETO PARA APRENDIZADO RL")
     print("="*80)
@@ -1988,13 +1655,11 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
     pagina = 0
     paginas_sem_novidades = 0
     
-    # Pega o sistema RL do cache
     sistema_rl = cache.get('rl_system')
     if not sistema_rl:
         print("❌ Sistema RL não inicializado")
         return None
     
-    # Cria o analisador de erros
     analisador = AnalisadorDeErros(sistema_rl)
     cache['analisador_erros'] = analisador
     
@@ -2004,7 +1669,7 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
         while paginas_sem_novidades < 3 and pagina < limite_paginas:
             params = API_PARAMS.copy()
             params['page'] = pagina
-            params['size'] = 100  # Máximo por página
+            params['size'] = 100
             params['_t'] = int(time.time() * 1000)
             
             print(f"\n📥 Buscando página {pagina}...")
@@ -2018,7 +1683,6 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
                     print(f"✅ Fim das páginas na página {pagina}")
                     break
                 
-                # Processa as rodadas em ORDEM CRONOLÓGICA (da mais antiga para a mais nova)
                 rodadas_ordenadas = []
                 for item in dados:
                     try:
@@ -2049,7 +1713,6 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
                             'fonte': 'historico_api'
                         }
                         
-                        # Salva no banco
                         cur.execute('''
                             INSERT INTO rodadas 
                             (id, data_hora, player_score, banker_score, soma, resultado, fonte, dados_json)
@@ -2074,65 +1737,40 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
                         continue
                 
                 conn.commit()
-                
-                # Ordena por data (mais antiga primeiro)
                 rodadas_ordenadas.sort(key=lambda x: x['data_hora'])
                 
-                # ✅ SIMULA O APRENDIZADO COM ESSAS RODADAS
                 print(f"   🧠 Simulando aprendizado com {len(rodadas_ordenadas)} rodadas...")
                 
                 historico_simulado = []
                 
                 for i, rodada in enumerate(rodadas_ordenadas):
-                    # Adiciona ao histórico simulado
                     historico_simulado.append({
                         'player_score': rodada['player_score'],
                         'banker_score': rodada['banker_score'],
                         'resultado': rodada['resultado']
                     })
                     
-                    # Se tem histórico suficiente, faz previsão e aprende
                     if len(historico_simulado) >= 50:
-                        # Faz previsão para esta rodada (baseado no histórico até a anterior)
                         previsao = sistema_rl.processar_rodada(historico_simulado[:-1])
                         
                         if previsao:
-                            # Calcula índice de manipulação
                             indice = calcular_indice_manipulacao(historico_simulado[:-20] if len(historico_simulado) > 20 else historico_simulado)
                             
-                            # Se errou, ANALISA O ERRO e ENSINA OS AGENTES
                             if previsao['previsao'] != rodada['resultado'] and rodada['resultado'] != 'TIE':
                                 causa = analisador.analisar_erro_em_tempo_real(
-                                    previsao, 
-                                    rodada['resultado'], 
-                                    historico_simulado[:-1],
-                                    indice
+                                    previsao, rodada['resultado'], historico_simulado[:-1], indice
                                 )
                                 
-                                # Salva no banco para análise futura
-                                salvar_previsao_completa(
-                                    previsao, 
-                                    rodada['resultado'], 
-                                    False, 
-                                    historico_simulado[:-1],
-                                    None, 
-                                    indice, 
-                                    indice > 50,
-                                    causa
+                                salvar_previsao_completa_segura(
+                                    previsao, rodada['resultado'], False, historico_simulado[:-1],
+                                    None, indice, indice > 50, causa
                                 )
                             else:
-                                # Acertou, salva também
-                                salvar_previsao_completa(
-                                    previsao, 
-                                    rodada['resultado'], 
-                                    True, 
-                                    historico_simulado[:-1],
-                                    None, 
-                                    indice, 
-                                    indice > 50
+                                salvar_previsao_completa_segura(
+                                    previsao, rodada['resultado'], True, historico_simulado[:-1],
+                                    None, indice, indice > 50
                                 )
                             
-                            # Aprende com o resultado
                             sistema_rl.aprender_com_resultado(historico_simulado, rodada['resultado'])
                 
                 print(f"   ✅ Simulação concluída para página {pagina}")
@@ -2159,7 +1797,6 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
         print(f"🔍 Erros analisados: {analisador.erros_analisados}")
         print("="*80)
         
-        # Mostra estatísticas dos erros
         stats = analisador.get_stats()
         print("\n📊 PADRÕES DE ERRO IDENTIFICADOS:")
         for padrao, count in sorted(stats['padroes_de_erro'].items(), key=lambda x: x[1], reverse=True)[:5]:
@@ -2177,9 +1814,6 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
 # =============================================================================
 
 def analisar_padrao_7x2_no_historico():
-    """
-    Analisa todo o histórico para confirmar o padrão 7:2 que você descobriu
-    """
     print("\n" + "="*70)
     print("🔍 ANALISANDO PADRÃO DUPLO TIE + SEQUÊNCIA 7:2")
     print("="*70)
@@ -2191,7 +1825,6 @@ def analisar_padrao_7x2_no_historico():
     try:
         cur = conn.cursor()
         
-        # Busca todas as rodadas em ordem
         cur.execute('''
             SELECT data_hora, resultado 
             FROM rodadas 
@@ -2207,26 +1840,19 @@ def analisar_padrao_7x2_no_historico():
         
         print(f"📊 Total de rodadas analisadas: {len(resultados)}")
         
-        # Procura por DUPLOS TIES
         ocorrencias = []
         
         for i in range(len(resultados) - 1):
             if resultados[i] == 'TIE' and resultados[i+1] == 'TIE':
-                # Encontrou duplo TIE
-                
-                # Pega os próximos 20 resultados (ignorando TIES)
                 proximos = []
-                indices_proximos = []
                 
                 for j in range(i+2, min(i+50, len(resultados))):
                     if resultados[j] != 'TIE':
                         proximos.append(resultados[j])
-                        indices_proximos.append(j)
                         if len(proximos) >= 20:
                             break
                 
                 if len(proximos) >= 9:
-                    # Analisa a sequência
                     banker_count = proximos.count('BANKER')
                     player_count = proximos.count('PLAYER')
                     total = banker_count + player_count
@@ -2248,7 +1874,6 @@ def analisar_padrao_7x2_no_historico():
         
         print(f"\n📊 Encontradas {len(ocorrencias)} ocorrências de DUPLO TIE")
         
-        # Analisa as proporções
         proporcoes = {}
         for occ in ocorrencias:
             prop = occ['proporcao']
@@ -2258,7 +1883,6 @@ def analisar_padrao_7x2_no_historico():
         for prop, count in sorted(proporcoes.items(), key=lambda x: x[1], reverse=True)[:5]:
             print(f"   • {prop}: {count} vezes ({count/len(ocorrencias)*100:.1f}%)")
         
-        # Mostra as 5 ocorrências mais recentes
         print("\n🆕 OCORRÊNCIAS RECENTES:")
         for occ in sorted(ocorrencias, key=lambda x: x['data_inicio'] if x['data_inicio'] else datetime.min, reverse=True)[:5]:
             data_str = occ['data_inicio'].strftime('%d/%m %H:%M') if occ['data_inicio'] else 'desconhecida'
@@ -2266,7 +1890,6 @@ def analisar_padrao_7x2_no_historico():
             print(f"   Sequência: {' → '.join(occ['proximos_9'])}")
             print(f"   Proporção: {occ['banker_count']} BANKER : {occ['player_count']} PLAYER ({occ['banker_pct']}% / {occ['player_pct']}%)")
         
-        # Adiciona o padrão descoberto
         if len(ocorrencias) >= 3:
             padrao_info = {
                 'nome': 'Duplo TIE + Sequência 7:2',
@@ -2276,7 +1899,6 @@ def analisar_padrao_7x2_no_historico():
                 'proporcoes': proporcoes
             }
             
-            # Evita duplicatas
             if not any(p.get('nome') == 'Duplo TIE + Sequência 7:2' for p in cache['padroes_descobertos']):
                 cache['padroes_descobertos'].append(padrao_info)
                 print(f"\n🎯 NOVO PADRÃO REGISTRADO: Duplo TIE + Sequência 7:2")
@@ -2328,14 +1950,16 @@ def loop_api_fallback():
             print(f"❌ Erro API Normal: {e}")
             time.sleep(INTERVALO_NORMAL_FALLBACK)
 
+
 # =============================================================================
-# PROCESSADOR DA FILA (ADAPTADO PARA RL)
+# PROCESSADOR DA FILA (ADAPTADO PARA RL) - VERSÃO FINAL CORRIGIDA
 # =============================================================================
 
 def processar_fila():
     print("🚀 Processador TURBO (com RL) iniciado...")
     
     historico_buffer = []
+    ultima_previsao_feita = None
 
     while True:
         try:
@@ -2348,48 +1972,94 @@ def processar_fila():
                         historico_buffer.append(rodada)
                         cache['ultimo_resultado_real'] = rodada['resultado']
                         print(f"✅ SALVO: {rodada['player_score']} vs {rodada['banker_score']} - {rodada['resultado']}")
+                        
+                        if ultima_previsao_feita:
+                            resultado_real = rodada['resultado']
+                            
+                            if resultado_real != 'TIE':
+                                acertou = (ultima_previsao_feita['previsao'] == resultado_real)
+                                
+                                print(f"\n📊 VERIFICANDO PREVISÃO ANTERIOR:")
+                                print(f"   Previsão: {ultima_previsao_feita['previsao']} | Real: {resultado_real} | Acertou: {acertou}")
+                                
+                                contexto = cache['leves']['ultimas_50'] if cache['leves']['ultimas_50'] else []
+                                indice_manipulacao = calcular_indice_manipulacao(contexto)
+                                cache['indice_manipulacao'] = indice_manipulacao
+                                
+                                causa_erro = None
+                                if cache.get('analisador_erros') and not acertou:
+                                    causa_erro = cache['analisador_erros'].analisar_erro_em_tempo_real(
+                                        ultima_previsao_feita, resultado_real, contexto, indice_manipulacao
+                                    )
+                                
+                                cache['estatisticas']['total_previsoes'] += 1
+                                if acertou:
+                                    cache['estatisticas']['acertos'] += 1
+                                else:
+                                    cache['estatisticas']['erros'] += 1
+                                
+                                previsao_historico = {
+                                    'data': datetime.now().strftime('%d/%m %H:%M:%S'),
+                                    'previsao': ultima_previsao_feita['previsao'],
+                                    'simbolo': ultima_previsao_feita['simbolo'],
+                                    'confianca': ultima_previsao_feita['confianca'],
+                                    'resultado_real': resultado_real,
+                                    'acertou': acertou,
+                                    'estrategias': ultima_previsao_feita.get('estrategias', []),
+                                    'manipulado': indice_manipulacao > 50
+                                }
+                                
+                                cache['estatisticas']['ultimas_20_previsoes'].insert(0, previsao_historico)
+                                if len(cache['estatisticas']['ultimas_20_previsoes']) > 20:
+                                    cache['estatisticas']['ultimas_20_previsoes'].pop()
+                                
+                                if cache.get('rl_system') and len(cache['leves']['ultimas_50']) >= 50:
+                                    cache['rl_system'].aprender_com_resultado(
+                                        cache['leves']['ultimas_50'], resultado_real
+                                    )
+                                
+                                if cache.get('rl_system'):
+                                    for nome, agente in cache['rl_system'].agentes.items():
+                                        if nome in cache['estatisticas']['estrategias']:
+                                            cache['estatisticas']['estrategias'][nome]['acertos'] = agente.acertos
+                                            cache['estatisticas']['estrategias'][nome]['erros'] = agente.erros
+                                            cache['estatisticas']['estrategias'][nome]['total'] = agente.total_uso
+                                
+                                precisao = calcular_precisao()
+                                print(f"📈 Precisão geral: {cache['estatisticas']['acertos']}/{cache['estatisticas']['total_previsoes']} ({precisao}%)")
+                            
+                            ultima_previsao_feita = None
                 
                 if len(historico_buffer) > 0:
-                    # Atualiza cache com últimas rodadas
                     cache['leves']['ultimas_50'] = get_ultimas_50()
                     cache['leves']['ultimas_20'] = get_ultimas_20()
+                    cache['leves']['total_rodadas'] = get_total_rapido()
                     
-                    # Se tem RL, processa aprendizado
-                    if cache.get('rl_system'):
+                    if cache.get('rl_system') and len(cache['leves']['ultimas_50']) >= 50:
                         historico_completo = cache['leves']['ultimas_50']
+                        previsao_rl = cache['rl_system'].processar_rodada(historico_completo)
                         
-                        # Se tem resultado anterior para aprender
-                        if len(historico_buffer) > 1 and len(historico_completo) >= 50:
-                            rodada_anterior = historico_buffer[-2]
-                            resultado_anterior = rodada_anterior['resultado']
+                        if previsao_rl:
+                            ultima_previsao_feita = {
+                                'modo': 'RL_PURO',
+                                'previsao': previsao_rl['previsao'],
+                                'simbolo': '🔴' if previsao_rl['previsao'] == 'BANKER' else '🔵',
+                                'confianca': previsao_rl['confianca'],
+                                'estrategias': [v['agente'] for v in previsao_rl['votos']]
+                            }
+                            cache['ultima_previsao'] = ultima_previsao_feita
+                            cache['leves']['previsao'] = ultima_previsao_feita
                             
-                            # Ensina o RL
-                            cache['rl_system'].aprender_com_resultado(
-                                historico_completo[:-1],  # histórico antes da última
-                                resultado_anterior
-                            )
-                        
-                        # Se tem histórico suficiente, faz previsão
-                        if len(historico_completo) >= 50:
-                            previsao_rl = cache['rl_system'].processar_rodada(historico_completo)
-                            
-                            if previsao_rl:
-                                cache['ultima_previsao'] = {
-                                    'modo': 'RL_PURO',
-                                    'previsao': previsao_rl['previsao'],
-                                    'simbolo': '🔴' if previsao_rl['previsao'] == 'BANKER' else '🔵',
-                                    'confianca': previsao_rl['confianca'],
-                                    'estrategias': [v['agente'] for v in previsao_rl['votos']]
-                                }
-                                cache['leves']['previsao'] = cache['ultima_previsao']
+                            print(f"\n🎯 NOVA PREVISÃO: {ultima_previsao_feita['previsao']} com {ultima_previsao_feita['confianca']}% de confiança")
                     
-                    # Atualiza dados leves
-                    atualizar_dados_leves()
+                    cache['leves']['ultima_atualizacao'] = datetime.now(timezone.utc)
 
             time.sleep(0.01)
 
         except Exception as e:
-            print(f"❌ Erro TURBO: {e}")
+            print(f"❌ Erro no processador: {e}")
+            import traceback
+            traceback.print_exc()
             time.sleep(0.1)
 
 
@@ -2578,7 +2248,6 @@ def api_aprendizado():
 
 @app.route('/api/padroes')
 def api_padroes():
-    """Mostra padrões descobertos pelo RL"""
     return jsonify({
         'padroes': cache.get('padroes_descobertos', []),
         'total': len(cache.get('padroes_descobertos', []))
@@ -2586,12 +2255,8 @@ def api_padroes():
 
 @app.route('/api/padrao-7x2')
 def api_padrao_7x2():
-    """Mostra análises do padrão DUPLO TIE + SEQUÊNCIA 7:2"""
-    
-    # Faz a análise
     ocorrencias = analisar_padrao_7x2_no_historico()
     
-    # Procura o agente especialista
     agente_especialista = None
     if cache.get('rl_system'):
         for nome, agente in cache['rl_system'].agentes.items():
@@ -2694,17 +2359,12 @@ def treinar_rl_com_historico(limit=1000):
 
         from tqdm import tqdm
 
-        # Simula rodadas para treinar o RL
         for i in tqdm(range(50, len(dados_historicos)), desc="Treinando RL"):
             historico_ate_agora = dados_historicos[:i]
             resultado_real = dados_historicos[i]['resultado']
 
             if resultado_real != 'TIE':
-                # Ensina o RL
-                cache['rl_system'].aprender_com_resultado(
-                    historico_ate_agora,
-                    resultado_real
-                )
+                cache['rl_system'].aprender_com_resultado(historico_ate_agora, resultado_real)
 
         print(f"\n✅ TREINAMENTO RL CONCLUÍDO!")
         stats = cache['rl_system'].get_stats()
@@ -2721,13 +2381,9 @@ def treinar_rl_com_historico(limit=1000):
 def inicializar_sistema():
     print("\n🧠 INICIALIZANDO SISTEMA CAÇADOR 4.0 (RL PURO)...")
     
-    # Inicializa RL puro
     cache['rl_system'] = SistemaRLCompleto()
-    
-    # Tenta carregar estado anterior
     cache['rl_system'].carregar_estado('rl_estado.json')
     
-    # Carrega padrões descobertos anteriormente
     try:
         with open('padroes.json', 'r') as f:
             cache['padroes_descobertos'] = json.load(f)
@@ -2738,7 +2394,6 @@ def inicializar_sistema():
     print("✅ Sistema RL inicializado")
 
 def salvar_padroes():
-    """Salva os padrões descobertos pelo RL"""
     try:
         with open('padroes.json', 'w') as f:
             json.dump(cache['padroes_descobertos'], f, indent=2)
@@ -2780,15 +2435,14 @@ def verificar_previsoes_anteriores():
                         'saude': agente.saude
                     }
 
-        # Se tem analisador de erros, analisa
         causa_erro = None
         if cache.get('analisador_erros') and not acertou:
             causa_erro = cache['analisador_erros'].analisar_erro_em_tempo_real(
                 ultima, resultado_real, dados_ord, indice_manipulacao
             )
 
-        # Salva no banco
-        salvar_previsao_completa(
+        # 🔥 ALTERAÇÃO AQUI: usar a função segura
+        salvar_previsao_completa_segura(
             ultima, resultado_real, acertou, dados_ord, 
             pesos_agentes, indice_manipulacao, foi_manipulado, causa_erro
         )
@@ -2823,13 +2477,6 @@ def verificar_previsoes_anteriores():
         cache['ultimo_contexto_erro'] = None
 
 
-def calcular_precisao():
-    total = cache['estatisticas']['total_previsoes']
-    if total == 0:
-        return 0
-    return round((cache['estatisticas']['acertos'] / total) * 100)
-
-
 def atualizar_dados_leves():
     verificar_previsoes_anteriores()
     cache['leves']['ultimas_50'] = get_ultimas_50()
@@ -2862,14 +2509,11 @@ if __name__ == "__main__":
     print("   • 10000+ rodadas: 75-85% (especialista)")
     print("="*70)
 
-     # Inicializa banco de dados
     if not init_db():
         print("⚠️ Banco não disponível - continuando sem banco de dados")
     else:
-        # 🔧 VERIFICA E CORRIGE O BANCO AUTOMATICAMENTE (só se conectou)
         verificar_e_corrigir_banco()
     
-    # Tenta carregar JSON (opcional)
     try:
         with open('rodadas.json', 'r') as f:
             rodadas_json = json.load(f)
@@ -2880,17 +2524,14 @@ if __name__ == "__main__":
     print("📊 Carregando dados...")
     inicializar_sistema()
     
-    # 🚀 CARREGA HISTÓRICO DA API NORMAL E TREINA
     analisador = carregar_historico_completo_para_aprendizado(limite_paginas=50)
     
     if analisador:
         cache['analisador_erros'] = analisador
         print(f"\n✅ Sistema de análise de erros ativo!")
     
-    # Analisa padrão 7x2 específico
     analisar_padrao_7x2_no_historico()
     
-    # Atualiza dados
     atualizar_dados_leves()
     atualizar_dados_pesados()
 
@@ -2905,7 +2546,6 @@ if __name__ == "__main__":
 
     print("="*70)
 
-    # Inicia fontes de dados
     print("🔌 Iniciando WebSocket (modo backup)...")
     iniciar_websocket()
 
@@ -2924,10 +2564,9 @@ if __name__ == "__main__":
     print("🔄 Iniciando loop pesado...")
     threading.Thread(target=loop_pesado, daemon=True).start()
 
-    # Thread para salvar estado periodicamente
     def salvar_periodicamente():
         while True:
-            time.sleep(300)  # a cada 5 minutos
+            time.sleep(300)
             if cache.get('rl_system'):
                 cache['rl_system'].salvar_estado('rl_estado.json')
                 salvar_padroes()
