@@ -3178,7 +3178,7 @@ def salvar_padroes():
 
 
 # =============================================================================
-# MAIN
+# MAIN - VERSÃO CORRIGIDA (INICIALIZAÇÃO NÃO BLOQUEANTE)
 # =============================================================================
 if __name__ == "__main__":
     print("="*80)
@@ -3191,101 +3191,140 @@ if __name__ == "__main__":
     print("   ✅ Redes neurais PyTorch - aprendizado eficiente")
     print("   ✅ Recompensas calibradas - 2.0 para acertos, -1.5 para erros")
     print("   ✅ Priorização de experiências - foco em erros")
-    print("   ✅ RAY PARALELISMO - 50+ agentes simultâneos (10x a 100x mais rápido)")
+    print("   ✅ RAY PARALELISMO - 50+ agentes simultâneos")
     print("="*80)
-    print("📊 PREVISÃO DE DESEMPENHO (COM PARALELISMO):")
-    print("   • 0-200 rodadas: 55-60% (explorando rápido)")
-    print("   • 200-500 rodadas: 65-72% (aprendendo em paralelo)")
-    print("   • 500-1000 rodadas: 70-78% (maduro acelerado)")
-    print("   • 1000-2000 rodadas: 75-82% (especialista)")
-    print("   • 2000+ rodadas: 78-85% (mestre)")
-    print("="*80)
-
-    # Inicializa banco de dados
-    if not init_db():
-        print("⚠️ Banco não disponível - continuando sem banco de dados")
-    else:
-        inicializar_sistema()
     
-    # Carrega JSON local se existir
+    # =========================================================================
+    # INICIALIZAÇÃO RÁPIDA (NÃO BLOQUEANTE PARA O FLASK)
+    # =========================================================================
+    
+    # 1. Inicializa banco de dados (rápido)
+    db_ok = init_db()
+    if not db_ok:
+        print("⚠️ Banco não disponível - continuando sem banco de dados")
+    
+    # 2. Atualiza dados iniciais do cache (rápido)
+    atualizar_dados_leves()
+    atualizar_dados_pesados()
+    
+    # 3. Carrega JSON local se existir (rápido)
     try:
         with open('rodadas.json', 'r') as f:
             rodadas_json = json.load(f)
             print(f"✅ Arquivo JSON encontrado com {len(rodadas_json)} rodadas")
     except:
         print("📁 Nenhum arquivo JSON encontrado - continuando com API")
-
-    # Carrega histórico e treina
-    if cache.get('rl_system'):
-        analisador = carregar_historico_completo_para_aprendizado(limite_paginas=50)
-        
-        if analisador:
-            cache['analisador_erros'] = analisador
-            print(f"\n✅ Sistema de análise de erros ativo!")
     
-    # Analisa padrão 7x2
-    analisar_padrao_7x2_no_historico()
-    
-    # Atualiza dados iniciais
-    atualizar_dados_leves()
-    atualizar_dados_pesados()
-
     total_rodadas = cache['leves']['total_rodadas']
     print(f"📊 {total_rodadas} rodadas no banco")
-
-    if cache.get('rl_system'):
-        stats = cache['rl_system'].get_stats()
-        print(f"🧠 {len(cache['rl_system'].agentes)} agentes RL tradicionais ativos")
     
-    if cache.get('ray_system'):
-        print(f"⚡ {cache['ray_system'].num_agentes} agentes Ray paralelos ativos")
-
-    print("="*80)
-
-    # Inicia todas as threads
+    # =========================================================================
+    # INICIALIZAÇÃO DOS SISTEMAS EM BACKGROUND (NÃO BLOQUEIA O FLASK)
+    # =========================================================================
+    
+    def inicializar_sistemas_background():
+        """Tudo que é pesado roda aqui em background após o Flask iniciar"""
+        try:
+            print("\n🔄 [BACKGROUND] Inicializando sistemas pesados...")
+            
+            # Pequena pausa para dar tempo do Flask iniciar
+            time.sleep(3)
+            
+            # Inicializa sistema RL
+            inicializar_sistema()
+            
+            if cache.get('rl_system'):
+                stats = cache['rl_system'].get_stats()
+                print(f"🧠 [BACKGROUND] {len(cache['rl_system'].agentes)} agentes RL tradicionais ativos")
+                
+                # Carrega histórico em background (isso é PESADO)
+                print("📚 [BACKGROUND] Carregando histórico completo para aprendizado...")
+                analisador = carregar_historico_completo_para_aprendizado(limite_paginas=50)
+                
+                if analisador:
+                    cache['analisador_erros'] = analisador
+                    print("✅ [BACKGROUND] Sistema de análise de erros ativo!")
+            
+            if cache.get('ray_system'):
+                print(f"⚡ [BACKGROUND] {cache['ray_system'].num_agentes} agentes Ray paralelos ativos")
+            
+            # Analisa padrão 7x2 em background
+            print("🔍 [BACKGROUND] Analisando padrão 7x2...")
+            analisar_padrao_7x2_no_historico()
+            
+            print("✅ [BACKGROUND] Todos os sistemas inicializados com sucesso!")
+            
+        except Exception as e:
+            print(f"❌ [BACKGROUND] Erro na inicialização: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    # Inicia thread background para sistemas pesados
+    threading.Thread(target=inicializar_sistemas_background, daemon=True).start()
+    
+    # =========================================================================
+    # INICIALIZAÇÃO DAS THREADS DE COLETA (TODAS EM BACKGROUND)
+    # =========================================================================
+    
+    print("\n🔌 Iniciando threads de coleta...")
+    
+    # WebSocket
     print("🔌 Iniciando WebSocket (modo backup)...")
     iniciar_websocket()
-
+    
+    # Threads de coleta
     print("📡 [PRINCIPAL] Iniciando coletor LATEST (0.3s)...")
     threading.Thread(target=loop_latest, daemon=True).start()
-
+    
     print("⚡ Iniciando monitor WebSocket...")
     threading.Thread(target=loop_websocket_fallback, daemon=True).start()
-
+    
     print("📚 [FALLBACK] Iniciando coletor API NORMAL (10s)...")
     threading.Thread(target=loop_api_fallback, daemon=True).start()
-
+    
     print("🚀 Iniciando processador da fila com RL...")
     threading.Thread(target=processar_fila, daemon=True).start()
-
+    
     print("🔄 Iniciando loop pesado...")
     threading.Thread(target=loop_pesado, daemon=True).start()
-
+    
     # Inicia treinamento paralelo com Ray em thread separada
-    if RAY_AVAILABLE and cache.get('ray_system'):
+    if RAY_AVAILABLE:
         print("⚡ Iniciando treinamento paralelo com Ray (50 agentes)...")
         threading.Thread(target=loop_treinamento_ray, daemon=True).start()
-
+    
     # Thread para salvar estado periodicamente
     def salvar_periodicamente():
         while True:
             time.sleep(300)  # 5 minutos
-            if cache.get('rl_system'):
-                cache['rl_system'].salvar_estado('rl_estado.json')
-                salvar_padroes()
-                print("💾 Estado RL salvo automaticamente")
-
+            try:
+                if cache.get('rl_system'):
+                    cache['rl_system'].salvar_estado('rl_estado.json')
+                    salvar_padroes()
+                    print("💾 Estado RL salvo automaticamente")
+            except Exception as e:
+                print(f"⚠️ Erro ao salvar estado: {e}")
+    
     threading.Thread(target=salvar_periodicamente, daemon=True).start()
-
+    
+    # =========================================================================
+    # INICIALIZAÇÃO DO FLASK (AGORA RÁPIDA - NADA BLOQUEIA)
+    # =========================================================================
+    
     print("\n" + "="*80)
-    print("✅ SISTEMA PRONTO! PREVISÃO ATUALIZA AUTOMATICAMENTE!")
-    print("📊 Acesse /api/stats para ver a previsão em tempo real")
-    print("🧠 Acesse /api/aprendizado para ver a evolução dos agentes RL")
-    print("⚡ Acesse /api/stats para ver estatísticas dos 50 agentes paralelos")
-    print("📝 Acesse /api/analise-erros para análise detalhada dos erros")
-    print("🎯 Acesse /api/manipulacao para estatísticas de manipulação")
-    print("🔍 Acesse /api/padroes para ver padrões descobertos")
-    print("🎲 Acesse /api/padrao-7x2 para ver o padrão especial")
+    print("✅ INICIALIZAÇÃO RÁPIDA CONCLUÍDA! FLASK INICIANDO...")
+    print("📊 Healthcheck responderá imediatamente em /health")
+    print("🔄 Sistemas pesados rodando em background")
     print("="*80)
-
-    app.run(host='0.0.0.0', port=PORT, debug=False)
+    print("\n📊 ENDPOINTS DISPONÍVEIS:")
+    print("   • /health - Status do serviço")
+    print("   • /api/stats - Estatísticas em tempo real")
+    print("   • /api/aprendizado - Evolução dos agentes RL")
+    print("   • /api/analise-erros - Análise detalhada dos erros")
+    print("   • /api/manipulacao - Estatísticas de manipulação")
+    print("   • /api/padroes - Padrões descobertos")
+    print("   • /api/padrao-7x2 - Padrão especial")
+    print("="*80)
+    
+    # Força o Flask a não usar reloader que pode causar problemas com threads
+    app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
