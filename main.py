@@ -3380,9 +3380,15 @@ if __name__ == "__main__":
             
             inicializar_sistema()
             
+            # =========================================================================
+            # 🚀 CARREGAR ESTATÍSTICAS DO BANCO DE DADOS
+            # =========================================================================
+            carregar_estatisticas_do_banco()
+            
             if cache.get('rl_system'):
                 stats = cache['rl_system'].get_stats()
                 print(f"🧠 [BACKGROUND] {len(cache['rl_system'].agentes)} agentes RL tradicionais ativos")
+                print(f"📊 Geração atual: {stats['geracao']}")
             
             try:
                 with open('rodadas.json', 'r') as f:
