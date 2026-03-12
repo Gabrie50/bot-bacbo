@@ -22,6 +22,40 @@ import multiprocessing as mp
 from multiprocessing import Queue as MPQueue
 import traceback
 
+# Silenciar avisos
+warnings.filterwarnings('ignore')
+os.environ['PYTHONWARNINGS'] = 'ignore'
+
+# =============================================================================
+# 🚀 INICIAR FLASK PRIMEIRO (CRÍTICO PARA O RENDER)
+# =============================================================================
+app = Flask(__name__)
+CORS(app)
+
+# =============================================================================
+# 🏥 HEALTHCHECK URGENTE (RESPONDE IMEDIATAMENTE)
+# =============================================================================
+@app.route('/health', methods=['GET'])
+def health_urgente():
+    """Healthcheck que responde na hora - ESSENCIAL para o Render"""
+    return jsonify({
+        'status': 'ok',
+        'mensagem': 'Sistema online',
+        'timestamp': time.time(),
+        'versao': '5.0 - 300 Agentes'
+    })
+
+@app.route('/', methods=['GET'])
+def home_rapida():
+    """Página inicial simples"""
+    return jsonify({
+        'nome': 'Bac Bo Predictor',
+        'versao': '5.0 - 300 Agentes',
+        'status': 'online',
+        'health': '/health',
+        'stats': '/api/stats'
+    })
+ 
 # =============================================================================
 # 🔇 SILENCIAR AVISOS DO GYM (OPCIONAL)
 # =============================================================================
