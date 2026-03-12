@@ -23,6 +23,13 @@ from multiprocessing import Queue as MPQueue
 import traceback
 
 # =============================================================================
+# 🔇 SILENCIAR AVISOS DO GYM (OPCIONAL)
+# =============================================================================
+import warnings
+warnings.filterwarnings('ignore', message='Gym has been unmaintained')
+warnings.filterwarnings('ignore', module='gym')
+
+# =============================================================================
 # 🔧 PATCH CORRETIVO PARA O ERRO DO NUMPY (ESSENCIAL!)
 # =============================================================================
 # Este patch resolve o erro: "cannot import name 'ERR_IGNORE' from 'numpy.core.umath'"
