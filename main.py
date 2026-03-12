@@ -3310,6 +3310,7 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
             
             cur = conn.cursor()
             rodadas_ordenadas = []
+            erros_na_pagina = False
             
             for item in dados:
                 try:
@@ -3362,50 +3363,59 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
                         
                 except Exception as e:
                     print(f"   ⚠️ Erro ao processar item: {e}")
-                    continue
+                    erros_na_pagina = True
+                    # Em caso de erro, faz rollback desta página
+                    conn.rollback()
+                    break  # Sai do loop para não continuar com transação corrompida
             
-            # COMMIT E FECHAMENTO CORRETO
-            conn.commit()
-            cur.close()
-            conn.close()
+            # Se houve erro, não faz commit, já fez rollback
+            if not erros_na_pagina:
+                conn.commit()
             
-            rodadas_ordenadas.sort(key=lambda x: x['data_hora'])
+            # FECHA A CONEXÃO ATUAL
+            if cur:
+                cur.close()
+            if conn:
+                conn.close()
             
-            print(f"   🧠 Simulando aprendizado com {len(rodadas_ordenadas)} rodadas...")
-            
-            historico_simulado = []
-            
-            for i, rodada in enumerate(rodadas_ordenadas):
-                historico_simulado.append({
-                    'player_score': rodada['player_score'],
-                    'banker_score': rodada['banker_score'],
-                    'resultado': rodada['resultado']
-                })
+            if not erros_na_pagina:
+                rodadas_ordenadas.sort(key=lambda x: x['data_hora'])
                 
-                if len(historico_simulado) >= 30:
-                    previsao = sistema_rl.processar_rodada(historico_simulado[:-1])
+                print(f"   🧠 Simulando aprendizado com {len(rodadas_ordenadas)} rodadas...")
+                
+                historico_simulado = []
+                
+                for i, rodada in enumerate(rodadas_ordenadas):
+                    historico_simulado.append({
+                        'player_score': rodada['player_score'],
+                        'banker_score': rodada['banker_score'],
+                        'resultado': rodada['resultado']
+                    })
                     
-                    if previsao:
-                        indice = calcular_indice_manipulacao(historico_simulado[:-20] if len(historico_simulado) > 20 else historico_simulado)
+                    if len(historico_simulado) >= 30:
+                        previsao = sistema_rl.processar_rodada(historico_simulado[:-1])
                         
-                        if previsao['previsao'] != rodada['resultado'] and rodada['resultado'] != 'TIE':
-                            causa = analisador.analisar_erro_em_tempo_real(
-                                previsao, rodada['resultado'], historico_simulado[:-1], indice
-                            )
+                        if previsao:
+                            indice = calcular_indice_manipulacao(historico_simulado[:-20] if len(historico_simulado) > 20 else historico_simulado)
                             
-                            salvar_previsao_completa_segura(
-                                previsao, rodada['resultado'], False, historico_simulado[:-1],
-                                None, indice, indice > 50, causa
-                            )
-                        else:
-                            salvar_previsao_completa_segura(
-                                previsao, rodada['resultado'], True, historico_simulado[:-1],
-                                None, indice, indice > 50
-                            )
-                        
-                        sistema_rl.aprender_com_resultado(historico_simulado, rodada['resultado'])
-            
-            print(f"   ✅ Simulação concluída para página {pagina}")
+                            if previsao['previsao'] != rodada['resultado'] and rodada['resultado'] != 'TIE':
+                                causa = analisador.analisar_erro_em_tempo_real(
+                                    previsao, rodada['resultado'], historico_simulado[:-1], indice
+                                )
+                                
+                                salvar_previsao_completa_segura(
+                                    previsao, rodada['resultado'], False, historico_simulado[:-1],
+                                    None, indice, indice > 50, causa
+                                )
+                            else:
+                                salvar_previsao_completa_segura(
+                                    previsao, rodada['resultado'], True, historico_simulado[:-1],
+                                    None, indice, indice > 50
+                                )
+                            
+                            sistema_rl.aprender_com_resultado(historico_simulado, rodada['resultado'])
+                
+                print(f"   ✅ Simulação concluída para página {pagina}")
             
             if len(rodadas_ordenadas) > 0:
                 paginas_sem_novidades = 0
