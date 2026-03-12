@@ -782,13 +782,13 @@ class SistemaRLCompleto:
         self.melhor_precisao = 0
         self.manipulacoes_detectadas = 0
         
-        for i in range(10):
+        for i in range(50):
             nome = f"RL_Agente_{i+1}"
             random.seed(i * 42)
             np.random.seed(i * 42)
             self.agentes[nome] = AgenteRLPuro(nome, i)
             
-        print(f"✅ 10 agentes RL puros inicializados")
+        print(f"✅ 50 agentes RL puros inicializados")
         
         if TORCH_AVAILABLE:
             self._criar_meta_agente()
@@ -1543,7 +1543,7 @@ class NeuroEvolucaoCorretiva:
     Versão turbinada com 300 agentes e correção específica para cada padrão de erro
     """
     
-    def __init__(self, sistema_rl, num_agentes=300):
+    def __init__(self, sistema_rl, num_agentes=1000):
         self.sistema_rl = sistema_rl
         self.num_agentes = num_agentes
         self.historico_erros = deque(maxlen=15000)  # Aumentado para 300 agentes
@@ -2279,7 +2279,7 @@ def processo_agente_worker(agente_id, fila_experiencias, estatisticas_compartilh
 class SistemaMultiprocessing:
     """Sistema que gerencia múltiplos processos rodando em paralelo"""
     
-    def __init__(self, num_agentes=200):
+    def __init__(self, num_agentes=900):
         self.num_agentes = num_agentes
         self.processos = []
         self.state_size = 150
@@ -4397,21 +4397,21 @@ if __name__ == "__main__":
                     # =========================================================================
                     # 🧬 ATIVAR NEUROEVOLUÇÃO CORRETIVA COM 300 AGENTES (NOVO!)
                     # =========================================================================
-                    print("🧬 [BACKGROUND] Iniciando neuroevolução corretiva com 300 AGENTES...")
-                    neuro = NeuroEvolucaoCorretiva(cache['rl_system'], num_agentes=300)
+                    print("🧬 [BACKGROUND] Iniciando neuroevolução corretiva com 1000 AGENTES...")
+                    neuro = NeuroEvolucaoCorretiva(cache['rl_system'], num_agentes=1000)
                     analisador.neuro_treinador = neuro
-                    print("✅ [BACKGROUND] Neuroevolução corretiva ativada com 300 agentes especialistas!")
+                    print("✅ [BACKGROUND] Neuroevolução corretiva ativada com 1000 agentes especialistas!")
                     
                     # Iniciar loop de correção contínua em background
                     threading.Thread(target=loop_correcao_continua, daemon=True).start()
-                    print("🔄 [BACKGROUND] Loop de correção contínua iniciado (300 agentes)")
+                    print("🔄 [BACKGROUND] Loop de correção contínua iniciado (1000 agentes)")
                     # =========================================================================
             
             print("🔍 [BACKGROUND] Analisando padrão 7x2...")
             analisar_padrao_7x2_no_historico()
             
             print("⚡ [BACKGROUND] Iniciando sistema multiprocessing...")
-            sistema_mp = SistemaMultiprocessing(num_agentes=200)
+            sistema_mp = SistemaMultiprocessing(num_agentes=900)
             sistema_mp.iniciar_consumidor_fila()
             cache['mp_system'] = sistema_mp
             
