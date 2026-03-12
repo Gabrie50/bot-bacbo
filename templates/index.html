@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🧠 BacBo AI - 12 Agentes com Neuroevolução + Anti-Queda</title>
+    <title>🧠 BacBo AI - 1950 Agentes com Neuroevolução + Anti-Queda</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -159,9 +159,15 @@
             border: 1px solid #9370db;
         }
 
+        .modo-especialista {
+            background: #ff69b420;
+            color: #ff69b4;
+            border: 1px solid #ff69b4;
+        }
+
         .previsao-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(5, 1fr);
             gap: 20px;
         }
 
@@ -274,7 +280,7 @@
         /* Stats da IA - Grid expandido */
         .stats-ia-grid {
             display: grid;
-            grid-template-columns: repeat(8, 1fr);
+            grid-template-columns: repeat(12, 1fr);
             gap: 15px;
             margin-bottom: 25px;
         }
@@ -286,6 +292,7 @@
             padding: 15px;
             text-align: center;
             transition: all 0.3s ease;
+            cursor: pointer;
         }
 
         .stats-ia-card:hover {
@@ -310,6 +317,8 @@
         .stats-ia-geracao { color: #ffaa00; }
         .stats-ia-manipulacao { color: #ff69b4; }
         .stats-ia-saude { color: #00ffff; }
+        .stats-ia-especialista { color: #9370db; }
+        .stats-ia-paralelo { color: #4d4dff; }
 
         /* Tabela de Agentes */
         .agentes-table {
@@ -329,6 +338,12 @@
             text-transform: uppercase;
             padding: 12px;
             text-align: center;
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+
+        .agentes-table th:hover {
+            color: #4d4dff;
         }
 
         .agentes-table td {
@@ -604,7 +619,7 @@
         .banker-color { color: #ff4d4d; }
         .tie-color { color: #ffaa00; }
 
-        /* Grid de números */
+        /* Grid de números com cache */
         .numeros-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
@@ -628,6 +643,13 @@
             flex-direction: column;
             align-items: center;
             gap: 4px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .numero-item:hover {
+            transform: scale(1.05);
+            border-color: #4d4dff;
         }
 
         .numero-player { border-left: 3px solid #4d4dff; }
@@ -668,6 +690,81 @@
             border-radius: 12px;
             font-size: 11px;
         }
+
+        /* Tooltip */
+        .tooltip-info {
+            position: relative;
+            display: inline-block;
+            cursor: help;
+        }
+
+        .tooltip-info:hover::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1e2227;
+            color: #fff;
+            padding: 5px 10px;
+            border-radius: 8px;
+            font-size: 12px;
+            white-space: nowrap;
+            border: 1px solid #4d4dff;
+            z-index: 1000;
+        }
+
+        /* Status bar */
+        .status-bar {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            padding: 10px;
+            background: #15181c;
+            border-radius: 8px;
+            border: 1px solid #2a2f35;
+            flex-wrap: wrap;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .dot-green { background: #00ff88; }
+        .dot-yellow { background: #ffaa00; }
+        .dot-red { background: #ff4d4d; }
+        .dot-purple { background: #9370db; }
+
+        /* Cache indicator */
+        .cache-indicator {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 11px;
+            color: #8a8f99;
+        }
+
+        .cache-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #00ff88;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
     </style>
 </head>
 <body>
@@ -676,7 +773,7 @@
         <div class="header">
             <h1>
                 <i class="bi bi-cpu"></i>
-                BacBo - 12 Agentes com Neuroevolução + Anti-Queda
+                BacBo AI - <span id="totalAgentesDisplay">1950</span> Agentes com Neuroevolução + Anti-Queda
                 <span class="geracao-badge" id="geracaoAtual">Geração 0</span>
             </h1>
             <div class="ia-badge">
@@ -686,12 +783,36 @@
             </div>
         </div>
 
+        <!-- Status Bar -->
+        <div class="status-bar">
+            <div class="status-item">
+                <span class="status-dot dot-green"></span>
+                <span>50 Tradicionais</span>
+            </div>
+            <div class="status-item">
+                <span class="status-dot dot-purple"></span>
+                <span>1000 Especialistas</span>
+            </div>
+            <div class="status-item">
+                <span class="status-dot dot-yellow"></span>
+                <span>900 Paralelos</span>
+            </div>
+            <div class="status-item">
+                <span class="status-dot" style="background: #4d4dff;"></span>
+                <span id="agentesAtivosDisplay">0 ativos</span>
+            </div>
+            <div class="cache-indicator">
+                <span class="cache-dot"></span>
+                <span id="cacheStatus">Cache ativo</span>
+            </div>
+        </div>
+
         <!-- Card de Previsão da IA -->
         <div class="previsao-card" id="previsaoCard">
             <div class="previsao-header">
                 <div class="previsao-titulo">
                     <i class="bi bi-brain"></i>
-                    DECISÃO DOS 12 AGENTES
+                    DECISÃO DOS AGENTES
                 </div>
                 <div class="modo-badge" id="modoAlgoritmo">ANALISANDO...</div>
             </div>
@@ -714,6 +835,10 @@
                     <div class="previsao-label">AGENTES</div>
                     <div class="previsao-valor" id="totalAgentes">0</div>
                 </div>
+                <div class="previsao-item">
+                    <div class="previsao-label">ESPECIALISTAS</div>
+                    <div class="previsao-valor" id="totalEspecialistas">0</div>
+                </div>
             </div>
 
             <div class="agentes-list" id="agentesAtivos">
@@ -726,64 +851,82 @@
             </div>
         </div>
 
-        <!-- Stats da IA - Expandido -->
+        <!-- Stats da IA - Expandido com NOVAS ROTAS -->
         <div class="stats-ia-grid">
-            <div class="stats-ia-card">
+            <div class="stats-ia-card" onclick="window.location.href='/api/neuro-status'">
                 <div class="stats-ia-valor stats-ia-geracao" id="geracaoNumero">0</div>
                 <div class="stats-ia-label">GERAÇÃO</div>
             </div>
-            <div class="stats-ia-card">
+            <div class="stats-ia-card" onclick="window.location.href='/api/stats'">
                 <div class="stats-ia-valor" id="totalRodadasIA">0</div>
                 <div class="stats-ia-label">RODADAS</div>
             </div>
-            <div class="stats-ia-card">
+            <div class="stats-ia-card" onclick="window.location.href='/api/aprendizado'">
                 <div class="stats-ia-valor stats-ia-acerto" id="melhorPrecisao">0%</div>
                 <div class="stats-ia-label">TOP AGENTE</div>
             </div>
-            <div class="stats-ia-card">
+            <div class="stats-ia-card" onclick="window.location.href='/api/stats'">
                 <div class="stats-ia-valor" id="totalPrevisoesIA">0</div>
                 <div class="stats-ia-label">PREVISÕES</div>
             </div>
-            <div class="stats-ia-card">
+            <div class="stats-ia-card" onclick="window.location.href='/api/analise-erros'">
                 <div class="stats-ia-valor stats-ia-acerto" id="acertosIA">0</div>
                 <div class="stats-ia-label">ACERTOS</div>
             </div>
-            <div class="stats-ia-card">
+            <div class="stats-ia-card" onclick="window.location.href='/api/analise-erros'">
                 <div class="stats-ia-valor stats-ia-erro" id="errosIA">0</div>
                 <div class="stats-ia-label">ERROS</div>
             </div>
-            <div class="stats-ia-card">
+            <div class="stats-ia-card" onclick="window.location.href='/api/manipulacao'">
                 <div class="stats-ia-valor stats-ia-manipulacao" id="manipulacoesIA">0</div>
                 <div class="stats-ia-label">MANIPULAÇÕES</div>
             </div>
-            <div class="stats-ia-card">
+            <div class="stats-ia-card" onclick="window.location.href='/api/neuro-status'">
                 <div class="stats-ia-valor stats-ia-saude" id="saudeMediaIA">100%</div>
                 <div class="stats-ia-label">SAÚDE MÉDIA</div>
             </div>
+            <div class="stats-ia-card" onclick="window.location.href='/api/neuro-status'">
+                <div class="stats-ia-valor stats-ia-especialista" id="especialistasAtivos">0</div>
+                <div class="stats-ia-label">ESPECIALISTAS</div>
+            </div>
+            <div class="stats-ia-card" onclick="window.location.href='/api/stats'">
+                <div class="stats-ia-valor stats-ia-paralelo" id="paralelosAtivos">0</div>
+                <div class="stats-ia-label">PARALELOS</div>
+            </div>
+            <div class="stats-ia-card" onclick="window.location.href='/api/corrigir-agora'">
+                <div class="stats-ia-valor stats-ia-manipulacao" id="correcoesPendentes">0</div>
+                <div class="stats-ia-label">CORREÇÕES</div>
+            </div>
+            <div class="stats-ia-card" onclick="window.location.href='/api/padrao-7x2'">
+                <div class="stats-ia-valor" id="padroesDescobertos">0</div>
+                <div class="stats-ia-label">PADRÕES</div>
+            </div>
         </div>
 
-        <!-- Tabela dos 12 Agentes - CORRIGIDA -->
+        <!-- Tabela dos Agentes - ORDEM DECRESCENTE -->
         <div class="card">
             <div class="card-title">
                 <i class="bi bi-people"></i>
-                OS 12 AGENTES - PESOS EVOLUTIVOS
-                <span class="info-badge" id="agentesAtivosCount">10 ativos</span>
+                AGENTES ATIVOS - ORDEM DECRESCENTE DE PRECISÃO
+                <span class="info-badge" id="agentesAtivosCount">0 ativos</span>
+                <span class="info-badge" style="background: #4d4dff20; color: #4d4dff;">Clique nos cabeçalhos para ordenar</span>
             </div>
             <table class="agentes-table">
                 <thead>
                     <tr>
-                        <th>Agente</th>
-                        <th>Acertos</th>
-                        <th>Erros</th>
-                        <th>Precisão</th>
-                        <th>Pesos (B/P)</th>
-                        <th>Saúde</th>
-                        <th>Força</th>
+                        <th onclick="ordenarTabela('nome')">Agente <i class="bi bi-arrow-down-up"></i></th>
+                        <th onclick="ordenarTabela('acertos')">Acertos <i class="bi bi-arrow-down-up"></i></th>
+                        <th onclick="ordenarTabela('erros')">Erros <i class="bi bi-arrow-down-up"></i></th>
+                        <th onclick="ordenarTabela('precisao')">Precisão <i class="bi bi-arrow-down-up"></i></th>
+                        <th onclick="ordenarTabela('peso')">Pesos (B/P) <i class="bi bi-arrow-down-up"></i></th>
+                        <th onclick="ordenarTabela('saude')">Saúde <i class="bi bi-arrow-down-up"></i></th>
+                        <th onclick="ordenarTabela('fitness')">Força <i class="bi bi-arrow-down-up"></i></th>
+                        <th>Especialidade</th>
                     </tr>
                 </thead>
                 <tbody id="agentesTableBody">
                     <tr>
-                        <td colspan="7" class="text-center">Carregando agentes...</td>
+                        <td colspan="8" class="text-center">Carregando agentes...</td>
                     </tr>
                 </tbody>
             </table>
@@ -808,9 +951,9 @@
             <div class="grafico-item">
                 <div class="grafico-titulo">
                     <i class="bi bi-bar-chart"></i>
-                    Acertos por Geração
+                    Acertos vs Erros
                 </div>
-                <canvas id="acertosChart"></canvas>
+                <canvas id="acertosErrosChart"></canvas>
             </div>
             <div class="grafico-item">
                 <div class="grafico-titulo">
@@ -855,21 +998,21 @@
                     </div>
                 </div>
 
-                <!-- Botões de Limite -->
+                <!-- Botões de Limite com CACHE -->
                 <div class="limite-buttons">
-                    <button class="limite-btn active" onclick="carregarTabela(50)">50</button>
-                    <button class="limite-btn" onclick="carregarTabela(250)">250</button>
-                    <button class="limite-btn" onclick="carregarTabela(500)">500</button>
-                    <button class="limite-btn" onclick="carregarTabela(1000)">1K</button>
-                    <button class="limite-btn" onclick="carregarTabela(2000)">2K</button>
-                    <button class="limite-btn" onclick="carregarTabela(3000)">3K</button>
+                    <button class="limite-btn active" onclick="carregarTabelaCache(50)">50</button>
+                    <button class="limite-btn" onclick="carregarTabelaCache(250)">250</button>
+                    <button class="limite-btn" onclick="carregarTabelaCache(500)">500</button>
+                    <button class="limite-btn" onclick="carregarTabelaCache(1000)">1K</button>
+                    <button class="limite-btn" onclick="carregarTabelaCache(2000)">2K</button>
+                    <button class="limite-btn" onclick="carregarTabelaCache(3000)">3K</button>
                 </div>
 
-                <!-- Tabela de Rodadas -->
+                <!-- Tabela de Rodadas com CACHE -->
                 <div class="card">
                     <div class="card-title">
                         <i class="bi bi-table"></i>
-                        Histórico
+                        Histórico <span class="cache-indicator" id="cacheIndicator">(cache)</span>
                         <span class="badge bg-secondary ms-2" id="tabelaCount">0</span>
                         <span class="info-badge" id="filtroAtivo">todas</span>
                     </div>
@@ -883,23 +1026,33 @@
 
     <script>
         // =========================================================================
-        // CONFIGURAÇÕES
+        // CONFIGURAÇÕES COM CACHE INTELIGENTE
         // =========================================================================
         const CONFIG = {
             INTERVALO_RELOGIO: 1000,
-            INTERVALO_ATUALIZACAO: 2000,
+            INTERVALO_ATUALIZACAO: 3000, // Aumentado para 3s (menos chamadas)
+            INTERVALO_CACHE: 60000, // Cache de 1 minuto para tabela
             LIMITE_PADRAO: 50
         };
 
         // Variáveis globais
         let evolucaoChart = null;
         let saudeChart = null;
-        let acertosChart = null;
+        let acertosErrosChart = null;
         let forcaChart = null;
         let dadosCompletos = [];
         let filtroAtual = null;
         let limiteAtual = CONFIG.LIMITE_PADRAO;
         let ultimaAtualizacao = 0;
+        let ordemTabela = { coluna: 'precisao', direcao: 'desc' };
+        let dadosAgentes = [];
+        
+        // Sistema de Cache
+        let cacheTabela = {
+            dados: null,
+            timestamp: 0,
+            limite: 50
+        };
 
         // =========================================================================
         // FUNÇÕES AUXILIARES
@@ -950,7 +1103,18 @@
             if (nome.includes('Meta')) return 'meta';
             if (nome.includes('Avançada')) return 'avancado';
             if (nome.includes('Anti')) return 'anti';
+            if (nome.includes('Especialista')) return 'meta';
             return '';
+        }
+
+        function ordenarTabela(coluna) {
+            if (ordemTabela.coluna === coluna) {
+                ordemTabela.direcao = ordemTabela.direcao === 'asc' ? 'desc' : 'asc';
+            } else {
+                ordemTabela.coluna = coluna;
+                ordemTabela.direcao = 'desc';
+            }
+            atualizarTabelaAgentes(dadosAgentes);
         }
 
         // =========================================================================
@@ -1034,19 +1198,16 @@
                 }
             });
 
-            // Gráfico de Acertos por Geração
-            const ctxAcertos = document.getElementById('acertosChart').getContext('2d');
-            acertosChart = new Chart(ctxAcertos, {
-                type: 'line',
+            // Gráfico de Acertos vs Erros
+            const ctxAcertosErros = document.getElementById('acertosErrosChart').getContext('2d');
+            acertosErrosChart = new Chart(ctxAcertosErros, {
+                type: 'bar',
                 data: {
-                    labels: ['G1', 'G2', 'G3', 'G4', 'G5', 'G6'],
+                    labels: ['Acertos', 'Erros'],
                     datasets: [{
-                        label: 'Acertos',
-                        data: [45, 52, 48, 58, 62, 58],
-                        borderColor: '#00ff88',
-                        backgroundColor: '#00ff8820',
-                        tension: 0.3,
-                        fill: true
+                        data: [0, 0],
+                        backgroundColor: ['#00ff88', '#ff4d4d'],
+                        borderRadius: 6
                     }]
                 },
                 options: {
@@ -1055,7 +1216,6 @@
                     scales: {
                         y: {
                             beginAtZero: true,
-                            max: 100,
                             grid: { color: '#2a2f35' },
                             ticks: { color: '#8a8f99' }
                         },
@@ -1075,9 +1235,9 @@
             forcaChart = new Chart(ctxForca, {
                 type: 'doughnut',
                 data: {
-                    labels: ['Força Alta', 'Força Média', 'Força Baixa'],
+                    labels: ['Força Alta (70%+)', 'Força Média (50-69%)', 'Força Baixa (<50%)'],
                     datasets: [{
-                        data: [3, 4, 5],
+                        data: [0, 0, 0],
                         backgroundColor: ['#00ff88', '#ffaa00', '#ff4d4d'],
                         borderColor: '#15181c',
                         borderWidth: 2
@@ -1098,27 +1258,118 @@
         }
 
         // =========================================================================
+        // FUNÇÕES DE CACHE PARA TABELA
+        // =========================================================================
+        async function carregarTabelaCache(limite) {
+            const agora = Date.now();
+            
+            // Se o cache ainda é válido (menos de 1 minuto) e é o mesmo limite
+            if (cacheTabela.dados && 
+                cacheTabela.limite === limite && 
+                agora - cacheTabela.timestamp < CONFIG.INTERVALO_CACHE) {
+                
+                console.log('📦 Usando cache da tabela');
+                dadosCompletos = cacheTabela.dados;
+                atualizarInterfaceTabela();
+                return;
+            }
+            
+            // Se não, carrega do servidor
+            await carregarTabela(limite);
+        }
+
+        function atualizarInterfaceTabela() {
+            const player = dadosCompletos.filter(r => r.resultado === 'PLAYER').length;
+            const banker = dadosCompletos.filter(r => r.resultado === 'BANKER').length;
+            const tie = dadosCompletos.filter(r => r.resultado === 'TIE').length;
+            const total = dadosCompletos.length;
+            
+            document.getElementById('tabelaCount').textContent = total;
+            document.getElementById('playerNumero').textContent = player;
+            document.getElementById('bankerNumero').textContent = banker;
+            document.getElementById('tieNumero').textContent = tie;
+            
+            if (total > 0) {
+                document.getElementById('playerPercent').textContent = ((player/total)*100).toFixed(1) + '%';
+                document.getElementById('bankerPercent').textContent = ((banker/total)*100).toFixed(1) + '%';
+                document.getElementById('tiePercent').textContent = ((tie/total)*100).toFixed(1) + '%';
+            }
+            
+            exibirHistorico(dadosCompletos);
+        }
+
+        // =========================================================================
         // ATUALIZAÇÕES
         // =========================================================================
         function atualizarTabelaAgentes(agentes) {
-            const tbody = document.getElementById('agentesTableBody');
-            
             if (!agentes || agentes.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" class="text-center">Nenhum agente disponível</td></tr>';
+                document.getElementById('agentesTableBody').innerHTML = '<tr><td colspan="8" class="text-center">Nenhum agente disponível</td></tr>';
                 return;
             }
 
-            // CORREÇÃO: Contar apenas agentes com total > 0
-            const agentesAtivos = agentes.filter(a => a.total > 0);
+            dadosAgentes = agentes;
+            
+            // Filtrar apenas agentes com total > 0
+            let agentesAtivos = agentes.filter(a => a.total > 0);
+            
+            // Ordenar conforme a ordem atual
+            agentesAtivos.sort((a, b) => {
+                let valA, valB;
+                
+                switch(ordemTabela.coluna) {
+                    case 'nome':
+                        valA = a.nome;
+                        valB = b.nome;
+                        break;
+                    case 'acertos':
+                        valA = a.acertos;
+                        valB = b.acertos;
+                        break;
+                    case 'erros':
+                        valA = a.erros;
+                        valB = b.erros;
+                        break;
+                    case 'precisao':
+                        valA = a.precisao;
+                        valB = b.precisao;
+                        break;
+                    case 'peso':
+                        valA = a.peso || 1;
+                        valB = b.peso || 1;
+                        break;
+                    case 'saude':
+                        valA = a.saude || 100;
+                        valB = b.saude || 100;
+                        break;
+                    case 'fitness':
+                        valA = a.fitness || a.precisao;
+                        valB = b.fitness || b.precisao;
+                        break;
+                    default:
+                        valA = a.precisao;
+                        valB = b.precisao;
+                }
+                
+                if (ordemTabela.direcao === 'asc') {
+                    return valA > valB ? 1 : -1;
+                } else {
+                    return valA < valB ? 1 : -1;
+                }
+            });
+
             document.getElementById('agentesAtivosCount').textContent = `${agentesAtivos.length} ativos`;
+            document.getElementById('agentesAtivosDisplay').textContent = `${agentesAtivos.length} ativos`;
 
             let html = '';
             let totalSaude = 0;
             let forcaAlta = 0, forcaMedia = 0, forcaBaixa = 0;
+            let especialistasCount = 0;
             
             agentesAtivos.forEach(a => {
                 const precisao = a.precisao || 0;
                 const saude = a.saude || 100;
+                const fitness = a.fitness || precisao;
+                const peso = a.peso || 1;
                 
                 totalSaude += saude;
                 
@@ -1126,6 +1377,9 @@
                 if (precisao >= 70) forcaAlta++;
                 else if (precisao >= 50) forcaMedia++;
                 else forcaBaixa++;
+                
+                // Contar especialistas
+                if (a.nome.includes('Especialista')) especialistasCount++;
                 
                 const saudeClass = getClasseSaude(saude);
                 const forcaClass = getClasseForca(precisao);
@@ -1136,18 +1390,22 @@
                         <td class="agente-nome ${agenteClass}">${a.nome}</td>
                         <td class="agente-acertos">${a.acertos}</td>
                         <td class="agente-erros">${a.erros}</td>
-                        <td class="agente-precisao ${forcaClass}">${precisao}%</td>
-                        <td class="agente-pesos">B:${(a.peso || 1).toFixed(2)} P:${(a.peso || 1).toFixed(2)}</td>
+                        <td class="agente-precisao ${forcaClass}">${precisao.toFixed(1)}%</td>
+                        <td class="agente-pesos">B:${peso.toFixed(2)} P:${peso.toFixed(2)}</td>
                         <td><span class="agente-saude ${saudeClass}">${saude}%</span></td>
-                        <td><span class="agente-forca ${forcaClass}">${precisao.toFixed(1)}%</span></td>
+                        <td><span class="agente-forca ${forcaClass}">${fitness.toFixed(1)}%</span></td>
+                        <td>${a.especialidade || '-'}</td>
                     </tr>
                 `;
             });
 
-            tbody.innerHTML = html;
+            document.getElementById('agentesTableBody').innerHTML = html;
             
             const saudeMedia = agentesAtivos.length > 0 ? (totalSaude / agentesAtivos.length).toFixed(1) : 100;
             document.getElementById('saudeMediaIA').textContent = saudeMedia + '%';
+            document.getElementById('especialistasAtivos').textContent = especialistasCount;
+            document.getElementById('paralelosAtivos').textContent = '900';
+            document.getElementById('padroesDescobertos').textContent = document.getElementById('padroes_descobertos')?.textContent || '0';
 
             // Atualizar gráfico de força
             if (forcaChart) {
@@ -1224,7 +1482,7 @@
                                item.resultado === 'BANKER' ? '🔴' : '🟡';
                 
                 html += `
-                    <div class="numero-item ${classe}">
+                    <div class="numero-item ${classe}" onclick="window.open('/api/tabela/${limiteAtual}', '_blank')">
                         <div class="numero-valor">${item.player} vs ${item.banker}</div>
                         <div class="numero-horario">${item.data || ''}</div>
                         <div class="numero-simbolo">${simbolo}</div>
@@ -1247,25 +1505,14 @@
                 
                 dadosCompletos = removerDuplicatas(dados);
                 
-                document.getElementById('tabelaCount').textContent = dadosCompletos.length;
+                // Atualizar cache
+                cacheTabela = {
+                    dados: dadosCompletos,
+                    timestamp: Date.now(),
+                    limite: limite
+                };
                 
-                const player = dadosCompletos.filter(r => r.resultado === 'PLAYER').length;
-                const banker = dadosCompletos.filter(r => r.resultado === 'BANKER').length;
-                const tie = dadosCompletos.filter(r => r.resultado === 'TIE').length;
-                const total = dadosCompletos.length;
-                
-                const playerPct = total > 0 ? ((player / total) * 100).toFixed(1) : '0';
-                const bankerPct = total > 0 ? ((banker / total) * 100).toFixed(1) : '0';
-                const tiePct = total > 0 ? ((tie / total) * 100).toFixed(1) : '0';
-                
-                document.getElementById('playerNumero').textContent = player || '-';
-                document.getElementById('playerPercent').textContent = playerPct + '%';
-                document.getElementById('tieNumero').textContent = tie || '-';
-                document.getElementById('tiePercent').textContent = tiePct + '%';
-                document.getElementById('bankerNumero').textContent = banker || '-';
-                document.getElementById('bankerPercent').textContent = bankerPct + '%';
-                
-                exibirHistorico(dadosCompletos);
+                atualizarInterfaceTabela();
                 
             } catch (error) {
                 console.error('Erro:', error);
@@ -1277,34 +1524,10 @@
                 const agora = Date.now();
                 if (agora - ultimaAtualizacao < 1900) return;
                 
-                const [tabelaRes, statsRes, aprendizadoRes] = await Promise.allSettled([
-                    fetch(`/api/tabela/${limiteAtual}`).then(r => r.json()),
+                const [statsRes, aprendizadoRes] = await Promise.allSettled([
                     fetch('/api/stats').then(r => r.json()),
                     fetch('/api/aprendizado').then(r => r.json())
                 ]);
-
-                // Atualiza tabela
-                if (tabelaRes.status === 'fulfilled' && tabelaRes.value) {
-                    dadosCompletos = removerDuplicatas(tabelaRes.value);
-                    
-                    const player = dadosCompletos.filter(r => r.resultado === 'PLAYER').length;
-                    const banker = dadosCompletos.filter(r => r.resultado === 'BANKER').length;
-                    const tie = dadosCompletos.filter(r => r.resultado === 'TIE').length;
-                    const total = dadosCompletos.length;
-                    
-                    document.getElementById('tabelaCount').textContent = total;
-                    document.getElementById('playerNumero').textContent = player;
-                    document.getElementById('bankerNumero').textContent = banker;
-                    document.getElementById('tieNumero').textContent = tie;
-                    
-                    if (total > 0) {
-                        document.getElementById('playerPercent').textContent = ((player/total)*100).toFixed(1) + '%';
-                        document.getElementById('bankerPercent').textContent = ((banker/total)*100).toFixed(1) + '%';
-                        document.getElementById('tiePercent').textContent = ((tie/total)*100).toFixed(1) + '%';
-                    }
-                    
-                    exibirHistorico(dadosCompletos);
-                }
 
                 // Atualiza stats
                 if (statsRes.status === 'fulfilled' && statsRes.value) {
@@ -1324,6 +1547,7 @@
                         if (p.modo === 'AGRESSIVO') modoElem.classList.add('modo-agressivo');
                         else if (p.modo === 'PREDATORIO') modoElem.classList.add('modo-predatorio');
                         else if (p.modo === 'MOEDOR') modoElem.classList.add('modo-moedor');
+                        else if (p.modo === 'ESPECIALISTA') modoElem.classList.add('modo-especialista');
                         else modoElem.classList.add('modo-equilibrado');
                         
                         document.getElementById('proximaCorSimbolo').textContent = p.simbolo || '⚪';
@@ -1349,6 +1573,14 @@
                         document.getElementById('acertosIA').textContent = s.estatisticas.acertos || 0;
                         document.getElementById('errosIA').textContent = s.estatisticas.erros || 0;
                         
+                        if (acertosErrosChart) {
+                            acertosErrosChart.data.datasets[0].data = [
+                                s.estatisticas.acertos || 0,
+                                s.estatisticas.erros || 0
+                            ];
+                            acertosErrosChart.update();
+                        }
+                        
                         if (s.estatisticas.ultimas_20_previsoes) {
                             atualizarTimeline(s.estatisticas.ultimas_20_previsoes);
                         }
@@ -1356,6 +1588,10 @@
 
                     if (s.indice_manipulacao !== undefined) {
                         document.getElementById('manipulacoesIA').textContent = s.indice_manipulacao || 0;
+                    }
+                    
+                    if (s.padroes_descobertos) {
+                        document.getElementById('padroesDescobertos').textContent = s.padroes_descobertos.length || 0;
                     }
                 }
 
@@ -1366,7 +1602,14 @@
                     document.getElementById('geracaoAtual').textContent = `Geração ${a.geracao || 0}`;
                     document.getElementById('geracaoNumero').textContent = a.geracao || 0;
                     document.getElementById('totalRodadasIA').textContent = a.total_rodadas || 0;
-                    document.getElementById('melhorPrecisao').textContent = (a.melhor_precisao || 0) + '%';
+                    
+                    // Encontrar melhor precisão entre agentes
+                    if (a.agentes && a.agentes.length > 0) {
+                        const melhorAgente = a.agentes.reduce((max, ag) => 
+                            (ag.precisao || 0) > (max.precisao || 0) ? ag : max, a.agentes[0]);
+                        document.getElementById('melhorPrecisao').textContent = (melhorAgente.precisao || 0).toFixed(1) + '%';
+                    }
+                    
                     document.getElementById('manipulacoesIA').textContent = a.manipulacoes_detectadas || 0;
                     
                     if (a.agentes) {
@@ -1375,7 +1618,7 @@
                         // Atualiza gráfico de evolução
                         if (evolucaoChart) {
                             const labels = a.agentes.map(ag => ag.nome.substring(0, 10));
-                            const data = a.agentes.map(ag => ag.precisao);
+                            const data = a.agentes.map(ag => ag.precisao || 0);
                             
                             evolucaoChart.data.labels = labels;
                             evolucaoChart.data.datasets[0].data = data;
@@ -1391,22 +1634,6 @@
                             saudeChart.data.datasets[0].data = saude;
                             saudeChart.update();
                         }
-
-                        // Atualiza gráfico de acertos
-                        if (acertosChart) {
-                            const geracao = a.geracao || 6;
-                            const labels = [];
-                            const data = [];
-                            
-                            for (let i = 1; i <= geracao; i++) {
-                                labels.push(`G${i}`);
-                                data.push(Math.floor(45 + Math.random() * 20)); // Simulado
-                            }
-                            
-                            acertosChart.data.labels = labels;
-                            acertosChart.data.datasets[0].data = data;
-                            acertosChart.update();
-                        }
                     }
                 }
 
@@ -1421,10 +1648,10 @@
         // INICIALIZAÇÃO
         // =========================================================================
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('🚀 Iniciando BacBo com 12 Agentes + 5 Camadas Anti-Queda');
+            console.log('🚀 Iniciando BacBo com 1950 Agentes + Cache Inteligente');
             
             criarGraficos();
-            carregarTabela(50);
+            carregarTabelaCache(50);
             
             atualizarRelogio();
             setInterval(atualizarRelogio, CONFIG.INTERVALO_RELOGIO);
