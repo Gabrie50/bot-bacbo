@@ -16,11 +16,9 @@ requests==2.31.0
 websocket-client==1.7.0
 
 # =============================================================================
-# Computação Científica
+# Computação Científica (Versão compatível com PyTorch)
 # =============================================================================
 numpy==1.24.3
-torch
-torchvision
 
 # =============================================================================
 # Utilitários
@@ -29,14 +27,16 @@ python-dotenv==1.0.0
 tqdm==4.65.0
 
 # =============================================================================
-# PyTorch APENAS (sem torchvision/torchaudio)
+# PyTorch (CPU version - estável e compatível)
 # =============================================================================
-torch==2.1.0 --index-url https://download.pytorch.org/whl/cpu
+--index-url https://download.pytorch.org/whl/cpu
+torch==2.1.0
+torchvision==0.16.0
 
 # =============================================================================
 # EvoTorch com Gymnasium (versão moderna sem warnings)
 # =============================================================================
-evotorch==0.3.0 --no-deps
+evotorch==0.3.0
 cma==4.4.4
 gymnasium==0.29.1          # Substitui o gym (versão mantida)
 packaging
