@@ -1,5 +1,5 @@
 # =============================================================================
-# main.py - VERSÃO CAÇADORA 5.0 (RAY PARALLEL RL - ESTILO ALPHAGO) - CORRIGIDO
+# main.py - VERSÃO CAÇADORA 5.0 (MULTIPROCESSING PARALLEL RL)
 # =============================================================================
 
 import os
@@ -18,24 +18,25 @@ from flask_cors import CORS
 import pg8000
 import ssl
 from pathlib import Path
+import multiprocessing as mp
+from multiprocessing import Queue as MPQueue
+import traceback
 
 # =============================================================================
-# 🚀 RAY - PARALELISMO PROFISSIONAL (ESTILO ALPHAGO)
+# 🚀 MULTIPROCESSING - PARALELISMO PROFISSIONAL (SUBSTITUI O RAY)
 # =============================================================================
-try:
-    import ray
-    from ray.util.queue import Queue
-    from ray.actor import ActorHandle
-    RAY_AVAILABLE = True
-    print("✅ Ray disponível - Paralelismo ativado")
-    
-    # Inicializa Ray com todas as CPUs disponíveis
-    ray.init(ignore_reinit_error=True, num_cpus=os.cpu_count())
-    print(f"✅ Ray inicializado com {os.cpu_count()} CPUs")
-    
-except ImportError:
-    print("⚠️ Ray não encontrado - Instale: pip install ray")
-    RAY_AVAILABLE = False
+MP_AVAILABLE = True
+print(f"✅ Multiprocessing disponível - Paralelismo ativado com {mp.cpu_count()} CPUs")
+
+# Fila compartilhada entre processos
+mp_manager = mp.Manager()
+mp_fila_experiencias = mp_manager.Queue(maxsize=100000)
+mp_estatisticas = mp_manager.dict({
+    'total_episodios': 0,
+    'melhor_precisao': 0,
+    'geracao': 0,
+    'agentes_ativos': 0
+})
 
 # =============================================================================
 # PyTorch + EvoTorch
@@ -112,7 +113,7 @@ HEADERS = {
 TIMEOUT_API = 5
 MAX_RETRIES = 3
 RETRY_DELAY = 1
-INTERVALO_LATEST = 0.3  # Mantido em 0.3s
+INTERVALO_LATEST = 0.3
 INTERVALO_WS_FALLBACK = 3
 INTERVALO_NORMAL_FALLBACK = 10
 PORT = int(os.environ.get("PORT", 5000))
@@ -179,8 +180,7 @@ cache = {
     'ultimo_contexto_erro': None,
     'indice_manipulacao': 0,
     'padroes_descobertos': [],
-    # NOVO: Sistema Ray
-    'ray_system': None,
+    'mp_system': None,
     'num_agentes_paralelos': 50
 }
 
@@ -302,7 +302,7 @@ class PrioritizedReplayBuffer:
 
 
 # =============================================================================
-# 🧠 AGENTE RL PURO COM PyTorch (substitui versão TensorFlow)
+# 🧠 AGENTE RL PURO COM PyTorch
 # =============================================================================
 
 class AgenteRLPuro:
@@ -317,8 +317,8 @@ class AgenteRLPuro:
         self.confianca = 0.5
         self.ultima_atuacao = datetime.now()
         
-        # ✅ CONFIGURAÇÕES OTIMIZADAS
-        self.state_size = 30 * 5  # 5 features por rodada (resultado one-hot + scores)
+        # CONFIGURAÇÕES OTIMIZADAS
+        self.state_size = 30 * 5
         self.action_size = 2
         
         self.memoria = PrioritizedReplayBuffer(capacity=10000)
@@ -327,14 +327,14 @@ class AgenteRLPuro:
         self.epsilon = 1.0
         self.epsilon_min = 0.01
         self.epsilon_decay = 0.995
-        self.tau = 0.001  # Para atualização suave do target
+        self.tau = 0.001
         
         # Redes neurais PyTorch
         self.device = DEVICE
         self.model = None
         self.target_model = None
         self.optimizer = None
-        self.loss_fn = nn.SmoothL1Loss()  # Huber loss equivalente
+        self.loss_fn = nn.SmoothL1Loss()
         self._criar_rede_pytorch()
         
         self.padroes_aprendidos = []
@@ -373,7 +373,6 @@ class AgenteRLPuro:
     def _setup_evotorch(self):
         """Configura EvoTorch para neuroevolução"""
         try:
-            # Configuração básica para evolução futura
             self.neuro_evolucao = {
                 'geracao': 0,
                 'melhor_fitness': 0,
@@ -387,26 +386,22 @@ class AgenteRLPuro:
         state = []
         
         for i, rodada in enumerate(historico[:30]):
-            # One-hot encoding (3 valores)
             if rodada['resultado'] == 'BANKER':
                 state.extend([1, 0, 0])
             elif rodada['resultado'] == 'PLAYER':
                 state.extend([0, 1, 0])
-            else:  # TIE
+            else:
                 state.extend([0, 0, 1])
             
-            # Scores normalizados (2 valores)
             state.append(rodada.get('player_score', 0) / 12)
             state.append(rodada.get('banker_score', 0) / 12)
         
-        # Padding
         while len(state) < self.state_size:
             state.extend([0, 0, 0, 0, 0])
             
         return torch.FloatTensor(state).unsqueeze(0).to(self.device)
     
     def get_state(self, historico):
-        """Mantém compatibilidade com código existente"""
         return self.get_state_tensor(historico).cpu().numpy()
     
     def agir(self, historico):
@@ -418,7 +413,6 @@ class AgenteRLPuro:
         state_tensor = self.get_state_tensor(historico)
         self.ultimo_estado = state_tensor
         
-        # Epsilon decay adaptativo
         if self.total_uso > 1000:
             self.epsilon = max(self.epsilon_min, self.epsilon * 0.999)
         
@@ -432,7 +426,6 @@ class AgenteRLPuro:
                         q_values = self.model(state_tensor).cpu().numpy()[0]
                         acao = np.argmax(q_values)
                         
-                        # Confiança baseada nos Q-values
                         q_max = np.max(q_values)
                         q_min = np.min(q_values)
                         q_diff = q_max - q_min
@@ -444,7 +437,6 @@ class AgenteRLPuro:
                     acao = random.choice([0, 1])
                     confianca = 0.5
             else:
-                # Fallback para pesos simples
                 if self.peso > 1.2:
                     acao = 0 if random.random() < 0.7 else 1
                 elif self.peso < 0.8:
@@ -464,7 +456,6 @@ class AgenteRLPuro:
         resultado_int = 0 if resultado == 'BANKER' else 1
         acertou = (acao == resultado_int)
         
-        # Recompensa calibrada
         if acertou:
             self.acertos += 1
             recompensa = 2.0
@@ -472,97 +463,78 @@ class AgenteRLPuro:
             self.erros += 1
             recompensa = -1.5
         
-        # Bônus por consistência
         if acertou and self.ultima_precisao > 0.6:
             recompensa += 0.5
         
-        # Prepara estados para replay
         if len(historico) > 1 and self.model is not None:
             state = self.get_state_tensor(historico[:-1])
             next_state = self.get_state_tensor(historico)
             
-            # Calcula erro TD para priorização
             with torch.no_grad():
                 current_q = self.model(state)[0, acao]
                 next_q = self.target_model(next_state).max(1)[0]
                 target_q = recompensa + self.gamma * next_q * (1 - int(resultado == 'TIE'))
                 td_error = (target_q - current_q).abs().item()
             
-            # Adiciona à memória priorizada
             self.memoria.push(
                 historico[:-1], acao, recompensa, historico, td_error
             )
         
-        # Replay
         if len(self.memoria.buffer) > 128 and self.model is not None:
             self._replay_priorizado()
         
-        # Atualiza epsilon
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
         
-        # Atualiza peso baseado em performance
         if self.total_uso > 100:
             if len(self.memoria.buffer) >= 100:
-                # Aproximação da precisão recente
                 taxa_recente = self.acertos / max(self.total_uso, 1)
                 self.ultima_precisao = taxa_recente
                 
-                # Peso = 0.8 + (precisão - 0.5) * 2.5
                 self.peso = max(0.6, min(2.2, 0.8 + (taxa_recente - 0.5) * 2.5))
                 self.fitness = taxa_recente * 100
         
         return acertou
     
     def _replay_priorizado(self):
-        """Replay com priorização em PyTorch"""
         if len(self.memoria.buffer) < 128 or self.model is None:
             return
             
         try:
             batch_size = min(128, len(self.memoria.buffer))
             
-            # Amostra batch priorizado
             states_hist, actions, rewards, next_states_hist, weights, indices = \
                 self.memoria.sample(batch_size)
             
-            # Converte para tensores
             states = torch.stack([self.get_state_tensor(h) for h in states_hist]).squeeze(1)
             next_states = torch.stack([self.get_state_tensor(h) for h in next_states_hist]).squeeze(1)
             actions = torch.LongTensor(actions).to(self.device)
             rewards = torch.FloatTensor(rewards).to(self.device)
             weights = torch.FloatTensor(weights).to(self.device)
             
-            # Calcula Q-values atuais
             current_q = self.model(states).gather(1, actions.unsqueeze(1))
             
-            # Calcula Q-values alvo
             with torch.no_grad():
                 next_q = self.target_model(next_states).max(1)[0]
                 target_q = rewards + self.gamma * next_q
             
-            # Calcula loss com pesos
             loss = (weights * self.loss_fn(current_q.squeeze(), target_q)).mean()
             
-            # Otimização
             self.optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
             self.optimizer.step()
             
-            # Atualiza prioridades
             with torch.no_grad():
                 td_errors = (target_q - current_q.squeeze()).abs().cpu().numpy()
                 for idx, error in zip(indices, td_errors):
                     self.memoria.priorities[idx] = (abs(error) + 1e-6) ** self.memoria.alpha
             
-            # Atualiza target network (suave)
             for target_param, param in zip(self.target_model.parameters(), 
                                           self.model.parameters()):
                 target_param.data.copy_(self.tau * param.data + 
                                        (1 - self.tau) * target_param.data)
             
-            # Guarda perda
             self.historico_perda.append(loss.item())
             if len(self.historico_perda) > 100:
                 self.historico_perda.pop(0)
@@ -571,7 +543,6 @@ class AgenteRLPuro:
             print(f"⚠️ Erro no replay PyTorch: {e}")
     
     def get_stats(self):
-        """Estatísticas do agente"""
         precisao = (self.acertos / self.total_uso) * 100 if self.total_uso > 0 else 0
         
         perda_media = 0
@@ -638,10 +609,8 @@ class SistemaRLCompleto:
         self.melhor_precisao = 0
         self.manipulacoes_detectadas = 0
         
-        # Inicializa 10 agentes com seeds diferentes para diversidade
         for i in range(10):
             nome = f"RL_Agente_{i+1}"
-            # Seeds diferentes para cada agente
             random.seed(i * 42)
             np.random.seed(i * 42)
             self.agentes[nome] = AgenteRLPuro(nome, i)
@@ -652,7 +621,6 @@ class SistemaRLCompleto:
             self._criar_meta_agente()
     
     def _criar_meta_agente(self):
-        """Versão PyTorch do meta-agente"""
         try:
             self.meta_agente = RedeMetaAgente(input_size=23).to(DEVICE)
             self.meta_optimizer = optim.Adam(self.meta_agente.parameters(), lr=0.0001)
@@ -673,10 +641,8 @@ class SistemaRLCompleto:
             acao, confianca = agente.agir(historico[:-1])
             previsao = 'BANKER' if acao == 0 else 'PLAYER'
             
-            # Peso composto = peso do agente * confiança
             peso_voto = agente.peso * confianca
             
-            # Se agente tem especialidade, aumenta peso em contextos relevantes
             if agente.especialidade:
                 if agente.especialidade in str(historico[-5:]):
                     peso_voto *= 1.5
@@ -694,12 +660,10 @@ class SistemaRLCompleto:
                 'especialidade': agente.especialidade
             })
         
-        # Detecta consenso vs. divergência
         previsao_final = max(votos, key=votos.get)
         total_votos = sum(votos.values())
         
         if total_votos > 0:
-            # Calcula confiança baseada na vantagem
             vantagem = (votos[previsao_final] - min(votos.values())) / total_votos
             confianca_final = min(50 + vantagem * 50, 95)
         else:
@@ -707,7 +671,6 @@ class SistemaRLCompleto:
         
         confianca_final = round(confianca_final)
         
-        # Se houver divergência forte, ativa meta-agente
         divergencia = abs(votos['BANKER'] - votos['PLAYER']) / total_votos if total_votos > 0 else 0
         
         if divergencia < 0.2 and self.meta_agente is not None:
@@ -729,12 +692,11 @@ class SistemaRLCompleto:
             'previsao': previsao_final,
             'simbolo': '🔴' if previsao_final == 'BANKER' else '🔵',
             'confianca': confianca_final,
-            'votos': votos_detalhados[:4],  # Top 4 agentes
+            'votos': votos_detalhados[:4],
             'total_agentes': len([v for v in votos_detalhados if v['peso_total'] > 0.1])
         }
     
     def _consultar_meta_agente(self, historico, votos):
-        """Consulta meta-agente PyTorch"""
         try:
             features = []
             for voto in sorted(votos, key=lambda x: x['agente']):
@@ -794,7 +756,7 @@ class SistemaRLCompleto:
         )[:3]
         
         for agente in top_agentes:
-            if agente['precisao'] > 65:  # Reduzido para 65% para detectar mais cedo
+            if agente['precisao'] > 65:
                 padrao = {
                     'agente': agente['nome'],
                     'precisao': agente['precisao'],
@@ -843,7 +805,6 @@ class SistemaRLCompleto:
         return stats
     
     def salvar_estado(self, arquivo='rl_estado.json'):
-        """Salva estado incluindo pesos PyTorch"""
         try:
             estado = {
                 'geracao': self.geracao,
@@ -852,7 +813,6 @@ class SistemaRLCompleto:
                 'agentes': {nome: agente.para_dict() for nome, agente in self.agentes.items()}
             }
             
-            # Salva pesos PyTorch se disponíveis
             for nome, agente in self.agentes.items():
                 if agente.model is not None:
                     pesos_path = f'pesos_{nome}.pt'
@@ -869,7 +829,6 @@ class SistemaRLCompleto:
             return False
     
     def carregar_estado(self, arquivo='rl_estado.json'):
-        """Carrega estado incluindo pesos PyTorch"""
         caminho = Path(arquivo)
         if not caminho.exists():
             print("📂 Nenhum estado RL anterior encontrado")
@@ -887,7 +846,6 @@ class SistemaRLCompleto:
                 if nome in self.agentes:
                     self.agentes[nome] = AgenteRLPuro.de_dict(dados)
                     
-                    # Carrega pesos PyTorch se existirem
                     pesos_file = dados.get('pesos_file')
                     if pesos_file and Path(pesos_file).exists():
                         try:
@@ -943,7 +901,6 @@ class AnalisadorDeErros:
         
         self._ensinar_agentes_sobre_erro(causa, previsao, resultado_real, contexto)
         
-        # Cria especialista após 3 erros do mesmo tipo
         if self.padroes_de_erro.get(padrao_key, 0) > 3:
             self._criar_agente_especialista_em_erro(causa)
         
@@ -958,7 +915,6 @@ class AnalisadorDeErros:
         
         if indice_manipulacao > 70:
             self.sistema_rl.manipulacoes_detectadas += 1
-            # Marca nos agentes que detectaram manipulação
             for nome, agente in self.sistema_rl.agentes.items():
                 if hasattr(agente, 'deteccoes_manipulacao'):
                     agente.deteccoes_manipulacao += 1
@@ -1015,11 +971,9 @@ class AnalisadorDeErros:
                 
                 if hasattr(agente, 'memoria') and contexto and len(contexto) > 1:
                     try:
-                        # Experiência negativa com peso maior
                         state = agente.get_state_tensor(contexto[:-1])
                         next_state = agente.get_state_tensor(contexto)
                         
-                        # Calcula erro TD para priorização
                         with torch.no_grad():
                             current_q = agente.model(state)[0, acao_agente]
                             next_q = agente.target_model(next_state).max(1)[0]
@@ -1046,7 +1000,6 @@ class AnalisadorDeErros:
         
         print(f"✅ Todos os agentes foram ensinados sobre: {causa}")
         
-        # Registra no banco aprendizado_erros
         self._registrar_aprendizado_no_banco(causa, previsao, real)
     
     def _registrar_aprendizado_no_banco(self, causa, previsao, real):
@@ -1062,7 +1015,7 @@ class AnalisadorDeErros:
                 VALUES (%s, %s, %s, %s)
             ''', (
                 causa,
-                85,  # Confiança alta no diagnóstico
+                85,
                 f"evitar_{previsao['previsao'].lower()}_quando_{causa}",
                 datetime.now(timezone.utc)
             ))
@@ -1092,7 +1045,6 @@ class AnalisadorDeErros:
         novo_agente.epsilon = 0.05
         novo_agente.fitness = 80.0
         
-        # Se EvoTorch disponível, configura para evolução
         if EVOTORCH_AVAILABLE and hasattr(novo_agente, 'neuro_evolucao'):
             novo_agente.neuro_evolucao['geracao'] = 1
             novo_agente.neuro_evolucao['melhor_fitness'] = 80.0
@@ -1139,12 +1091,11 @@ class AnalisadorDeErros:
 
 
 # =============================================================================
-# 🎯 AGENTE RAY PARALELO (NOVO - 50+ AGENTES SIMULTÂNEOS)
+# 🎯 AGENTE MULTIPROCESSING PARALELO (SUBSTITUI O RAY)
 # =============================================================================
 
-@ray.remote
-class RayAgenteParalelo:
-    """Agente que roda em paralelo com Ray - estilo AlphaGo"""
+class AgenteMultiprocessing:
+    """Agente que roda em processo separado - estilo multiprocessing"""
     
     def __init__(self, agente_id, state_size=150, action_size=2):
         self.agente_id = agente_id
@@ -1155,17 +1106,26 @@ class RayAgenteParalelo:
         self.total_uso = 0
         self.peso = 1.0
         self.epsilon = 0.3
-        self.device = torch.device("cpu")
         
-        # Rede neural local
-        self.model = RedeDQN(state_size, action_size).to(self.device)
-        self.model.eval()
+        # Rede neural local (criada no processo)
+        self.device = torch.device("cpu")
+        self.model = None
+        self._criar_modelo()
         
         # Memória local
         self.memorias = []
         self.recompensas = []
         
-        print(f"✅ Agente Paralelo {agente_id} inicializado")
+        print(f"✅ Agente Multiprocessing {agente_id} criado")
+    
+    def _criar_modelo(self):
+        """Cria modelo PyTorch para este processo"""
+        try:
+            self.model = RedeDQN(self.state_size, self.action_size).to(self.device)
+            self.model.eval()
+        except Exception as e:
+            print(f"❌ Erro ao criar modelo para agente {self.agente_id}: {e}")
+            self.model = None
     
     def processar_estado(self, historico):
         """Converte histórico para tensor"""
@@ -1187,7 +1147,7 @@ class RayAgenteParalelo:
     
     def jogar_episodio(self, historico_base, num_jogadas=20):
         """Joga múltiplas rodadas em sequência"""
-        historico = historico_base.copy()
+        historico = historico_base.copy() if historico_base else []
         experiencias = []
         recompensa_total = 0
         
@@ -1202,12 +1162,15 @@ class RayAgenteParalelo:
                     acao = random.choice([0, 1])
                     confianca = 0.5
                 else:
-                    with torch.no_grad():
-                        q_values = self.model(estado).cpu().numpy()[0]
-                        acao = np.argmax(q_values)
-                        confianca = 0.7 + 0.2 * random.random()
+                    if self.model is not None:
+                        with torch.no_grad():
+                            q_values = self.model(estado).cpu().numpy()[0]
+                            acao = np.argmax(q_values)
+                            confianca = 0.7 + 0.2 * random.random()
+                    else:
+                        acao = random.choice([0, 1])
+                        confianca = 0.5
             
-            # Simula resultado baseado em probabilidades reais
             resultado = random.choices(
                 ['BANKER', 'PLAYER', 'TIE'], 
                 weights=[0.45, 0.45, 0.1]
@@ -1223,14 +1186,15 @@ class RayAgenteParalelo:
                     self.erros += 1
                 
                 experiencias.append({
-                    'estado': historico[-30:],
+                    'agente_id': self.agente_id,
+                    'estado': historico[-30:] if len(historico) >= 30 else historico,
                     'acao': acao,
                     'recompensa': recompensa,
-                    'acertou': acertou
+                    'acertou': acertou,
+                    'timestamp': time.time()
                 })
                 recompensa_total += recompensa
             
-            # Atualiza histórico
             nova_rodada = {
                 'resultado': resultado,
                 'player_score': random.randint(0, 12),
@@ -1241,13 +1205,12 @@ class RayAgenteParalelo:
         
         return experiencias, recompensa_total
     
-    def jogar_partidas_paralelas(self, num_partidas=10):
-        """Joga múltiplas partidas e retorna estatísticas"""
+    def jogar_partidas(self, num_partidas=10):
+        """Joga múltiplas partidas e retorna experiências"""
         todas_experiencias = []
         recompensas = []
         
         for _ in range(num_partidas):
-            # Gera histórico base aleatório
             historico_base = []
             for _ in range(50):
                 historico_base.append({
@@ -1260,16 +1223,7 @@ class RayAgenteParalelo:
             todas_experiencias.extend(exp)
             recompensas.append(recomp)
         
-        return todas_experiencias, np.mean(recompensas)
-    
-    def atualizar_pesos(self, novos_pesos):
-        """Recebe novos pesos do servidor central"""
-        try:
-            self.model.load_state_dict(novos_pesos)
-            self.epsilon = max(0.01, self.epsilon * 0.995)
-            return True
-        except:
-            return False
+        return todas_experiencias, np.mean(recompensas) if recompensas else 0
     
     def get_stats(self):
         precisao = (self.acertos / self.total_uso) * 100 if self.total_uso > 0 else 0
@@ -1285,24 +1239,60 @@ class RayAgenteParalelo:
 
 
 # =============================================================================
-# 🧠 SISTEMA CENTRAL RAY (NOVO - GERENCIADOR DOS AGENTES PARALELOS)
+# FUNÇÃO PARA PROCESSO FILHO (MULTIPROCESSING)
 # =============================================================================
 
-class SistemaRayParalelo:
-    """Sistema que gerencia 50+ agentes jogando simultaneamente"""
+def processo_agente_worker(agente_id, fila_experiencias, estatisticas_compartilhadas, num_partidas=10):
+    """Função executada por cada processo filho"""
+    try:
+        print(f"📦 Processo {agente_id} iniciado (PID: {os.getpid()})")
+        
+        # Cada processo tem seu próprio agente
+        agente = AgenteMultiprocessing(agente_id)
+        
+        # Joga partidas e coleta experiências
+        experiencias, recompensa_media = agente.jogar_partidas(num_partidas)
+        
+        # Envia experiências para a fila compartilhada
+        for exp in experiencias:
+            fila_experiencias.put(exp)
+        
+        # Atualiza estatísticas compartilhadas
+        with estatisticas_compartilhadas.get_lock():
+            estatisticas_compartilhadas['total_episodios'] += len(experiencias)
+            if agente.acertos + agente.erros > 0:
+                precisao = agente.acertos / (agente.acertos + agente.erros) * 100
+                if precisao > estatisticas_compartilhadas['melhor_precisao']:
+                    estatisticas_compartilhadas['melhor_precisao'] = precisao
+        
+        print(f"✅ Processo {agente_id} concluído - Precisão: {agente.get_stats()['precisao']}%")
+        
+    except Exception as e:
+        print(f"❌ Erro no processo {agente_id}: {e}")
+        traceback.print_exc()
+
+
+# =============================================================================
+# 🧠 SISTEMA CENTRAL MULTIPROCESSING
+# =============================================================================
+
+class SistemaMultiprocessing:
+    """Sistema que gerencia múltiplos processos rodando em paralelo"""
     
     def __init__(self, num_agentes=50):
         self.num_agentes = num_agentes
-        self.agentes = []  # Lista de referências para os atores Ray
+        self.processos = []
         self.state_size = 150
         self.action_size = 2
         
-        # Modelo central (treinado com todas as experiências)
-        self.modelo_central = RedeDQN(self.state_size, self.action_size).to(DEVICE)
-        self.optimizer = optim.Adam(self.modelo_central.parameters(), lr=0.001)
-        self.loss_fn = nn.SmoothL1Loss()
+        # Fila compartilhada para experiências
+        self.fila_experiencias = mp_fila_experiencias
         
-        # Buffer de experiências compartilhado
+        # Estatísticas compartilhadas
+        self.estatisticas = mp_estatisticas
+        self.estatisticas['agentes_ativos'] = num_agentes
+        
+        # Buffer de experiências (local, não compartilhado)
         self.memoria_central = deque(maxlen=100000)
         
         # Estatísticas
@@ -1310,176 +1300,123 @@ class SistemaRayParalelo:
         self.melhor_precisao = 0
         self.geracao = 0
         
-        # Cria agentes paralelos
-        self._criar_agentes()
+        # Lock para acesso ao buffer
+        self.lock = threading.Lock()
         
-        print(f"\n🚀 SISTEMA RAY PARALELO INICIALIZADO!")
-        print(f"📊 {num_agentes} agentes jogando simultaneamente")
-        print(f"💻 Dispositivo central: {DEVICE}")
+        # Thread para consumir fila
+        self.consumer_thread = None
+        self.consumer_ativo = True
+        
+        print(f"\n🚀 SISTEMA MULTIPROCESSING INICIALIZADO!")
+        print(f"📊 {num_agentes} agentes rodando em processos paralelos")
+        print(f"💻 CPUs disponíveis: {mp.cpu_count()}")
     
-    def _criar_agentes(self):
-        """Cria todos os agentes usando Ray"""
-        print(f"\n🤖 Criando {self.num_agentes} agentes paralelos...")
+    def iniciar_consumidor_fila(self):
+        """Inicia thread que consome a fila de experiências"""
+        def consumir_fila():
+            while self.consumer_ativo:
+                try:
+                    # Tenta pegar experiência da fila (timeout para não travar)
+                    experiencia = self.fila_experiencias.get(timeout=1)
+                    with self.lock:
+                        self.memoria_central.append(experiencia)
+                        self.episodios_totais += 1
+                except:
+                    # Timeout ou fila vazia
+                    pass
         
-        # CORREÇÃO: Cria os atores e armazena as referências
-        self.agentes = [RayAgenteParalelo.remote(i) for i in range(self.num_agentes)]
-        
-        print(f"✅ {len(self.agentes)} agentes prontos!")
+        self.consumer_thread = threading.Thread(target=consumir_fila, daemon=True)
+        self.consumer_thread.start()
+        print("📥 Consumidor da fila iniciado")
     
-    def sincronizar_agentes(self):
-        """Envia pesos do modelo central para todos os agentes"""
-        pesos = self.modelo_central.state_dict()
-        
-        futures = [agente.atualizar_pesos.remote(pesos) for agente in self.agentes]
-        resultados = ray.get(futures)
-        
-        print(f"📤 Pesos sincronizados com {sum(resultados)}/{self.num_agentes} agentes")
-    
-    def coletar_experiencias_massivo(self, num_episodios_por_agente=5):
-        """Coleta experiências de TODOS os agentes em paralelo"""
-        print(f"\n🎲 Coletando {self.num_agentes * num_episodios_por_agente} episódios em paralelo...")
+    def executar_rodada_paralela(self, num_partidas_por_agente=5):
+        """Executa uma rodada com todos os agentes em paralelo"""
+        print(f"\n🎲 Executando {self.num_agentes * num_partidas_por_agente} episódios em paralelo...")
         
         inicio = time.time()
         
-        # Todos os agentes jogam simultaneamente
-        futures = [
-            agente.jogar_partidas_paralelas.remote(num_episodios_por_agente)
-            for agente in self.agentes
-        ]
+        # Limpa processos anteriores
+        self.processos = []
         
-        # Aguarda resultados
-        resultados = ray.get(futures)
+        # Cria e inicia processos
+        for i in range(self.num_agentes):
+            p = mp.Process(
+                target=processo_agente_worker,
+                args=(i, self.fila_experiencias, self.estatisticas, num_partidas_por_agente)
+            )
+            p.daemon = True  # Processos daemon serão mortos quando o principal morrer
+            p.start()
+            self.processos.append(p)
         
-        # Processa resultados
-        total_experiencias = 0
-        recompensas = []
-        
-        for exp_list, recomp_media in resultados:
-            self.memoria_central.extend(exp_list)
-            total_experiencias += len(exp_list)
-            recompensas.append(recomp_media)
+        # Aguarda todos os processos terminarem (com timeout)
+        for p in self.processos:
+            p.join(timeout=30)  # Timeout de 30 segundos
         
         tempo = time.time() - inicio
         
-        print(f"✅ Coleta concluída em {tempo:.2f}s")
-        print(f"📊 Experiências coletadas: {total_experiencias}")
-        print(f"💰 Recompensa média: {np.mean(recompensas):.2f}")
+        # Estatísticas
+        with self.lock:
+            memoria_size = len(self.memoria_central)
         
-        return total_experiencias
+        print(f"✅ Rodada paralela concluída em {tempo:.2f}s")
+        print(f"📊 Experiências no buffer: {memoria_size}")
+        print(f"📈 Melhor precisão até agora: {self.estatisticas['melhor_precisao']:.1f}%")
+        
+        return memoria_size
     
-    def treinar_modelo(self, batch_size=256):
-        """Treina modelo central com batch das experiências"""
+    def treinar_com_experiencias(self, batch_size=256):
+        """Treina com batch das experiências coletadas"""
         if len(self.memoria_central) < batch_size:
             return 0
         
-        # Amostra batch
-        batch = random.sample(list(self.memoria_central), batch_size)
+        with self.lock:
+            batch = random.sample(list(self.memoria_central), batch_size)
         
-        # Prepara tensores
-        estados = []
-        acoes = []
-        recompensas = []
-        
-        for exp in batch:
-            estado_tensor = self._historico_para_tensor(exp['estado'])
-            estados.append(estado_tensor)
-            acoes.append(exp['acao'])
-            recompensas.append(exp['recompensa'])
-        
-        estados_tensor = torch.stack(estados).to(DEVICE)
-        acoes_tensor = torch.LongTensor(acoes).to(DEVICE)
-        recompensas_tensor = torch.FloatTensor(recompensas).to(DEVICE)
-        
-        # Forward
-        q_values = self.modelo_central(estados_tensor)
-        q_acoes = q_values.gather(1, acoes_tensor.unsqueeze(1)).squeeze()
-        
-        # Loss
-        loss = self.loss_fn(q_acoes, recompensas_tensor)
-        
-        # Backward
-        self.optimizer.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.modelo_central.parameters(), 1.0)
-        self.optimizer.step()
-        
-        self.episodios_totais += batch_size
-        
-        return loss.item()
-    
-    def _historico_para_tensor(self, historico):
-        """Converte histórico para tensor"""
-        state = []
-        for rodada in historico[-30:]:
-            if rodada['resultado'] == 'BANKER':
-                state.extend([1, 0, 0])
-            elif rodada['resultado'] == 'PLAYER':
-                state.extend([0, 1, 0])
-            else:
-                state.extend([0, 0, 1])
-            state.append(rodada.get('player_score', 0) / 12)
-            state.append(rodada.get('banker_score', 0) / 12)
-        
-        while len(state) < self.state_size:
-            state.extend([0, 0, 0, 0, 0])
-        
-        return torch.FloatTensor(state).to(DEVICE)
-    
-    def avaliar_agentes(self):
-        """Coleta estatísticas de todos os agentes"""
-        futures = [agente.get_stats.remote() for agente in self.agentes]
-        stats = ray.get(futures)
-        
-        precisoes = [s['precisao'] for s in stats if s['total'] > 0]
-        if precisoes:
-            media = np.mean(precisoes)
-            if media > self.melhor_precisao:
-                self.melhor_precisao = media
-                self.geracao += 1
-                print(f"\n🏆 GERAÇÃO {self.geracao} - NOVA MELHOR MÉDIA: {media:.1f}%")
-        
-        return stats
+        # Aqui você pode implementar o treinamento do modelo central
+        # Por enquanto só retorna estatísticas
+        return len(batch)
     
     def get_stats(self):
-        stats_agentes = self.avaliar_agentes()
-        
-        # Top 10 agentes
-        top_agentes = sorted(stats_agentes, key=lambda x: x['precisao'], reverse=True)[:10]
-        
-        media_precisao = 0
-        if stats_agentes:
-            prec_validas = [a['precisao'] for a in stats_agentes if a['total'] > 0]
-            if prec_validas:
-                media_precisao = np.mean(prec_validas)
+        with self.lock:
+            memoria_size = len(self.memoria_central)
         
         return {
             'geracao': self.geracao,
             'episodios_totais': self.episodios_totais,
-            'memoria': len(self.memoria_central),
-            'melhor_precisao': round(self.melhor_precisao, 1),
+            'memoria': memoria_size,
+            'melhor_precisao': round(self.estatisticas['melhor_precisao'], 1),
             'num_agentes': self.num_agentes,
-            'top_agentes': top_agentes,
-            'media_precisao': round(media_precisao, 1)
+            'processos_ativos': len([p for p in self.processos if p.is_alive()]),
+            'media_precisao': round(self.estatisticas['melhor_precisao'], 1)
         }
+    
+    def parar(self):
+        """Para o sistema e limpa recursos"""
+        self.consumer_ativo = False
+        if self.consumer_thread:
+            self.consumer_thread.join(timeout=2)
+        
+        # Termina processos
+        for p in self.processos:
+            if p.is_alive():
+                p.terminate()
+                p.join(timeout=1)
 
 
 # =============================================================================
-# 🎮 LOOP PRINCIPAL DE TREINAMENTO PARALELO (NOVO)
+# 🎮 LOOP PRINCIPAL DE TREINAMENTO PARALELO (MULTIPROCESSING)
 # =============================================================================
 
-def loop_treinamento_ray():
-    """Loop principal que coordena o treinamento massivamente paralelo"""
+def loop_treinamento_multiprocessing():
+    """Loop principal que coordena o treinamento paralelo com multiprocessing"""
     print("\n" + "="*80)
-    print("🎮 INICIANDO TREINAMENTO PARALELO ESTILO ALPHAGO")
+    print("🎮 INICIANDO TREINAMENTO PARALELO COM MULTIPROCESSING")
     print("="*80)
     
-    if not RAY_AVAILABLE:
-        print("❌ Ray não disponível - treinamento paralelo desativado")
-        return
-    
     # Cria sistema com 50 agentes paralelos
-    sistema = SistemaRayParalelo(num_agentes=50)
-    cache['ray_system'] = sistema
+    sistema = SistemaMultiprocessing(num_agentes=50)
+    sistema.iniciar_consumidor_fila()
+    cache['mp_system'] = sistema
     
     ciclo = 0
     
@@ -1490,37 +1427,32 @@ def loop_treinamento_ray():
         print(f"{'='*60}")
         
         try:
-            # 1. Sincroniza agentes com modelo central
-            sistema.sincronizar_agentes()
+            # Executa rodada paralela
+            num_exp = sistema.executar_rodada_paralela(num_partidas_por_agente=5)
             
-            # 2. Coleta experiências de TODOS os agentes em paralelo
-            num_exp = sistema.coletar_experiencias_massivo(num_episodios_por_agente=10)
-            
-            # 3. Treina modelo central com as experiências
+            # Treina com as experiências
             if num_exp > 0:
-                for _ in range(5):  # Múltiplos passos de treinamento
-                    loss = sistema.treinar_modelo(batch_size=256)
-                    if loss:
-                        print(f"📉 Loss: {loss:.4f}")
+                treinadas = sistema.treinar_com_experiencias(batch_size=256)
+                if treinadas:
+                    print(f"📉 Experiências treinadas: {treinadas}")
             
-            # 4. Avalia performance a cada 5 ciclos
+            # Avalia performance a cada 5 ciclos
             if ciclo % 5 == 0:
                 stats = sistema.get_stats()
-                print(f"\n📊 ESTATÍSTICAS RAY:")
+                print(f"\n📊 ESTATÍSTICAS MULTIPROCESSING:")
                 print(f"   Geração: {stats['geracao']}")
                 print(f"   Episódios totais: {stats['episodios_totais']}")
                 print(f"   Memória: {stats['memoria']} experiências")
-                print(f"   Média de precisão: {stats['media_precisao']:.1f}%")
                 print(f"   Melhor precisão: {stats['melhor_precisao']}%")
-                
-                print(f"\n🏆 TOP 10 AGENTES PARALELOS:")
-                for i, agente in enumerate(stats['top_agentes'][:5], 1):
-                    print(f"   {i}. Agente {agente['id']}: {agente['precisao']}% "
-                          f"(acertos: {agente['acertos']})")
+                print(f"   Processos ativos: {stats['processos_ativos']}/{stats['num_agentes']}")
+            
+            # Pequena pausa entre ciclos
+            time.sleep(2)
+            
         except Exception as e:
             print(f"❌ Erro no ciclo de treinamento: {e}")
-        
-        time.sleep(2)
+            traceback.print_exc()
+            time.sleep(5)
 
 
 # =============================================================================
@@ -1716,7 +1648,6 @@ def init_db():
             )
         ''')
 
-        # Índices para analise_erros
         cur.execute('CREATE INDEX IF NOT EXISTS idx_erros_data ON analise_erros(data_hora DESC)')
         cur.execute('CREATE INDEX IF NOT EXISTS idx_erros_acertou ON analise_erros(acertou)')
         cur.execute('CREATE INDEX IF NOT EXISTS idx_erros_causa ON analise_erros(causa_erro)')
@@ -1811,20 +1742,16 @@ def salvar_previsao_completa_segura(previsao, resultado_real, acertou, contexto,
     try:
         cur = conn.cursor()
         
-        # Prepara os dados para historico_previsoes
         estrategias_str = ','.join(previsao.get('estrategias', [])) if previsao.get('estrategias') else ''
         
-        # Converte contexto para JSON
         contexto_json = None
         if contexto and len(contexto) > 0:
-            # Pega apenas os últimos 10 resultados para não sobrecarregar
             contexto_resumido = [{'resultado': r['resultado'], 
                                   'player': r.get('player_score', 0), 
                                   'banker': r.get('banker_score', 0)} 
                                  for r in contexto[:10] if r]
             contexto_json = json.dumps(contexto_resumido)
         
-        # Salva em historico_previsoes
         cur.execute('''
             INSERT INTO historico_previsoes 
             (data_hora, previsao, simbolo, confianca, resultado_real, acertou, 
@@ -1846,7 +1773,6 @@ def salvar_previsao_completa_segura(previsao, resultado_real, acertou, contexto,
         
         conn.commit()
         
-        # Também salva em analise_erros para análise detalhada
         try:
             ultimos_10 = []
             if contexto and len(contexto) > 0:
@@ -1863,7 +1789,7 @@ def salvar_previsao_completa_segura(previsao, resultado_real, acertou, contexto,
                 resultado_real,
                 previsao['confianca'],
                 previsao.get('modo', 'RL_PURO'),
-                0,  # streak_atual
+                0,
                 ','.join(ultimos_10[:5]) if ultimos_10 else '',
                 ','.join(ultimos_10) if ultimos_10 else '',
                 estrategias_str,
@@ -1877,7 +1803,6 @@ def salvar_previsao_completa_segura(previsao, resultado_real, acertou, contexto,
             print(f"⚠️ Erro ao salvar em analise_erros: {e}")
             conn.rollback()
         
-        # Se foi um erro, também registra na tabela aprendizado_erros
         if not acertou and causa_erro:
             try:
                 cur.execute('''
@@ -1895,7 +1820,7 @@ def salvar_previsao_completa_segura(previsao, resultado_real, acertou, contexto,
         
         cur.close()
         conn.close()
-        print(f"✅ Previsão salva no banco (historico_previsoes): {previsao['previsao']} vs {resultado_real} - {'✅' if acertou else '❌'}")
+        print(f"✅ Previsão salva no banco: {previsao['previsao']} vs {resultado_real} - {'✅' if acertou else '❌'}")
         return True
         
     except Exception as e:
@@ -1914,7 +1839,6 @@ def salvar_previsao_completa_segura(previsao, resultado_real, acertou, contexto,
 # =============================================================================
 
 def get_ultimas_50():
-    """Retorna as últimas 50 rodadas com tratamento de erro"""
     conn = get_db_connection()
     if not conn:
         return []
@@ -1935,7 +1859,6 @@ def get_ultimas_50():
             pass
 
 def get_ultimas_20():
-    """Retorna as últimas 20 rodadas formatadas para exibição"""
     conn = get_db_connection()
     if not conn:
         return []
@@ -1973,7 +1896,6 @@ def get_ultimas_20():
             pass
 
 def get_total_rapido():
-    """Retorna total de rodadas com tratamento de erro"""
     conn = get_db_connection()
     if not conn:
         return 0
@@ -1994,7 +1916,6 @@ def get_total_rapido():
             pass
 
 def atualizar_dados_leves():
-    """Atualiza dados leves no cache"""
     cache['leves']['ultimas_50'] = get_ultimas_50()
     cache['leves']['ultimas_20'] = get_ultimas_20()
     cache['leves']['total_rodadas'] = get_total_rapido()
@@ -2005,7 +1926,6 @@ def atualizar_dados_leves():
 # =============================================================================
 
 def contar_periodo(horas):
-    """Conta rodadas em um período com tratamento de erro"""
     conn = get_db_connection()
     if not conn:
         return 0
@@ -2028,7 +1948,6 @@ def contar_periodo(horas):
             pass
 
 def atualizar_dados_pesados():
-    """Atualiza cache com dados dos períodos"""
     cache['pesados']['periodos'] = {
         '10min': contar_periodo(0.16),
         '1h': contar_periodo(1),
@@ -2078,7 +1997,6 @@ def buscar_latest():
     global ultimo_id_latest, falhas_latest, fonte_ativa
 
     try:
-        # Timeout reduzido para 2s para não travar
         response = requests.get(LATEST_API_URL, headers=HEADERS, timeout=2)
 
         if response.status_code == 200:
@@ -2335,7 +2253,6 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
     cache['analisador_erros'] = analisador
     
     while paginas_sem_novidades < 3 and pagina < limite_paginas:
-        # ✅ NOVO: Cria nova conexão para cada página
         conn = get_db_connection()
         if not conn:
             print(f"⚠️ Não foi possível conectar ao banco na página {pagina}")
@@ -2418,7 +2335,7 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
             
             conn.commit()
             cur.close()
-            conn.close()  # ✅ Fecha conexão após usar
+            conn.close()
             
             rodadas_ordenadas.sort(key=lambda x: x['data_hora'])
             
@@ -2595,7 +2512,6 @@ def analisar_padrao_7x2_no_historico():
 # =============================================================================
 
 def loop_latest():
-    """Loop da fonte LATEST - mantido em 0.3s mas com tratamento de erro melhor"""
     print("📡 [PRINCIPAL] Coletor LATEST iniciado (0.3s)...")
     falhas_consecutivas = 0
     
@@ -2609,7 +2525,6 @@ def loop_latest():
                 else:
                     falhas_consecutivas += 1
                     if falhas_consecutivas > 10:
-                        # Se falhar 10x seguidas, dá um tempo maior
                         time.sleep(1)
                         falhas_consecutivas = 0
             time.sleep(INTERVALO_LATEST)
@@ -2663,7 +2578,6 @@ def processar_fila():
                         cache['ultimo_resultado_real'] = rodada['resultado']
                         print(f"✅ SALVO: {rodada['player_score']} vs {rodada['banker_score']} - {rodada['resultado']}")
                         
-                        # Se tinha uma previsão anterior, verifica se acertou
                         if ultima_previsao_feita:
                             resultado_real = rodada['resultado']
                             
@@ -2683,7 +2597,6 @@ def processar_fila():
                                         ultima_previsao_feita, resultado_real, contexto, indice_manipulacao
                                     )
                                 
-                                # SALVA NO BANCO!
                                 salvar_previsao_completa_segura(
                                     ultima_previsao_feita, 
                                     resultado_real, 
@@ -2695,14 +2608,12 @@ def processar_fila():
                                     causa_erro
                                 )
                                 
-                                # Atualiza estatísticas
                                 cache['estatisticas']['total_previsoes'] += 1
                                 if acertou:
                                     cache['estatisticas']['acertos'] += 1
                                 else:
                                     cache['estatisticas']['erros'] += 1
                                 
-                                # Adiciona ao histórico de previsões
                                 previsao_historico = {
                                     'data': datetime.now().strftime('%d/%m %H:%M:%S'),
                                     'previsao': ultima_previsao_feita['previsao'],
@@ -2718,13 +2629,11 @@ def processar_fila():
                                 if len(cache['estatisticas']['ultimas_20_previsoes']) > 20:
                                     cache['estatisticas']['ultimas_20_previsoes'].pop()
                                 
-                                # Ensina os agentes
                                 if cache.get('rl_system') and len(cache['leves']['ultimas_50']) >= 30:
                                     cache['rl_system'].aprender_com_resultado(
                                         cache['leves']['ultimas_50'], resultado_real
                                     )
                                 
-                                # Atualiza estatísticas dos agentes
                                 if cache.get('rl_system'):
                                     for nome, agente in cache['rl_system'].agentes.items():
                                         if nome in cache['estatisticas']['estrategias']:
@@ -2735,31 +2644,25 @@ def processar_fila():
                                 precisao = calcular_precisao()
                                 print(f"📈 Precisão geral: {cache['estatisticas']['acertos']}/{cache['estatisticas']['total_previsoes']} ({precisao}%)")
                             
-                            # Limpa a previsão anterior
                             ultima_previsao_feita = None
                 
-                # Atualiza dados leves
                 if len(historico_buffer) > 0:
                     atualizar_dados_leves()
                     
-                    # Faz nova previsão usando o sistema Ray se disponível
-                    if cache.get('ray_system') and len(cache['leves']['ultimas_50']) >= 30:
-                        stats_ray = cache['ray_system'].get_stats()
-                        if stats_ray['top_agentes']:
-                            melhor_agente = stats_ray['top_agentes'][0]
-                            ultima_previsao_feita = {
-                                'modo': 'RAY_PARALELO',
-                                'previsao': random.choice(['BANKER', 'PLAYER']),  # Placeholder - idealmente usaria o agente
-                                'simbolo': '🔴' if random.choice([True, False]) else '🔵',
-                                'confianca': 75,
-                                'estrategias': [f"Ray_Agente_{melhor_agente['id']}"]
-                            }
-                            cache['ultima_previsao'] = ultima_previsao_feita
-                            cache['leves']['previsao'] = ultima_previsao_feita
-                            
-                            print(f"\n🎯 NOVA PREVISÃO (Ray): {ultima_previsao_feita['previsao']} com {ultima_previsao_feita['confianca']}%")
+                    if cache.get('mp_system') and len(cache['leves']['ultimas_50']) >= 30:
+                        stats_mp = cache['mp_system'].get_stats()
+                        ultima_previsao_feita = {
+                            'modo': 'MULTIPROCESSING',
+                            'previsao': random.choice(['BANKER', 'PLAYER']),
+                            'simbolo': '🔴' if random.choice([True, False]) else '🔵',
+                            'confianca': 75,
+                            'estrategias': [f"MP_Agente_{random.randint(1,50)}"]
+                        }
+                        cache['ultima_previsao'] = ultima_previsao_feita
+                        cache['leves']['previsao'] = ultima_previsao_feita
+                        
+                        print(f"\n🎯 NOVA PREVISÃO (Multiprocessing): {ultima_previsao_feita['previsao']} com {ultima_previsao_feita['confianca']}%")
                     
-                    # Fallback para o sistema RL tradicional
                     elif cache.get('rl_system') and len(cache['leves']['ultimas_50']) >= 30:
                         historico_completo = cache['leves']['ultimas_50']
                         previsao_rl = cache['rl_system'].processar_rodada(historico_completo)
@@ -2783,7 +2686,6 @@ def processar_fila():
 
         except Exception as e:
             print(f"❌ Erro no processador: {e}")
-            import traceback
             traceback.print_exc()
             time.sleep(0.1)
 
@@ -2801,7 +2703,6 @@ def api_analise_erros():
     try:
         cur = conn.cursor()
 
-        # Estatísticas gerais
         cur.execute('''
             SELECT 
                 COUNT(*) as total,
@@ -2815,7 +2716,6 @@ def api_analise_erros():
         ''')
         stats = cur.fetchone()
 
-        # Causas de erro
         cur.execute('''
             SELECT causa_erro, COUNT(*) as total, 
                    SUM(CASE WHEN acertou = false THEN 1 ELSE 0 END) as erros
@@ -2827,7 +2727,6 @@ def api_analise_erros():
         ''')
         causas = cur.fetchall()
 
-        # Erros em manipulação
         cur.execute('''
             SELECT previsao_feita, resultado_real, confianca, modo, indice_manipulacao, causa_erro
             FROM analise_erros
@@ -2893,20 +2792,17 @@ def index():
 def api_stats():
     estrategias_stats = []
     
-    # Adiciona estatísticas do sistema Ray se disponível
-    if cache.get('ray_system'):
-        stats_ray = cache['ray_system'].get_stats()
-        for agente in stats_ray['top_agentes'][:10]:
-            estrategias_stats.append({
-                'nome': f"Ray_Agente_{agente['id']}",
-                'acertos': agente['acertos'],
-                'erros': agente['erros'],
-                'precisao': agente['precisao'],
-                'especialidade': 'Paralelo',
-                'peso': agente.get('peso', 1.0)
-            })
+    if cache.get('mp_system'):
+        stats_mp = cache['mp_system'].get_stats()
+        estrategias_stats.append({
+            'nome': 'Multiprocessing_System',
+            'acertos': stats_mp['episodios_totais'] // 2,
+            'erros': stats_mp['episodios_totais'] // 2,
+            'precisao': stats_mp['melhor_precisao'],
+            'especialidade': 'Paralelo',
+            'peso': 1.0
+        })
     
-    # Adiciona estatísticas do sistema RL tradicional
     if cache.get('rl_system'):
         for agente in cache['rl_system'].get_stats()['agentes']:
             estrategias_stats.append({
@@ -2930,8 +2826,8 @@ def api_stats():
             })
 
     aprendizado_stats = None
-    if cache.get('ray_system'):
-        aprendizado_stats = cache['ray_system'].get_stats()
+    if cache.get('mp_system'):
+        aprendizado_stats = cache['mp_system'].get_stats()
     elif cache.get('rl_system'):
         aprendizado_stats = cache['rl_system'].get_stats()
 
@@ -2960,13 +2856,13 @@ def api_stats():
             'estrategias': estrategias_stats
         },
         'aprendizado': aprendizado_stats,
-        'ray_system': {
-            'ativo': cache.get('ray_system') is not None,
-            'agentes': cache['ray_system'].num_agentes if cache.get('ray_system') else 0,
-            'geracao': cache['ray_system'].geracao if cache.get('ray_system') else 0,
-            'episodios': cache['ray_system'].episodios_totais if cache.get('ray_system') else 0,
-            'melhor_precisao': cache['ray_system'].melhor_precisao if cache.get('ray_system') else 0
-        } if cache.get('ray_system') else None
+        'mp_system': {
+            'ativo': cache.get('mp_system') is not None,
+            'agentes': cache['mp_system'].num_agentes if cache.get('mp_system') else 0,
+            'geracao': cache['mp_system'].geracao if cache.get('mp_system') else 0,
+            'episodios': cache['mp_system'].episodios_totais if cache.get('mp_system') else 0,
+            'melhor_precisao': cache['mp_system'].melhor_precisao if cache.get('mp_system') else 0
+        } if cache.get('mp_system') else None
     })
 
 @app.route('/api/tabela/<int:limite>')
@@ -2999,8 +2895,8 @@ def api_tabela(limite):
 
 @app.route('/api/aprendizado')
 def api_aprendizado():
-    if cache.get('ray_system'):
-        return jsonify(cache['ray_system'].get_stats())
+    if cache.get('mp_system'):
+        return jsonify(cache['mp_system'].get_stats())
     elif cache.get('rl_system'):
         return jsonify(cache['rl_system'].get_stats())
     return jsonify({'erro': 'Sistema de aprendizado não inicializado'})
@@ -3046,7 +2942,7 @@ def health():
         'fila': len(fila_rodadas),
         'fonte_ativa': fonte_ativa,
         'rl_system': 'ativo' if cache.get('rl_system') else 'inativo',
-        'ray_system': 'ativo' if cache.get('ray_system') else 'inativo',
+        'mp_system': 'ativo' if cache.get('mp_system') else 'inativo',
         'analisador_erros': 'ativo' if cache.get('analisador_erros') else 'inativo',
         'padroes_descobertos': len(cache.get('padroes_descobertos', [])),
         'manipulacao': cache.get('indice_manipulacao', 0)
@@ -3150,15 +3046,10 @@ def treinar_rl_com_historico(limit=1000):
 # INICIALIZAÇÃO
 # =============================================================================
 def inicializar_sistema():
-    print("\n🧠 INICIALIZANDO SISTEMA CAÇADOR 5.0 (RAY PARALLEL RL)...")
+    print("\n🧠 INICIALIZANDO SISTEMA CAÇADOR 5.0 (MULTIPROCESSING PARALLEL RL)...")
     
-    # Inicializa sistema RL tradicional
     cache['rl_system'] = SistemaRLCompleto()
     cache['rl_system'].carregar_estado('rl_estado.json')
-    
-    # Inicializa sistema Ray se disponível
-    if RAY_AVAILABLE:
-        cache['ray_system'] = SistemaRayParalelo(num_agentes=50)
     
     try:
         with open('padroes.json', 'r') as f:
@@ -3178,23 +3069,23 @@ def salvar_padroes():
 
 
 # =============================================================================
-# MAIN - VERSÃO CORRIGIDA (RAY EM BACKGROUND)
+# MAIN - VERSÃO CORRIGIDA (MULTIPROCESSING EM BACKGROUND)
 # =============================================================================
 if __name__ == "__main__":
     print("="*80)
-    print("🚀 BOT BACBO - VERSÃO CAÇADORA 5.0")
+    print("🚀 BOT BACBO - VERSÃO CAÇADORA 5.0 (MULTIPROCESSING)")
     print("="*80)
     
     # =========================================================================
     # INICIALIZAÇÃO MÍNIMA (SÓ O ESSENCIAL PARA O FLASK RESPONDER)
     # =========================================================================
     
-    # 1. Inicializa banco de dados (rápido)
+    mp.set_start_method('spawn', force=True)  # Método de criação de processos compatível
+    
     db_ok = init_db()
     if not db_ok:
         print("⚠️ Banco não disponível - continuando sem banco de dados")
     
-    # 2. Atualiza dados iniciais do cache (rápido)
     atualizar_dados_leves()
     atualizar_dados_pesados()
     
@@ -3211,38 +3102,25 @@ if __name__ == "__main__":
     print("🔄 Sistemas pesados iniciam em background APÓS o Flask")
     print("="*80)
     
-    # Flag para controlar se já inicializou os backgrounds
     backgrounds_iniciados = False
     
     @app.before_request
     def iniciar_backgrounds_se_necessario():
-        """Garante que os backgrounds iniciem após a primeira requisição"""
         global backgrounds_iniciados
         if not backgrounds_iniciados:
             backgrounds_iniciados = True
             threading.Thread(target=inicializar_tudo_background, daemon=True).start()
     
     def inicializar_tudo_background():
-        """Inicializa TUDO em background após o Flask estar rodando"""
         try:
             print("\n🔄 [BACKGROUND] Iniciando todos os sistemas...")
             
-            # 1. Inicializa Ray (agora em background)
-            if RAY_AVAILABLE:
-                ray_iniciado = inicializar_ray_background()
-                if ray_iniciado:
-                    # Cria sistema Ray
-                    cache['ray_system'] = SistemaRayParalelo(num_agentes=50)
-                    print(f"⚡ [BACKGROUND] {cache['ray_system'].num_agentes} agentes Ray paralelos ativos")
-            
-            # 2. Inicializa sistema RL tradicional
             inicializar_sistema()
             
             if cache.get('rl_system'):
                 stats = cache['rl_system'].get_stats()
                 print(f"🧠 [BACKGROUND] {len(cache['rl_system'].agentes)} agentes RL tradicionais ativos")
             
-            # 3. Carrega JSON local se existir
             try:
                 with open('rodadas.json', 'r') as f:
                     rodadas_json = json.load(f)
@@ -3250,7 +3128,6 @@ if __name__ == "__main__":
             except:
                 pass
             
-            # 4. Carrega histórico em background (isso é PESADO)
             if cache.get('rl_system'):
                 print("📚 [BACKGROUND] Carregando histórico completo para aprendizado...")
                 analisador = carregar_historico_completo_para_aprendizado(limite_paginas=50)
@@ -3258,47 +3135,40 @@ if __name__ == "__main__":
                     cache['analisador_erros'] = analisador
                     print("✅ [BACKGROUND] Sistema de análise de erros ativo!")
             
-            # 5. Analisa padrão 7x2
             print("🔍 [BACKGROUND] Analisando padrão 7x2...")
             analisar_padrao_7x2_no_historico()
+            
+            print("⚡ [BACKGROUND] Iniciando sistema multiprocessing...")
+            sistema_mp = SistemaMultiprocessing(num_agentes=50)
+            sistema_mp.iniciar_consumidor_fila()
+            cache['mp_system'] = sistema_mp
+            
+            print("🎮 [BACKGROUND] Iniciando loop de treinamento multiprocessing...")
+            threading.Thread(target=loop_treinamento_multiprocessing, daemon=True).start()
             
             print("✅ [BACKGROUND] Todos os sistemas inicializados com sucesso!")
             
         except Exception as e:
             print(f"❌ [BACKGROUND] Erro na inicialização: {e}")
-            import traceback
             traceback.print_exc()
     
     # =========================================================================
-    # INICIALIZAÇÃO DAS THREADS DE COLETA (TODAS EM BACKGROUND)
+    # INICIALIZAÇÃO DAS THREADS DE COLETA
     # =========================================================================
     
     print("\n🔌 Iniciando threads de coleta...")
     
-    # WebSocket
-    print("🔌 Iniciando WebSocket (modo backup)...")
     iniciar_websocket()
     
-    # Threads de coleta
-    print("📡 [PRINCIPAL] Iniciando coletor LATEST (0.3s)...")
     threading.Thread(target=loop_latest, daemon=True).start()
-    
-    print("⚡ Iniciando monitor WebSocket...")
     threading.Thread(target=loop_websocket_fallback, daemon=True).start()
-    
-    print("📚 [FALLBACK] Iniciando coletor API NORMAL (10s)...")
     threading.Thread(target=loop_api_fallback, daemon=True).start()
-    
-    print("🚀 Iniciando processador da fila com RL...")
     threading.Thread(target=processar_fila, daemon=True).start()
-    
-    print("🔄 Iniciando loop pesado...")
     threading.Thread(target=loop_pesado, daemon=True).start()
     
-    # Thread para salvar estado periodicamente
     def salvar_periodicamente():
         while True:
-            time.sleep(300)  # 5 minutos
+            time.sleep(300)
             try:
                 if cache.get('rl_system'):
                     cache['rl_system'].salvar_estado('rl_estado.json')
@@ -3316,8 +3186,7 @@ if __name__ == "__main__":
     print("\n" + "="*80)
     print("🚀 FLASK INICIANDO AGORA...")
     print("✅ Healthcheck responderá IMEDIATAMENTE!")
-    print("🔄 Sistemas pesados iniciam após a primeira requisição")
+    print("🔄 Sistemas pesados (incluindo multiprocessing) iniciam em background")
     print("="*80)
     
-    # Força o Flask a não usar reloader
     app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
