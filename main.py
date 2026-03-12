@@ -2322,15 +2322,37 @@ def get_db_connection():
             port=DB_PORT,
             database=DB_NAME,
             ssl_context=SSL_CONTEXT,
-            timeout=30  # Apenas timeout, sem keepalives
+            timeout=30
         )
-        # IMPORTANTE: Desabilitar autocommit para controle manual
         conn.autocommit = False
         return conn
     except Exception as e:
         print(f"❌ Erro ao conectar: {e}")
         return None
 
+# =============================================================================
+# 🧹 FUNÇÃO PARA LIMPAR JSON INVÁLIDO
+# =============================================================================
+def limpar_json_para_banco(dados):
+    """Remove caracteres Unicode inválidos que causam erro no PostgreSQL"""
+    if isinstance(dados, dict):
+        try:
+            json_str = json.dumps(dados, default=str)
+            # Remove caracteres Unicode problemáticos (emojis, etc)
+            json_str = ''.join(char for char in json_str if ord(char) < 0x10000 or 0xE000 <= ord(char) <= 0xFFFF)
+            return json.loads(json_str)
+        except:
+            # Se ainda der erro, retorna versão simplificada
+            return {
+                'id': dados.get('id', ''),
+                'data': str(dados.get('data', {})),
+                'result': str(dados.get('result', {}))
+            }
+    return dados
+
+# =============================================================================
+# 🏗️ FUNÇÃO PARA INICIALIZAR BANCO DE DADOS
+# =============================================================================
 def init_db():
     conn = get_db_connection()
     if not conn:
@@ -2441,12 +2463,15 @@ def init_db():
         cur.close()
         conn.close()
         print("✅ Tabelas criadas/verificadas com sucesso")
-        
         return True
+        
     except Exception as e:
         print(f"❌ Erro ao criar tabelas: {e}")
         return False
 
+# =============================================================================
+# 💾 FUNÇÃO PARA SALVAR RODADA
+# =============================================================================
 def salvar_rodada(rodada, fonte):
     conn = get_db_connection()
     if not conn:
@@ -2590,7 +2615,6 @@ def salvar_previsao_completa_segura(previsao, resultado_real, acertou, contexto,
 # =============================================================================
 # 📊 FUNÇÃO PARA CARREGAR ESTATÍSTICAS DO BANCO DE DADOS
 # =============================================================================
-
 def carregar_estatisticas_do_banco():
     """Carrega o histórico completo de previsões do banco de dados para o cache"""
     print("\n" + "="*80)
@@ -2606,7 +2630,7 @@ def carregar_estatisticas_do_banco():
         cur = conn.cursor()
         
         # =========================================================================
-        # 0. CARREGA TOTAL DE RODADAS (NOVO!)
+        # 0. CARREGA TOTAL DE RODADAS
         # =========================================================================
         print("\n📊 0. CARREGANDO TOTAL DE RODADAS...")
         cur.execute('SELECT COUNT(*) FROM rodadas')
@@ -2730,12 +2754,11 @@ def carregar_estatisticas_do_banco():
                 cache['rl_system'].manipulacoes_detectadas = 0
         
         # =========================================================================
-        # 4. CALCULA GERAÇÃO BASEADA NO TOTAL DE PREVISÕES (NOVO!)
+        # 4. CALCULA GERAÇÃO BASEADA NO TOTAL DE PREVISÕES
         # =========================================================================
         print("\n📊 4. CALCULANDO GERAÇÃO ATUAL...")
         
         if cache.get('rl_system'):
-            # Calcula geração baseada no total de previsões (1 geração a cada 100 previsões)
             total_previsoes = cache['estatisticas']['total_previsoes']
             nova_geracao = total_previsoes // 100
             
@@ -2746,7 +2769,7 @@ def carregar_estatisticas_do_banco():
                 print(f"   ℹ️ Geração mantida em {cache['rl_system'].geracao} (menos de 100 previsões)")
         
         # =========================================================================
-        # 5. VERIFICA GERAÇÃO NO BANCO (FALLBACK)
+        # 5. VERIFICA GERAÇÃO NO BANCO
         # =========================================================================
         print("\n📊 5. VERIFICANDO GERAÇÃO NO BANCO...")
         
@@ -2763,7 +2786,7 @@ def carregar_estatisticas_do_banco():
                 print(f"   ℹ️ Geração mantida: {cache['rl_system'].geracao}")
         
         # =========================================================================
-        # 6. CARREGA ESTATÍSTICAS DOS AGENTES (OPCIONAL)
+        # 6. CARREGA ESTATÍSTICAS DOS AGENTES
         # =========================================================================
         print("\n📊 6. CARREGANDO ESTATÍSTICAS DOS AGENTES...")
         
@@ -2795,7 +2818,7 @@ def carregar_estatisticas_do_banco():
         conn.close()
         
         # =========================================================================
-        # 7. ATUALIZA DADOS LEVES COM O TOTAL DE RODADAS
+        # 7. ATUALIZA DADOS LEVES
         # =========================================================================
         print("\n📊 7. ATUALIZANDO CACHE LEVE...")
         atualizar_dados_leves()
@@ -2815,7 +2838,7 @@ def carregar_estatisticas_do_banco():
             print(f"   ✅ Estratégias atualizadas para {len(cache['rl_system'].agentes)} agentes")
         
         # =========================================================================
-        # 9. RESUMO FINAL COMPLETO
+        # 9. RESUMO FINAL
         # =========================================================================
         print("\n" + "="*80)
         print("📊 RESUMO DO CARREGAMENTO:")
@@ -2842,7 +2865,7 @@ def carregar_estatisticas_do_banco():
         return False
 
 # =============================================================================
-# FUNÇÕES DO BANCO (LEVES)
+# 🔍 FUNÇÕES DO BANCO (LEVES)
 # =============================================================================
 
 def get_ultimas_50():
@@ -2929,7 +2952,7 @@ def atualizar_dados_leves():
     cache['leves']['ultima_atualizacao'] = datetime.now(timezone.utc)
 
 # =============================================================================
-# FUNÇÕES PESADAS
+# 📈 FUNÇÕES PESADAS
 # =============================================================================
 
 def contar_periodo(horas):
@@ -2966,11 +2989,9 @@ def atualizar_dados_pesados():
     }
     cache['pesados']['ultima_atualizacao'] = datetime.now(timezone.utc)
 
-
 # =============================================================================
-# ALTERNAR FONTE ATIVA
+# 🔄 FUNÇÃO PARA ALTERNAR FONTE ATIVA
 # =============================================================================
-
 def alternar_fonte():
     global fonte_ativa, falhas_latest, falhas_websocket, falhas_api_normal
 
@@ -2997,7 +3018,7 @@ def alternar_fonte():
         fontes_status['api_normal']['status'] = 'standby'
 
 # =============================================================================
-# FONTE 1: API LATEST
+# 📡 FONTE 1: API LATEST
 # =============================================================================
 
 def buscar_latest():
