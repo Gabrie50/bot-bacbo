@@ -1941,6 +1941,19 @@ def carregar_estatisticas_do_banco():
         cur = conn.cursor()
         
         # =========================================================================
+        # 0. CARREGA TOTAL DE RODADAS (NOVO!)
+        # =========================================================================
+        print("\n📊 0. CARREGANDO TOTAL DE RODADAS...")
+        cur.execute('SELECT COUNT(*) FROM rodadas')
+        row = cur.fetchone()
+        if row and row[0] > 0:
+            cache['leves']['total_rodadas'] = row[0]
+            print(f"   ✅ Total de rodadas no banco: {row[0]}")
+        else:
+            print("   ⚠️ Nenhuma rodada encontrada no banco")
+            cache['leves']['total_rodadas'] = 0
+        
+        # =========================================================================
         # 1. CARREGA TOTAIS GLOBAIS DE PREVISÕES
         # =========================================================================
         print("\n📊 1. CARREGANDO TOTAIS DE PREVISÕES...")
@@ -2052,9 +2065,25 @@ def carregar_estatisticas_do_banco():
                 cache['rl_system'].manipulacoes_detectadas = 0
         
         # =========================================================================
-        # 4. VERIFICA GERAÇÃO ATUAL
+        # 4. CALCULA GERAÇÃO BASEADA NO TOTAL DE PREVISÕES (NOVO!)
         # =========================================================================
-        print("\n📊 4. VERIFICANDO GERAÇÃO ATUAL...")
+        print("\n📊 4. CALCULANDO GERAÇÃO ATUAL...")
+        
+        if cache.get('rl_system'):
+            # Calcula geração baseada no total de previsões (1 geração a cada 100 previsões)
+            total_previsoes = cache['estatisticas']['total_previsoes']
+            nova_geracao = total_previsoes // 100
+            
+            if nova_geracao > 0:
+                cache['rl_system'].geracao = nova_geracao
+                print(f"   ✅ Geração calculada: {nova_geracao} (baseada em {total_previsoes} previsões)")
+            else:
+                print(f"   ℹ️ Geração mantida em {cache['rl_system'].geracao} (menos de 100 previsões)")
+        
+        # =========================================================================
+        # 5. VERIFICA GERAÇÃO NO BANCO (FALLBACK)
+        # =========================================================================
+        print("\n📊 5. VERIFICANDO GERAÇÃO NO BANCO...")
         
         if cache.get('rl_system'):
             cur.execute('''
@@ -2064,18 +2093,68 @@ def carregar_estatisticas_do_banco():
             row = cur.fetchone()
             if row and row[0] is not None and row[0] > cache['rl_system'].geracao:
                 cache['rl_system'].geracao = row[0]
-                print(f"   ✅ Geração carregada do banco: {row[0]}")
+                print(f"   ✅ Geração carregada do banco: {row[0]} (maior que a calculada)")
             else:
-                print(f"   ℹ️ Geração atual: {cache['rl_system'].geracao}")
+                print(f"   ℹ️ Geração mantida: {cache['rl_system'].geracao}")
+        
+        # =========================================================================
+        # 6. CARREGA ESTATÍSTICAS DOS AGENTES (OPCIONAL)
+        # =========================================================================
+        print("\n📊 6. CARREGANDO ESTATÍSTICAS DOS AGENTES...")
+        
+        if cache.get('rl_system'):
+            cur.execute('''
+                SELECT 
+                    agente_nome,
+                    fitness,
+                    especialidades,
+                    dna_json
+                FROM neuroevolucao_agentes
+                WHERE geracao = (SELECT MAX(geracao) FROM neuroevolucao_agentes)
+                ORDER BY fitness DESC
+                LIMIT 10
+            ''')
+            
+            rows = cur.fetchall()
+            if rows:
+                print(f"   ✅ Encontrados {len(rows)} agentes na última geração")
+                for row in rows:
+                    nome = row[0]
+                    if nome in cache['rl_system'].agentes:
+                        if row[1] is not None:
+                            cache['rl_system'].agentes[nome].fitness = row[1]
+                        if row[2] and len(row[2]) > 0:
+                            cache['rl_system'].agentes[nome].especialidade = row[2][0]
         
         cur.close()
         conn.close()
         
         # =========================================================================
-        # 5. RESUMO FINAL
+        # 7. ATUALIZA DADOS LEVES COM O TOTAL DE RODADAS
+        # =========================================================================
+        print("\n📊 7. ATUALIZANDO CACHE LEVE...")
+        atualizar_dados_leves()
+        print(f"   ✅ Cache atualizado: {cache['leves']['total_rodadas']} rodadas")
+        
+        # =========================================================================
+        # 8. ATUALIZA O DICIONÁRIO DE ESTRATÉGIAS
+        # =========================================================================
+        print("\n📊 8. ATUALIZANDO ESTRATÉGIAS DOS AGENTES...")
+        
+        if cache.get('rl_system'):
+            for nome, agente in cache['rl_system'].agentes.items():
+                if nome in cache['estatisticas']['estrategias']:
+                    cache['estatisticas']['estrategias'][nome]['acertos'] = agente.acertos
+                    cache['estatisticas']['estrategias'][nome]['erros'] = agente.erros
+                    cache['estatisticas']['estrategias'][nome]['total'] = agente.total_uso
+            print(f"   ✅ Estratégias atualizadas para {len(cache['rl_system'].agentes)} agentes")
+        
+        # =========================================================================
+        # 9. RESUMO FINAL COMPLETO
         # =========================================================================
         print("\n" + "="*80)
         print("📊 RESUMO DO CARREGAMENTO:")
+        print(f"   ✅ Rodadas totais: {cache['leves']['total_rodadas']}")
         print(f"   ✅ Previsões totais: {cache['estatisticas']['total_previsoes']}")
         print(f"   ✅ Acertos: {cache['estatisticas']['acertos']}")
         print(f"   ❌ Erros: {cache['estatisticas']['erros']}")
@@ -2085,6 +2164,7 @@ def carregar_estatisticas_do_banco():
         if cache.get('rl_system'):
             print(f"   🎮 Geração: {cache['rl_system'].geracao}")
             print(f"   🕵️ Manipulações: {cache['rl_system'].manipulacoes_detectadas}")
+            print(f"   🤖 Agentes ativos: {len([a for a in cache['rl_system'].agentes.values() if a.total_uso > 0])}")
         
         print("="*80)
         print("✅ ESTATÍSTICAS CARREGADAS COM SUCESSO!\n")
@@ -2095,7 +2175,6 @@ def carregar_estatisticas_do_banco():
         import traceback
         traceback.print_exc()
         return False
-
 
 # =============================================================================
 # FUNÇÕES DO BANCO (LEVES)
