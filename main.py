@@ -2242,7 +2242,7 @@ def processo_agente_worker(agente_id, fila_experiencias, estatisticas_compartilh
 class SistemaMultiprocessing:
     """Sistema que gerencia múltiplos processos rodando em paralelo"""
     
-    def __init__(self, num_agentes=50):
+    def __init__(self, num_agentes=200):
         self.num_agentes = num_agentes
         self.processos = []
         self.state_size = 150
@@ -4374,7 +4374,7 @@ if __name__ == "__main__":
             analisar_padrao_7x2_no_historico()
             
             print("⚡ [BACKGROUND] Iniciando sistema multiprocessing...")
-            sistema_mp = SistemaMultiprocessing(num_agentes=50)
+            sistema_mp = SistemaMultiprocessing(num_agentes=200)
             sistema_mp.iniciar_consumidor_fila()
             cache['mp_system'] = sistema_mp
             
