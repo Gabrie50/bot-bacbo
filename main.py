@@ -4356,6 +4356,19 @@ if __name__ == "__main__":
                 if analisador:
                     cache['analisador_erros'] = analisador
                     print("✅ [BACKGROUND] Sistema de análise de erros ativo!")
+                    
+                    # =========================================================================
+                    # 🧬 ATIVAR NEUROEVOLUÇÃO CORRETIVA COM 300 AGENTES (NOVO!)
+                    # =========================================================================
+                    print("🧬 [BACKGROUND] Iniciando neuroevolução corretiva com 300 AGENTES...")
+                    neuro = NeuroEvolucaoCorretiva(cache['rl_system'], num_agentes=300)
+                    analisador.neuro_treinador = neuro
+                    print("✅ [BACKGROUND] Neuroevolução corretiva ativada com 300 agentes especialistas!")
+                    
+                    # Iniciar loop de correção contínua em background
+                    threading.Thread(target=loop_correcao_continua, daemon=True).start()
+                    print("🔄 [BACKGROUND] Loop de correção contínua iniciado (300 agentes)")
+                    # =========================================================================
             
             print("🔍 [BACKGROUND] Analisando padrão 7x2...")
             analisar_padrao_7x2_no_historico()
