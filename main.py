@@ -128,7 +128,7 @@ mp_estatisticas = mp_manager.dict({
 })
 
 # =============================================================================
-# PyTorch + EvoTorch
+# PyTorch + EvoTorch + Gymnasium
 # =============================================================================
 try:
     import torch
@@ -141,24 +141,64 @@ try:
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"✅ PyTorch disponível - Dispositivo: {DEVICE}")
     
-    # Tenta importar EvoTorch (para neuroevolução)
+    # =========================================================================
+    # 🎮 GYMNASIUM - Versão moderna do Gym (sem warnings)
+    # =========================================================================
+    try:
+        import gymnasium as gym
+        GYMNASIUM_AVAILABLE = True
+        print(f"✅ Gymnasium disponível - Versão: {gym.__version__}")
+    except ImportError as e:
+        GYMNASIUM_AVAILABLE = False
+        print(f"⚠️ Gymnasium não encontrado: {e}")
+        print("   Instale com: pip install gymnasium")
+        print("   Alguns recursos do EvoTorch podem ser limitados")
+    
+    # =========================================================================
+    # 🧬 EVOTORCH - Neuroevolução
+    # =========================================================================
     try:
         from evotorch import Problem
         from evotorch.algorithms import SNES, PGPE
         from evotorch.logging import StdOutLogger
         from evotorch.neuroevolution import NEProblem
+        
         EVOTORCH_AVAILABLE = True
         print("✅ EvoTorch disponível - Neuroevolução ativada")
-    except ImportError:
-        EVOTORCH_AVAILABLE = False
-        print("⚠️ EvoTorch não encontrado - Use: pip install evotorch")
         
+        # Verifica versão do EvoTorch se possível
+        try:
+            import evotorch
+            print(f"   📦 Versão EvoTorch: {evotorch.__version__}")
+        except:
+            pass
+            
+    except ImportError as e:
+        EVOTORCH_AVAILABLE = False
+        print(f"⚠️ EvoTorch não encontrado: {e}")
+        print("   Use: pip install evotorch")
+        print("   Ou para todas dependências: pip install evotorch[all]")
+    
     TORCH_AVAILABLE = True
-except ImportError:
-    print("❌ PyTorch não encontrado - Instale: pip install torch torchvision")
+    
+    # =========================================================================
+    # 📊 Status final das bibliotecas
+    # =========================================================================
+    print("\n" + "="*80)
+    print("📊 STATUS DAS BIBLIOTECAS DE IA:")
+    print(f"   ✅ PyTorch: {'OK' if TORCH_AVAILABLE else 'FALHA'} (Device: {DEVICE})")
+    print(f"   ✅ Gymnasium: {'OK' if GYMNASIUM_AVAILABLE else 'FALHA'}")
+    print(f"   ✅ EvoTorch: {'OK' if EVOTORCH_AVAILABLE else 'FALHA'}")
+    print("="*80 + "\n")
+    
+except ImportError as e:
+    print(f"❌ Erro crítico ao importar PyTorch: {e}")
+    print("   Instale com: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu")
     TORCH_AVAILABLE = False
     DEVICE = 'cpu'
-
+    EVOTORCH_AVAILABLE = False
+    GYMNASIUM_AVAILABLE = False
+    
 # =============================================================================
 # CONFIGURAÇÕES - PG8000 COM SSL
 # =============================================================================
