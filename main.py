@@ -246,7 +246,7 @@ except ImportError as e:
 # =============================================================================
 # CONFIGURAÇÕES - PG8000 COM SSL
 # =============================================================================
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://neondb_owner:npg_no2lRINTbCs1@ep-empty-bar-ada277gm-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require")
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://neondb_owner:npg_CB7FdyvEJT2Z@ep-cool-tooth-adrnt80p-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require")
 
 # Parse da URL removendo parâmetros de conexão
 parsed = urllib.parse.urlparse(DATABASE_URL)
@@ -3517,7 +3517,7 @@ def analisar_padrao_7x2_no_historico():
 # =============================================================================
 
 def loop_latest():
-    print("📡 [PRINCIPAL] Coletor LATEST iniciado (0.3s)...")
+    print("📡 [PRINCIPAL] Coletor LATEST iniciado (0.2s)...")
     falhas_consecutivas = 0
     
     while True:
@@ -3972,7 +3972,7 @@ def status_fontes():
 
 def loop_pesado():
     while True:
-        time.sleep(0.2)
+        time.sleep(0.1)
         try:
             atualizar_dados_pesados()
         except Exception as e:
