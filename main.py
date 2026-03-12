@@ -1922,6 +1922,180 @@ def salvar_previsao_completa_segura(previsao, resultado_real, acertou, contexto,
             pass
         return False
 
+# =============================================================================
+# 📊 FUNÇÃO PARA CARREGAR ESTATÍSTICAS DO BANCO DE DADOS
+# =============================================================================
+
+def carregar_estatisticas_do_banco():
+    """Carrega o histórico completo de previsões do banco de dados para o cache"""
+    print("\n" + "="*80)
+    print("📊 CARREGANDO ESTATÍSTICAS DO BANCO DE DADOS")
+    print("="*80)
+    
+    conn = get_db_connection()
+    if not conn:
+        print("⚠️ Não foi possível conectar ao banco para carregar estatísticas")
+        return False
+    
+    try:
+        cur = conn.cursor()
+        
+        # =========================================================================
+        # 1. CARREGA TOTAIS GLOBAIS DE PREVISÕES
+        # =========================================================================
+        print("\n📊 1. CARREGANDO TOTAIS DE PREVISÕES...")
+        cur.execute('''
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN acertou = true THEN 1 ELSE 0 END) as acertos,
+                SUM(CASE WHEN acertou = false THEN 1 ELSE 0 END) as erros
+            FROM historico_previsoes
+        ''')
+        
+        row = cur.fetchone()
+        if row and row[0] > 0:
+            cache['estatisticas']['total_previsoes'] = row[0]
+            cache['estatisticas']['acertos'] = row[1] if row[1] is not None else 0
+            cache['estatisticas']['erros'] = row[2] if row[2] is not None else 0
+            
+            print(f"   ✅ Total de previsões: {row[0]}")
+            print(f"   ✅ Acertos: {row[1] if row[1] is not None else 0}")
+            print(f"   ✅ Erros: {row[2] if row[2] is not None else 0}")
+            print(f"   📈 Precisão: {calcular_precisao()}%")
+        else:
+            print("   ⚠️ Nenhuma previsão encontrada no banco")
+            cache['estatisticas']['total_previsoes'] = 0
+            cache['estatisticas']['acertos'] = 0
+            cache['estatisticas']['erros'] = 0
+        
+        # =========================================================================
+        # 2. CARREGA ÚLTIMAS 20 PREVISÕES
+        # =========================================================================
+        print("\n📊 2. CARREGANDO ÚLTIMAS 20 PREVISÕES...")
+        cur.execute('''
+            SELECT 
+                data_hora,
+                previsao,
+                simbolo,
+                confianca,
+                resultado_real,
+                acertou,
+                estrategias,
+                indice_manipulacao,
+                modo,
+                id
+            FROM historico_previsoes
+            ORDER BY data_hora DESC
+            LIMIT 20
+        ''')
+        
+        rows = cur.fetchall()
+        ultimas_previsoes = []
+        
+        if rows:
+            for row in rows:
+                try:
+                    data_hora = row[0]
+                    if data_hora.tzinfo is None:
+                        data_hora = data_hora.replace(tzinfo=timezone.utc)
+                    
+                    brasilia = data_hora.astimezone(timezone(timedelta(hours=-3)))
+                    
+                    estrategias_str = row[6] if row[6] else ''
+                    estrategias_list = estrategias_str.split(',') if estrategias_str else []
+                    
+                    previsao_historico = {
+                        'id': row[9],
+                        'data': brasilia.strftime('%d/%m %H:%M:%S'),
+                        'data_completa': brasilia.isoformat(),
+                        'previsao': row[1],
+                        'simbolo': row[2] if row[2] else ('🔴' if row[1] == 'BANKER' else '🔵'),
+                        'confianca': row[3],
+                        'resultado_real': row[4],
+                        'acertou': row[5],
+                        'estrategias': estrategias_list,
+                        'manipulado': row[7] > 50 if row[7] is not None else False,
+                        'indice_manipulacao': row[7] if row[7] is not None else 0,
+                        'modo': row[8] if row[8] else 'RL_PURO'
+                    }
+                    ultimas_previsoes.append(previsao_historico)
+                except Exception as e:
+                    print(f"   ⚠️ Erro ao processar previsão: {e}")
+                    continue
+            
+            cache['estatisticas']['ultimas_20_previsoes'] = ultimas_previsoes
+            print(f"   ✅ Carregadas {len(ultimas_previsoes)} últimas previsões")
+        else:
+            print("   ⚠️ Nenhuma previsão recente encontrada")
+            cache['estatisticas']['ultimas_20_previsoes'] = []
+        
+        # =========================================================================
+        # 3. CARREGA TOTAL DE MANIPULAÇÕES DETECTADAS
+        # =========================================================================
+        print("\n📊 3. CARREGANDO MANIPULAÇÕES DETECTADAS...")
+        
+        cur.execute('''
+            SELECT 
+                COUNT(*) as total_manipuladas
+            FROM analise_erros 
+            WHERE foi_manipulado = true
+        ''')
+        
+        row = cur.fetchone()
+        if row and row[0] > 0:
+            if cache.get('rl_system'):
+                cache['rl_system'].manipulacoes_detectadas = row[0]
+            print(f"   ✅ Total de manipulações detectadas: {row[0]}")
+        else:
+            print("   ⚠️ Nenhuma manipulação detectada no banco")
+            if cache.get('rl_system'):
+                cache['rl_system'].manipulacoes_detectadas = 0
+        
+        # =========================================================================
+        # 4. VERIFICA GERAÇÃO ATUAL
+        # =========================================================================
+        print("\n📊 4. VERIFICANDO GERAÇÃO ATUAL...")
+        
+        if cache.get('rl_system'):
+            cur.execute('''
+                SELECT MAX(geracao) 
+                FROM neuroevolucao_agentes
+            ''')
+            row = cur.fetchone()
+            if row and row[0] is not None and row[0] > cache['rl_system'].geracao:
+                cache['rl_system'].geracao = row[0]
+                print(f"   ✅ Geração carregada do banco: {row[0]}")
+            else:
+                print(f"   ℹ️ Geração atual: {cache['rl_system'].geracao}")
+        
+        cur.close()
+        conn.close()
+        
+        # =========================================================================
+        # 5. RESUMO FINAL
+        # =========================================================================
+        print("\n" + "="*80)
+        print("📊 RESUMO DO CARREGAMENTO:")
+        print(f"   ✅ Previsões totais: {cache['estatisticas']['total_previsoes']}")
+        print(f"   ✅ Acertos: {cache['estatisticas']['acertos']}")
+        print(f"   ❌ Erros: {cache['estatisticas']['erros']}")
+        print(f"   📈 Precisão: {calcular_precisao()}%")
+        print(f"   📊 Últimas previsões: {len(cache['estatisticas']['ultimas_20_previsoes'])}")
+        
+        if cache.get('rl_system'):
+            print(f"   🎮 Geração: {cache['rl_system'].geracao}")
+            print(f"   🕵️ Manipulações: {cache['rl_system'].manipulacoes_detectadas}")
+        
+        print("="*80)
+        print("✅ ESTATÍSTICAS CARREGADAS COM SUCESSO!\n")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Erro ao carregar estatísticas: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
 
 # =============================================================================
 # FUNÇÕES DO BANCO (LEVES)
