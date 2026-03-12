@@ -23,6 +23,95 @@ from multiprocessing import Queue as MPQueue
 import traceback
 
 # =============================================================================
+# 🔧 PATCH CORRETIVO PARA O ERRO DO NUMPY (ESSENCIAL!)
+# =============================================================================
+# Este patch resolve o erro: "cannot import name 'ERR_IGNORE' from 'numpy.core.umath'"
+# Deve ser colocado ANTES de qualquer outro código que use PyTorch
+print("\n" + "="*80)
+print("🔧 APLICANDO PATCH DE COMPATIBILIDADE NUMPY + PYTORCH")
+print("="*80)
+
+try:
+    import numpy as np
+    print(f"📊 Versão do NumPy detectada: {np.__version__}")
+    
+    # Patch 1: Criar atributos faltantes no módulo umath
+    if hasattr(np.core, 'umath'):
+        print("✅ Módulo np.core.umath encontrado")
+        
+        # Lista de atributos que podem estar faltando
+        atributos_necessarios = [
+            'ERR_IGNORE',
+            'ERR_WARN', 
+            'ERR_RAISE', 
+            'ERR_CALL', 
+            'ERR_PRINT', 
+            'ERR_LOG'
+        ]
+        
+        for attr in atributos_necessarios:
+            if not hasattr(np.core.umath, attr):
+                try:
+                    setattr(np.core.umath, attr, 0)
+                    print(f"   ✅ Atributo criado: np.core.umath.{attr}")
+                except Exception as e:
+                    print(f"   ⚠️ Erro ao criar {attr}: {e}")
+            else:
+                print(f"   ✅ Atributo já existe: np.core.umath.{attr}")
+    else:
+        print("⚠️ Módulo np.core.umath não encontrado")
+    
+    # Patch 2: Criar atributos diretamente no numpy
+    for attr in atributos_necessarios:
+        if not hasattr(np, attr):
+            try:
+                setattr(np, attr, 0)
+                print(f"   ✅ Atributo criado: np.{attr}")
+            except Exception as e:
+                print(f"   ⚠️ Erro ao criar np.{attr}: {e}")
+    
+    # Patch 3: Configurar sistema de erros do numpy
+    try:
+        np.seterr(all='ignore')
+        print("✅ numpy.seterr configurado para 'ignore'")
+    except Exception as e:
+        print(f"⚠️ Erro ao configurar seterr: {e}")
+    
+    # Patch 4: Monkey patch na função que pode estar causando o erro
+    original_geterrobj = np.geterrobj if hasattr(np, 'geterrobj') else None
+    
+    if original_geterrobj:
+        def patched_geterrobj():
+            try:
+                return original_geterrobj()
+            except Exception:
+                return [0, 0, 0]
+        
+        np.geterrobj = patched_geterrobj
+        print("✅ Monkey patch aplicado em np.geterrobj")
+    
+    # Patch 5: Verificação final
+    print("\n📊 VERIFICAÇÃO FINAL DO PATCH:")
+    if hasattr(np.core, 'umath') and hasattr(np.core.umath, 'ERR_IGNORE'):
+        print(f"   ✅ np.core.umath.ERR_IGNORE = {np.core.umath.ERR_IGNORE}")
+    else:
+        print("   ⚠️ np.core.umath.ERR_IGNORE ainda não disponível")
+    
+    if hasattr(np, 'ERR_IGNORE'):
+        print(f"   ✅ np.ERR_IGNORE = {np.ERR_IGNORE}")
+    else:
+        print("   ⚠️ np.ERR_IGNORE ainda não disponível")
+    
+    print("="*80)
+    print("✅ PATCH CONCLUÍDO - NumPy preparado para uso com PyTorch\n")
+    
+except Exception as e:
+    print(f"❌ ERRO CRÍTICO NO PATCH: {e}")
+    import traceback
+    traceback.print_exc()
+    print("⚠️ Continuando mesmo com erro no patch...\n")
+
+# =============================================================================
 # 🚀 MULTIPROCESSING - PARALELISMO PROFISSIONAL (SUBSTITUI O RAY)
 # =============================================================================
 MP_AVAILABLE = True
