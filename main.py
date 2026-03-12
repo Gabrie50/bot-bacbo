@@ -22,7 +22,10 @@ import multiprocessing as mp
 from multiprocessing import Queue as MPQueue
 import traceback
 
-# Silenciar avisos
+# =============================================================================
+# 🔇 SILENCIAR AVISOS (IMPORT OBRIGATÓRIO)
+# =============================================================================
+import warnings
 warnings.filterwarnings('ignore')
 os.environ['PYTHONWARNINGS'] = 'ignore'
 
