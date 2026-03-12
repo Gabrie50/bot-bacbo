@@ -2311,9 +2311,8 @@ def calcular_indice_manipulacao(dados):
 
 
 # =============================================================================
-# FUNÇÕES DO BANCO DE DADOS
+# 🔌 FUNÇÃO PARA CONEXÃO COM BANCO DE DADOS (VERSÃO CORRIGIDA)
 # =============================================================================
-
 def get_db_connection():
     try:
         conn = pg8000.connect(
@@ -2323,11 +2322,7 @@ def get_db_connection():
             port=DB_PORT,
             database=DB_NAME,
             ssl_context=SSL_CONTEXT,
-            timeout=30,
-            keepalives=1,
-            keepalives_idle=30,
-            keepalives_interval=10,
-            keepalives_count=5
+            timeout=30  # Apenas timeout, sem keepalives
         )
         # IMPORTANTE: Desabilitar autocommit para controle manual
         conn.autocommit = False
