@@ -16,9 +16,9 @@ requests==2.31.0
 websocket-client==1.7.0
 
 # =============================================================================
-# Computação Científica (Versão compatível com PyTorch)
+# Computação Científica - VERSÃO COMPATÍVEL COM GYM ANTIGO
 # =============================================================================
-numpy==1.24.3
+numpy==1.24.3  # <-- CRÍTICO: NÃO MUDAR PARA 2.0
 
 # =============================================================================
 # Utilitários
@@ -27,22 +27,16 @@ python-dotenv==1.0.0
 tqdm==4.65.0
 
 # =============================================================================
-# PyTorch (CPU version - estável e compatível)
+# PyTorch
 # =============================================================================
 --index-url https://download.pytorch.org/whl/cpu
 torch==2.1.0
 torchvision==0.16.0
 
 # =============================================================================
-# EvoTorch com Gymnasium (versão moderna sem warnings)
+# EvoTorch (depende do gym antigo)
 # =============================================================================
 evotorch==0.3.0
 cma==4.4.4
-gymnasium==0.29.1          # Substitui o gym (versão mantida)
 packaging
 pandas
-
-# =============================================================================
-# Shimmy - Compatibilidade com ambientes antigos (opcional)
-# =============================================================================
-# shimmy>=0.2.1              # Descomente se precisar compatibilidade com gym antigo
