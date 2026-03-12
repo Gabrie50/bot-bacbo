@@ -67,31 +67,32 @@ warnings.filterwarnings('ignore', message='Gym has been unmaintained')
 warnings.filterwarnings('ignore', module='gym')
 
 # =============================================================================
-# 🔧 PATCH CORRETIVO PARA O ERRO DO NUMPY (ESSENCIAL!)
+# 🔧 PATCH CORRETIVO PARA O ERRO DO NUMPY (VERSÃO REFORÇADA)
 # =============================================================================
-# Este patch resolve o erro: "cannot import name 'ERR_IGNORE' from 'numpy.core.umath'"
-# Deve ser colocado ANTES de qualquer outro código que use PyTorch
+import numpy as np
+import sys
+
 print("\n" + "="*80)
 print("🔧 APLICANDO PATCH DE COMPATIBILIDADE NUMPY + PYTORCH")
 print("="*80)
 
 try:
-    import numpy as np
     print(f"📊 Versão do NumPy detectada: {np.__version__}")
     
-    # Patch 1: Criar atributos faltantes no módulo umath
-    if hasattr(np.core, 'umath'):
+    # Lista completa de atributos que podem estar faltando
+    atributos_necessarios = [
+        'ERR_IGNORE',
+        'ERR_WARN', 
+        'ERR_RAISE', 
+        'ERR_CALL', 
+        'ERR_PRINT', 
+        'ERR_LOG',
+        'ERR_DEFAULT'  # <-- Este é o que está causando o erro
+    ]
+    
+    # Patch 1: Criar atributos no módulo umath
+    if hasattr(np, 'core') and hasattr(np.core, 'umath'):
         print("✅ Módulo np.core.umath encontrado")
-        
-        # Lista de atributos que podem estar faltando
-        atributos_necessarios = [
-            'ERR_IGNORE',
-            'ERR_WARN', 
-            'ERR_RAISE', 
-            'ERR_CALL', 
-            'ERR_PRINT', 
-            'ERR_LOG'
-        ]
         
         for attr in atributos_necessarios:
             if not hasattr(np.core.umath, attr):
@@ -103,7 +104,15 @@ try:
             else:
                 print(f"   ✅ Atributo já existe: np.core.umath.{attr}")
     else:
-        print("⚠️ Módulo np.core.umath não encontrado")
+        print("⚠️ Módulo np.core.umath não encontrado - tentando criar...")
+        # Tenta criar o módulo se não existir
+        if not hasattr(np, 'core'):
+            np.core = type('core', (), {})()
+        if not hasattr(np.core, 'umath'):
+            np.core.umath = type('umath', (), {})()
+            for attr in atributos_necessarios:
+                setattr(np.core.umath, attr, 0)
+                print(f"   ✅ Módulo criado com atributo: np.core.umath.{attr}")
     
     # Patch 2: Criar atributos diretamente no numpy
     for attr in atributos_necessarios:
@@ -121,30 +130,46 @@ try:
     except Exception as e:
         print(f"⚠️ Erro ao configurar seterr: {e}")
     
-    # Patch 4: Monkey patch na função que pode estar causando o erro
-    original_geterrobj = np.geterrobj if hasattr(np, 'geterrobj') else None
-    
-    if original_geterrobj:
+    # Patch 4: Monkey patch na função geterrobj
+    if hasattr(np, 'geterrobj'):
+        original_geterrobj = np.geterrobj
+        
         def patched_geterrobj():
             try:
                 return original_geterrobj()
             except Exception:
-                return [0, 0, 0]
+                return [0, 0, 0]  # Retorna valores padrão
         
         np.geterrobj = patched_geterrobj
         print("✅ Monkey patch aplicado em np.geterrobj")
     
-    # Patch 5: Verificação final
-    print("\n📊 VERIFICAÇÃO FINAL DO PATCH:")
-    if hasattr(np.core, 'umath') and hasattr(np.core.umath, 'ERR_IGNORE'):
-        print(f"   ✅ np.core.umath.ERR_IGNORE = {np.core.umath.ERR_IGNORE}")
+    # Patch 5: Criar módulo fake se necessário
+    if 'numpy.core.umath' in sys.modules:
+        print("✅ Módulo numpy.core.umath já está em sys.modules")
     else:
-        print("   ⚠️ np.core.umath.ERR_IGNORE ainda não disponível")
+        # Cria um módulo fake
+        from types import ModuleType
+        fake_module = ModuleType('numpy.core.umath')
+        for attr in atributos_necessarios:
+            setattr(fake_module, attr, 0)
+        sys.modules['numpy.core.umath'] = fake_module
+        print("✅ Módulo fake numpy.core.umath criado em sys.modules")
     
-    if hasattr(np, 'ERR_IGNORE'):
-        print(f"   ✅ np.ERR_IGNORE = {np.ERR_IGNORE}")
+    # Verificação final
+    print("\n📊 VERIFICAÇÃO FINAL DO PATCH:")
+    
+    # Verifica np.core.umath
+    if hasattr(np, 'core') and hasattr(np.core, 'umath'):
+        if hasattr(np.core.umath, 'ERR_DEFAULT'):
+            print(f"   ✅ np.core.umath.ERR_DEFAULT = {np.core.umath.ERR_DEFAULT}")
+        else:
+            print("   ⚠️ np.core.umath.ERR_DEFAULT ainda não disponível")
+    
+    # Verifica np diretamente
+    if hasattr(np, 'ERR_DEFAULT'):
+        print(f"   ✅ np.ERR_DEFAULT = {np.ERR_DEFAULT}")
     else:
-        print("   ⚠️ np.ERR_IGNORE ainda não disponível")
+        print("   ⚠️ np.ERR_DEFAULT ainda não disponível")
     
     print("="*80)
     print("✅ PATCH CONCLUÍDO - NumPy preparado para uso com PyTorch\n")
