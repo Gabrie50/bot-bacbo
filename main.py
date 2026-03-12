@@ -2322,8 +2322,15 @@ def get_db_connection():
             host=DB_HOST,
             port=DB_PORT,
             database=DB_NAME,
-            ssl_context=SSL_CONTEXT
+            ssl_context=SSL_CONTEXT,
+            timeout=30,
+            keepalives=1,
+            keepalives_idle=30,
+            keepalives_interval=10,
+            keepalives_count=5
         )
+        # IMPORTANTE: Desabilitar autocommit para controle manual
+        conn.autocommit = False
         return conn
     except Exception as e:
         print(f"❌ Erro ao conectar: {e}")
@@ -3237,12 +3244,13 @@ def buscar_api_normal():
 
 
 # =============================================================================
-# 🚀 FUNÇÃO PARA CARREGAR HISTÓRICO COMPLETO DA API NORMAL
+# 🚀 FUNÇÃO PARA CARREGAR HISTÓRICO COMPLETO DA API NORMAL (VERSÃO CORRIGIDA)
 # =============================================================================
 
 def carregar_historico_completo_para_aprendizado(limite_paginas=100):
+    """Versão corrigida que evita transações pendentes"""
     print("\n" + "="*80)
-    print("📚 CARREGANDO HISTÓRICO COMPLETO PARA APRENDIZADO RL")
+    print("📚 CARREGANDO HISTÓRICO COMPLETO PARA APRENDIZADO RL (VERSÃO CORRIGIDA)")
     print("="*80)
     
     total_carregadas = 0
@@ -3258,33 +3266,34 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
     cache['analisador_erros'] = analisador
     
     while paginas_sem_novidades < 3 and pagina < limite_paginas:
-        conn = get_db_connection()
-        if not conn:
-            print(f"⚠️ Não foi possível conectar ao banco na página {pagina}")
-            paginas_sem_novidades += 1
-            pagina += 1
-            time.sleep(2)
-            continue
-        
-        params = API_PARAMS.copy()
-        params['page'] = pagina
-        params['size'] = 100
-        params['_t'] = int(time.time() * 1000)
-        
-        print(f"\n📥 Buscando página {pagina}...")
+        conn = None
+        cur = None
         
         try:
+            print(f"\n📥 Buscando página {pagina}...")
+            
+            params = API_PARAMS.copy()
+            params['page'] = pagina
+            params['size'] = 100
+            params['_t'] = int(time.time() * 1000)
+            
             response = session.get(API_URL, params=params, timeout=TIMEOUT_API)
             response.raise_for_status()
             dados = response.json()
             
             if not dados or len(dados) == 0:
                 print(f"✅ Fim das páginas na página {pagina}")
-                conn.close()
                 break
             
-            rodadas_ordenadas = []
+            # CONEXÃO NOVA PARA CADA PÁGINA
+            conn = get_db_connection()
+            if not conn:
+                print(f"⚠️ Sem conexão na página {pagina}")
+                pagina += 1
+                continue
+            
             cur = conn.cursor()
+            rodadas_ordenadas = []
             
             for item in dados:
                 try:
@@ -3336,8 +3345,10 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
                         total_carregadas += 1
                         
                 except Exception as e:
+                    print(f"   ⚠️ Erro ao processar item: {e}")
                     continue
             
+            # COMMIT E FECHAMENTO CORRETO
             conn.commit()
             cur.close()
             conn.close()
@@ -3390,10 +3401,15 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
             
         except Exception as e:
             print(f"⚠️ Erro na página {pagina}: {e}")
-            try:
-                conn.close()
-            except:
-                pass
+            
+            # GARANTIR FECHAMENTO DA CONEXÃO EM CASO DE ERRO
+            if conn:
+                try:
+                    conn.rollback()
+                    conn.close()
+                except:
+                    pass
+            
             paginas_sem_novidades += 1
             pagina += 1
             time.sleep(2)
@@ -3409,8 +3425,12 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
     for padrao, count in sorted(stats['padroes_de_erro'].items(), key=lambda x: x[1], reverse=True)[:5]:
         print(f"   • {padrao}: {count} vezes")
     
+    # FORÇAR ATUALIZAÇÃO DO CACHE
+    atualizar_dados_leves()
+    carregar_estatisticas_do_banco()
+    
     return analisador
-
+    
 # =============================================================================
 # FUNÇÃO PARA ANALISAR PADRÃO 7x2 ESPECÍFICO
 # =============================================================================
