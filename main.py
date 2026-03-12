@@ -1040,254 +1040,7 @@ class SistemaRLCompleto:
 
 
 # =============================================================================
-# 🧬 SISTEMA DE NEUROEVOLUÇÃO QUE APRENDE COM ERROS (VERSÃO COMPLETA ATUALIZADA)
-# =============================================================================
-
-class AnalisadorDeErros:
-    def __init__(self, sistema_rl):
-        self.sistema_rl = sistema_rl
-        self.erros_analisados = 0
-        self.padroes_de_erro = {}
-        self.ultimos_erros = deque(maxlen=100)
-        self.neuro_treinador = None  # Será inicializado depois
-        
-    def analisar_erro_em_tempo_real(self, previsao, resultado_real, contexto, indice_manipulacao):
-        if resultado_real == 'TIE' or previsao['previsao'] == resultado_real:
-            return None
-        
-        print(f"\n🔍 ANALISANDO ERRO EM TEMPO REAL...")
-        
-        causa = self._diagnosticar_causa_erro(previsao, resultado_real, contexto, indice_manipulacao)
-        
-        erro_info = {
-            'timestamp': datetime.now(),
-            'previsao': previsao['previsao'],
-            'real': resultado_real,
-            'confianca': previsao['confianca'],
-            'causa': causa,
-            'indice_manipulacao': indice_manipulacao,
-            'contexto': contexto[:10] if contexto else []
-        }
-        self.ultimos_erros.append(erro_info)
-        self.erros_analisados += 1
-        
-        padrao_key = f"{causa}"
-        self.padroes_de_erro[padrao_key] = self.padroes_de_erro.get(padrao_key, 0) + 1
-        
-        self._ensinar_agentes_sobre_erro(causa, previsao, resultado_real, contexto)
-        
-        if self.padroes_de_erro.get(padrao_key, 0) > 3:
-            self._criar_agente_especialista_em_erro(causa)
-        
-        print(f"✅ Diagnóstico: {causa}")
-        return causa
-    
-    def _diagnosticar_causa_erro(self, previsao, real, contexto, indice_manipulacao):
-        if not contexto or len(contexto) < 10:
-            return "poucos_dados"
-        
-        ultimos_resultados = [r['resultado'] for r in contexto[:20] if r['resultado'] != 'TIE']
-        
-        if indice_manipulacao > 70:
-            self.sistema_rl.manipulacoes_detectadas += 1
-            for nome, agente in self.sistema_rl.agentes.items():
-                if hasattr(agente, 'deteccoes_manipulacao'):
-                    agente.deteccoes_manipulacao += 1
-            return "manipulacao_alta"
-        
-        streak_atual = self._calcular_streak(ultimos_resultados)
-        if streak_atual >= 4 and len(ultimos_resultados) >= 2 and ultimos_resultados[-1] != ultimos_resultados[-2]:
-            return f"quebra_de_streak_{streak_atual}"
-        
-        if len(ultimos_resultados) >= 5:
-            if (ultimos_resultados[-5] == ultimos_resultados[-4] == ultimos_resultados[-3] and
-                ultimos_resultados[-2] == ultimos_resultados[-1] and
-                ultimos_resultados[-3] != ultimos_resultados[-2] and
-                previsao['previsao'] == ultimos_resultados[-3]):
-                return "padrao_3_2_quebrado"
-        
-        if len(ultimos_resultados) >= 9:
-            for i in range(len(ultimos_resultados) - 1):
-                if i+1 < len(ultimos_resultados) and ultimos_resultados[i] == 'TIE' and ultimos_resultados[i+1] == 'TIE':
-                    return "padrao_duplo_tie_detectado"
-        
-        if len(contexto) >= 2:
-            ultima = contexto[0]
-            penultima = contexto[1]
-            if (ultima['banker_score'] == penultima['player_score'] and
-                abs(ultima['banker_score'] - penultima['banker_score']) > 3):
-                return "travamento_detectado"
-        
-        if real == 'TIE' and previsao['previsao'] != 'TIE':
-            return "empate_nao_previsto"
-        
-        return "causa_desconhecida"
-    
-    def _calcular_streak(self, resultados):
-        if not resultados:
-            return 0
-        streak = 1
-        for i in range(1, len(resultados)):
-            if resultados[-i] == resultados[-(i+1)]:
-                streak += 1
-            else:
-                break
-        return streak
-    
-    def _ensinar_agentes_sobre_erro(self, causa, previsao, real, contexto):
-        """Versão turbinada que usa neuroevolução - ATUALIZADA"""
-        print(f"\n📚 ENSINANDO {len(self.sistema_rl.agentes)} AGENTES SOBRE ERRO: {causa}")
-        
-        # Registrar erro na neuroevolução
-        if hasattr(self, 'neuro_treinador') and self.neuro_treinador:
-            self.neuro_treinador.registrar_erro({
-                'causa': causa,
-                'previsao': previsao['previsao'],
-                'real': real,
-                'confianca': previsao['confianca'],
-                'indice_manipulacao': cache.get('indice_manipulacao', 0),
-                'contexto': contexto[:5] if contexto else []
-            })
-        
-        # Lógica de aprendizado tradicional
-        for nome, agente in self.sistema_rl.agentes.items():
-            try:
-                acao_agente, _ = agente.agir(contexto[:-1] if contexto and len(contexto) > 1 else contexto)
-                previsao_agente = 'BANKER' if acao_agente == 0 else 'PLAYER'
-                
-                if previsao_agente == previsao['previsao']:
-                    # Agente errou junto
-                    agente.peso = max(0.3, agente.peso * 0.85)
-                    
-                    # Guardar erro para aprendizado futuro
-                    if not hasattr(agente, 'erros_que_aprendeu'):
-                        agente.erros_que_aprendeu = []
-                    agente.erros_que_aprendeu.append({
-                        'causa': causa, 
-                        'timestamp': time.time()
-                    })
-                    
-                    # Adicionar experiência negativa
-                    if hasattr(agente, 'memoria') and contexto and len(contexto) > 1:
-                        try:
-                            state = agente.get_state_tensor(contexto[:-1])
-                            next_state = agente.get_state_tensor(contexto)
-                            
-                            with torch.no_grad():
-                                current_q = agente.model(state)[0, acao_agente]
-                                next_q = agente.target_model(next_state).max(1)[0]
-                                target_q = -3.0 + agente.gamma * next_q
-                                td_error = (target_q - current_q).abs().item()
-                            
-                            agente.memoria.push(
-                                contexto[:-1], acao_agente, -3.0, contexto, td_error
-                            )
-                        except Exception as e:
-                            pass
-                    
-                    print(f"   🤖 {nome} aprendeu com o erro (peso agora: {agente.peso:.2f})")
-                else:
-                    # Agente acertou
-                    agente.peso = min(2.5, agente.peso * 1.1)
-                    print(f"   ✅ {nome} já sabia (peso agora: {agente.peso:.2f})")
-            
-            except Exception as e:
-                print(f"   ⚠️ Erro ao ensinar {nome}: {e}")
-        
-        print(f"✅ Todos os agentes foram ensinados sobre: {causa}")
-        
-        self._registrar_aprendizado_no_banco(causa, previsao, real)
-    
-    def _registrar_aprendizado_no_banco(self, causa, previsao, real):
-        conn = get_db_connection()
-        if not conn:
-            return
-        
-        try:
-            cur = conn.cursor()
-            cur.execute('''
-                INSERT INTO aprendizado_erros 
-                (causa_provavel, confianca_causa, nova_estrategia, data_analise)
-                VALUES (%s, %s, %s, %s)
-            ''', (
-                causa,
-                85,
-                f"evitar_{previsao['previsao'].lower()}_quando_{causa}",
-                datetime.now(timezone.utc)
-            ))
-            conn.commit()
-            cur.close()
-            conn.close()
-        except Exception as e:
-            print(f"⚠️ Erro ao registrar aprendizado: {e}")
-    
-    def _criar_agente_especialista_em_erro(self, causa):
-        if not TORCH_AVAILABLE:
-            return
-        
-        print(f"\n🧬 CRIANDO AGENTE ESPECIALISTA EM: {causa}")
-        
-        for nome, agente in self.sistema_rl.agentes.items():
-            if hasattr(agente, 'especialidade') and agente.especialidade == causa:
-                print(f"   ⚠️ Já existe especialista em {causa}: {nome}")
-                return
-        
-        novo_id = len(self.sistema_rl.agentes) + 1
-        nome = f"RL_Especialista_{causa[:10]}_{novo_id}"
-        
-        novo_agente = AgenteRLPuro(nome, novo_id)
-        novo_agente.especialidade = causa
-        novo_agente.peso = 2.5
-        novo_agente.epsilon = 0.05
-        novo_agente.fitness = 80.0
-        
-        if EVOTORCH_AVAILABLE and hasattr(novo_agente, 'neuro_evolucao'):
-            novo_agente.neuro_evolucao['geracao'] = 1
-            novo_agente.neuro_evolucao['melhor_fitness'] = 80.0
-        
-        self.sistema_rl.agentes[nome] = novo_agente
-        print(f"✅ NOVO AGENTE ESPECIALISTA CRIADO: {nome} - Especialidade: {causa}")
-        
-        self._registrar_agente_no_banco(nome, novo_agente, causa)
-    
-    def _registrar_agente_no_banco(self, nome, agente, especialidade):
-        conn = get_db_connection()
-        if not conn:
-            return
-        
-        try:
-            cur = conn.cursor()
-            cur.execute('''
-                INSERT INTO neuroevolucao_agentes 
-                (agente_nome, geracao, dna_json, especialidades, fitness, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s)
-            ''', (
-                nome,
-                self.sistema_rl.geracao,
-                json.dumps({'peso': agente.peso, 'epsilon': agente.epsilon, 'especialidade': especialidade}),
-                [especialidade],
-                agente.fitness,
-                datetime.now(timezone.utc)
-            ))
-            conn.commit()
-            cur.close()
-            conn.close()
-        except Exception as e:
-            print(f"⚠️ Erro ao registrar agente: {e}")
-    
-    def get_stats(self):
-        return {
-            'total_erros_analisados': self.erros_analisados,
-            'padroes_de_erro': self.padroes_de_erro,
-            'ultimos_erros': [
-                {'causa': e['causa'], 'previsao': e['previsao'], 'real': e['real'], 'hora': e['timestamp'].strftime('%H:%M:%S')}
-                for e in list(self.ultimos_erros)[-10:]
-            ]
-        }
-
-
-# =============================================================================
-# 🧬 SISTEMA DE NEUROEVOLUÇÃO QUE APRENDE COM ERROS (VERSÃO COMPLETA ATUALIZADA)
+# 🧬 SISTEMA DE NEUROEVOLUÇÃO QUE APRENDE COM ERROS (VERSÃO ÚNICA)
 # =============================================================================
 
 class AnalisadorDeErros:
@@ -2404,7 +2157,7 @@ class SistemaMultiprocessing:
 
 
 # =============================================================================
-# 🎮 LOOP PRINCIPAL DE TREINAMENTO PARALELO (MULTIPROCESSING)
+# 🎮 LOOP PRINCIPAL DE TREINAMENTO PARALELO (MULTIPROCESSING) - CORRIGIDO
 # =============================================================================
 
 def loop_treinamento_multiprocessing():
@@ -2413,8 +2166,8 @@ def loop_treinamento_multiprocessing():
     print("🎮 INICIANDO TREINAMENTO PARALELO COM MULTIPROCESSING")
     print("="*80)
     
-    # Cria sistema com 50 agentes paralelos
-    sistema = SistemaMultiprocessing(num_agentes=50)
+    # Cria sistema com 900 agentes paralelos (CORRIGIDO!)
+    sistema = SistemaMultiprocessing(num_agentes=900)  # <-- ALTERADO PARA 900
     sistema.iniciar_consumidor_fila()
     cache['mp_system'] = sistema
     
@@ -2453,7 +2206,6 @@ def loop_treinamento_multiprocessing():
             print(f"❌ Erro no ciclo de treinamento: {e}")
             traceback.print_exc()
             time.sleep(5)
-
 
 # =============================================================================
 # FUNÇÕES PARA DETECÇÃO DE MANIPULAÇÃO
