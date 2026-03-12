@@ -1025,641 +1025,673 @@
     </div>
 
     <script>
-        // =========================================================================
-        // CONFIGURAÇÕES COM CACHE INTELIGENTE
-        // =========================================================================
-        const CONFIG = {
-            INTERVALO_RELOGIO: 1000,
-            INTERVALO_ATUALIZACAO: 3000, // Aumentado para 3s (menos chamadas)
-            INTERVALO_CACHE: 60000, // Cache de 1 minuto para tabela
-            LIMITE_PADRAO: 50
-        };
+    // =========================================================================
+    // CONFIGURAÇÕES COM CACHE INTELIGENTE
+    // =========================================================================
+    const CONFIG = {
+        INTERVALO_RELOGIO: 1000,
+        INTERVALO_ATUALIZACAO: 3000,
+        INTERVALO_CACHE: 60000,
+        LIMITE_PADRAO: 50
+    };
 
-        // Variáveis globais
-        let evolucaoChart = null;
-        let saudeChart = null;
-        let acertosErrosChart = null;
-        let forcaChart = null;
-        let dadosCompletos = [];
-        let filtroAtual = null;
-        let limiteAtual = CONFIG.LIMITE_PADRAO;
-        let ultimaAtualizacao = 0;
-        let ordemTabela = { coluna: 'precisao', direcao: 'desc' };
-        let dadosAgentes = [];
-        
-        // Sistema de Cache
-        let cacheTabela = {
-            dados: null,
-            timestamp: 0,
-            limite: 50
-        };
+    // Variáveis globais
+    let evolucaoChart = null;
+    let saudeChart = null;
+    let acertosErrosChart = null;
+    let forcaChart = null;
+    let dadosCompletos = [];
+    let filtroAtual = null;
+    let limiteAtual = CONFIG.LIMITE_PADRAO;
+    let ultimaAtualizacao = 0;
+    let ordemTabela = { coluna: 'precisao', direcao: 'desc' };
+    let dadosAgentes = [];
+    
+    // Sistema de Cache
+    let cacheTabela = {
+        dados: null,
+        timestamp: 0,
+        limite: 50
+    };
 
-        // =========================================================================
-        // FUNÇÕES AUXILIARES
-        // =========================================================================
-        function removerDuplicatas(rodadas) {
-            const seen = new Set();
-            return rodadas.filter(rodada => {
-                const chave = `${rodada.data}-${rodada.player}-${rodada.banker}`;
-                if (seen.has(chave)) return false;
-                seen.add(chave);
-                return true;
-            });
-        }
-
-        function atualizarRelogio() {
-            const agora = new Date();
-            const brasilia = new Date(agora.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
-            
-            const horas = String(brasilia.getHours()).padStart(2, '0');
-            const minutos = String(brasilia.getMinutes()).padStart(2, '0');
-            const segundos = String(brasilia.getSeconds()).padStart(2, '0');
-            
-            document.getElementById('updateTime').textContent = `${horas}:${minutos}:${segundos}`;
-        }
-
-        function setFiltro(tipo) {
-            filtroAtual = filtroAtual === tipo ? null : tipo;
-            document.getElementById('filtroAtivo').textContent = filtroAtual ? `apenas ${filtroAtual}` : 'todas';
-            exibirHistorico(dadosCompletos);
-        }
-
-        function getClasseSaude(saude) {
-            if (saude >= 80) return 'saude-alta';
-            if (saude >= 60) return 'saude-media';
-            return 'saude-baixa';
-        }
-
-        function getClasseForca(precisao) {
-            if (precisao >= 70) return 'forca-alta';
-            if (precisao >= 50) return 'forca-media';
-            return 'forca-baixa';
-        }
-
-        function getClasseAgente(nome) {
-            if (nome.includes('Contragolpe')) return 'contragolpe';
-            if (nome.includes('Paredão')) return 'paredao';
-            if (nome.includes('Saturação')) return 'saturacao';
-            if (nome.includes('Meta')) return 'meta';
-            if (nome.includes('Avançada')) return 'avancado';
-            if (nome.includes('Anti')) return 'anti';
-            if (nome.includes('Especialista')) return 'meta';
-            return '';
-        }
-
-        function ordenarTabela(coluna) {
-            if (ordemTabela.coluna === coluna) {
-                ordemTabela.direcao = ordemTabela.direcao === 'asc' ? 'desc' : 'asc';
-            } else {
-                ordemTabela.coluna = coluna;
-                ordemTabela.direcao = 'desc';
-            }
-            atualizarTabelaAgentes(dadosAgentes);
-        }
-
-        // =========================================================================
-        // GRÁFICOS
-        // =========================================================================
-        function criarGraficos() {
-            // Gráfico de Evolução
-            const ctxEvolucao = document.getElementById('evolucaoChart').getContext('2d');
-            evolucaoChart = new Chart(ctxEvolucao, {
-                type: 'line',
-                data: {
-                    labels: [],
-                    datasets: [{
-                        label: 'Precisão dos Agentes',
-                        data: [],
-                        borderColor: '#4d4dff',
-                        backgroundColor: '#4d4dff20',
-                        tension: 0.4,
-                        fill: true,
-                        pointBackgroundColor: '#4d4dff',
-                        pointBorderColor: '#fff',
-                        pointRadius: 3,
-                        pointHoverRadius: 5
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            max: 100,
-                            grid: { color: '#2a2f35' },
-                            ticks: { color: '#8a8f99', stepSize: 20 }
-                        },
-                        x: {
-                            grid: { display: false },
-                            ticks: { color: '#8a8f99', maxRotation: 45, font: { size: 8 } }
-                        }
-                    },
-                    plugins: {
-                        legend: { display: false },
-                        tooltip: { enabled: true }
-                    }
-                }
-            });
-
-            // Gráfico de Saúde
-            const ctxSaude = document.getElementById('saudeChart').getContext('2d');
-            saudeChart = new Chart(ctxSaude, {
-                type: 'bar',
-                data: {
-                    labels: [],
-                    datasets: [{
-                        label: 'Saúde',
-                        data: [],
-                        backgroundColor: '#00ff88',
-                        borderRadius: 6,
-                        barPercentage: 0.7
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            max: 100,
-                            grid: { color: '#2a2f35' },
-                            ticks: { color: '#8a8f99', stepSize: 20 }
-                        },
-                        x: {
-                            grid: { display: false },
-                            ticks: { color: '#8a8f99', maxRotation: 45, font: { size: 8 } }
-                        }
-                    },
-                    plugins: {
-                        legend: { display: false },
-                        tooltip: { enabled: true }
-                    }
-                }
-            });
-
-            // Gráfico de Acertos vs Erros
-            const ctxAcertosErros = document.getElementById('acertosErrosChart').getContext('2d');
-            acertosErrosChart = new Chart(ctxAcertosErros, {
-                type: 'bar',
-                data: {
-                    labels: ['Acertos', 'Erros'],
-                    datasets: [{
-                        data: [0, 0],
-                        backgroundColor: ['#00ff88', '#ff4d4d'],
-                        borderRadius: 6
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            grid: { color: '#2a2f35' },
-                            ticks: { color: '#8a8f99' }
-                        },
-                        x: {
-                            grid: { display: false },
-                            ticks: { color: '#8a8f99' }
-                        }
-                    },
-                    plugins: {
-                        legend: { display: false }
-                    }
-                }
-            });
-
-            // Gráfico de Força (Pizza)
-            const ctxForca = document.getElementById('forcaChart').getContext('2d');
-            forcaChart = new Chart(ctxForca, {
-                type: 'doughnut',
-                data: {
-                    labels: ['Força Alta (70%+)', 'Força Média (50-69%)', 'Força Baixa (<50%)'],
-                    datasets: [{
-                        data: [0, 0, 0],
-                        backgroundColor: ['#00ff88', '#ffaa00', '#ff4d4d'],
-                        borderColor: '#15181c',
-                        borderWidth: 2
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            position: 'bottom',
-                            labels: { color: '#8a8f99', font: { size: 10 } }
-                        }
-                    },
-                    cutout: '60%'
-                }
-            });
-        }
-
-        // =========================================================================
-        // FUNÇÕES DE CACHE PARA TABELA
-        // =========================================================================
-        async function carregarTabelaCache(limite) {
-            const agora = Date.now();
-            
-            // Se o cache ainda é válido (menos de 1 minuto) e é o mesmo limite
-            if (cacheTabela.dados && 
-                cacheTabela.limite === limite && 
-                agora - cacheTabela.timestamp < CONFIG.INTERVALO_CACHE) {
-                
-                console.log('📦 Usando cache da tabela');
-                dadosCompletos = cacheTabela.dados;
-                atualizarInterfaceTabela();
-                return;
-            }
-            
-            // Se não, carrega do servidor
-            await carregarTabela(limite);
-        }
-
-        function atualizarInterfaceTabela() {
-            const player = dadosCompletos.filter(r => r.resultado === 'PLAYER').length;
-            const banker = dadosCompletos.filter(r => r.resultado === 'BANKER').length;
-            const tie = dadosCompletos.filter(r => r.resultado === 'TIE').length;
-            const total = dadosCompletos.length;
-            
-            document.getElementById('tabelaCount').textContent = total;
-            document.getElementById('playerNumero').textContent = player;
-            document.getElementById('bankerNumero').textContent = banker;
-            document.getElementById('tieNumero').textContent = tie;
-            
-            if (total > 0) {
-                document.getElementById('playerPercent').textContent = ((player/total)*100).toFixed(1) + '%';
-                document.getElementById('bankerPercent').textContent = ((banker/total)*100).toFixed(1) + '%';
-                document.getElementById('tiePercent').textContent = ((tie/total)*100).toFixed(1) + '%';
-            }
-            
-            exibirHistorico(dadosCompletos);
-        }
-
-        // =========================================================================
-        // ATUALIZAÇÕES
-        // =========================================================================
-        function atualizarTabelaAgentes(agentes) {
-            if (!agentes || agentes.length === 0) {
-                document.getElementById('agentesTableBody').innerHTML = '<tr><td colspan="8" class="text-center">Nenhum agente disponível</td></tr>';
-                return;
-            }
-
-            dadosAgentes = agentes;
-            
-            // Filtrar apenas agentes com total > 0
-            let agentesAtivos = agentes.filter(a => a.total > 0);
-            
-            // Ordenar conforme a ordem atual
-            agentesAtivos.sort((a, b) => {
-                let valA, valB;
-                
-                switch(ordemTabela.coluna) {
-                    case 'nome':
-                        valA = a.nome;
-                        valB = b.nome;
-                        break;
-                    case 'acertos':
-                        valA = a.acertos;
-                        valB = b.acertos;
-                        break;
-                    case 'erros':
-                        valA = a.erros;
-                        valB = b.erros;
-                        break;
-                    case 'precisao':
-                        valA = a.precisao;
-                        valB = b.precisao;
-                        break;
-                    case 'peso':
-                        valA = a.peso || 1;
-                        valB = b.peso || 1;
-                        break;
-                    case 'saude':
-                        valA = a.saude || 100;
-                        valB = b.saude || 100;
-                        break;
-                    case 'fitness':
-                        valA = a.fitness || a.precisao;
-                        valB = b.fitness || b.precisao;
-                        break;
-                    default:
-                        valA = a.precisao;
-                        valB = b.precisao;
-                }
-                
-                if (ordemTabela.direcao === 'asc') {
-                    return valA > valB ? 1 : -1;
-                } else {
-                    return valA < valB ? 1 : -1;
-                }
-            });
-
-            document.getElementById('agentesAtivosCount').textContent = `${agentesAtivos.length} ativos`;
-            document.getElementById('agentesAtivosDisplay').textContent = `${agentesAtivos.length} ativos`;
-
-            let html = '';
-            let totalSaude = 0;
-            let forcaAlta = 0, forcaMedia = 0, forcaBaixa = 0;
-            let especialistasCount = 0;
-            
-            agentesAtivos.forEach(a => {
-                const precisao = a.precisao || 0;
-                const saude = a.saude || 100;
-                const fitness = a.fitness || precisao;
-                const peso = a.peso || 1;
-                
-                totalSaude += saude;
-                
-                // Classificar força
-                if (precisao >= 70) forcaAlta++;
-                else if (precisao >= 50) forcaMedia++;
-                else forcaBaixa++;
-                
-                // Contar especialistas
-                if (a.nome.includes('Especialista')) especialistasCount++;
-                
-                const saudeClass = getClasseSaude(saude);
-                const forcaClass = getClasseForca(precisao);
-                const agenteClass = getClasseAgente(a.nome);
-                
-                html += `
-                    <tr>
-                        <td class="agente-nome ${agenteClass}">${a.nome}</td>
-                        <td class="agente-acertos">${a.acertos}</td>
-                        <td class="agente-erros">${a.erros}</td>
-                        <td class="agente-precisao ${forcaClass}">${precisao.toFixed(1)}%</td>
-                        <td class="agente-pesos">B:${peso.toFixed(2)} P:${peso.toFixed(2)}</td>
-                        <td><span class="agente-saude ${saudeClass}">${saude}%</span></td>
-                        <td><span class="agente-forca ${forcaClass}">${fitness.toFixed(1)}%</span></td>
-                        <td>${a.especialidade || '-'}</td>
-                    </tr>
-                `;
-            });
-
-            document.getElementById('agentesTableBody').innerHTML = html;
-            
-            const saudeMedia = agentesAtivos.length > 0 ? (totalSaude / agentesAtivos.length).toFixed(1) : 100;
-            document.getElementById('saudeMediaIA').textContent = saudeMedia + '%';
-            document.getElementById('especialistasAtivos').textContent = especialistasCount;
-            document.getElementById('paralelosAtivos').textContent = '900';
-            document.getElementById('padroesDescobertos').textContent = document.getElementById('padroes_descobertos')?.textContent || '0';
-
-            // Atualizar gráfico de força
-            if (forcaChart) {
-                forcaChart.data.datasets[0].data = [forcaAlta, forcaMedia, forcaBaixa];
-                forcaChart.update();
-            }
-        }
-
-        function atualizarTimeline(previsoes) {
-            const grid = document.getElementById('timelineGrid');
-            
-            if (!previsoes || previsoes.length === 0) {
-                grid.innerHTML = '<div class="loading">Nenhuma previsão</div>';
-                return;
-            }
-
-            let html = '';
-            let manipuladasCount = 0;
-            
-            previsoes.slice(0, 20).forEach(p => {
-                const acertou = p.acertou || false;
-                const manipulada = p.manipulado || false;
-                
-                if (manipulada) manipuladasCount++;
-                
-                let classe = acertou ? 'timeline-acerto' : 'timeline-erro';
-                if (manipulada) classe = 'timeline-manipulado';
-                
-                const simbolo = p.simbolo || (p.previsao === 'BANKER' ? '🔴' : '🔵');
-                
-                html += `
-                    <div class="timeline-item ${classe}">
-                        <div class="timeline-header">
-                            <span class="timeline-previsao">${simbolo} ${p.previsao}</span>
-                            <span class="timeline-confianca">${p.confianca}%</span>
-                        </div>
-                        <div class="timeline-resultado">
-                            Real: ${p.resultado_real || p.resultado} | ${p.data}
-                            ${manipulada ? '<span class="badge-manipulacao ms-2">MANIPULADA</span>' : ''}
-                        </div>
-                        <div class="timeline-agentes">
-                            ${(p.estrategias || []).map(e => 
-                                `<span class="timeline-agente-tag">${e}</span>`
-                            ).join('')}
-                        </div>
-                    </div>
-                `;
-            });
-
-            grid.innerHTML = html;
-            document.getElementById('manipuladasRecent').textContent = `${manipuladasCount} manipuladas`;
-        }
-
-        function exibirHistorico(data) {
-            if (!data || data.length === 0) {
-                document.getElementById('numerosGrid').innerHTML = '<div class="loading">Sem dados</div>';
-                return;
-            }
-
-            const dadosUnicos = removerDuplicatas(data);
-            let dadosParaExibir = dadosUnicos;
-            
-            if (filtroAtual) {
-                dadosParaExibir = dadosUnicos.filter(r => 
-                    r.resultado.toLowerCase() === filtroAtual.toLowerCase()
-                );
-            }
-
-            let html = '';
-            dadosParaExibir.slice(0, 100).forEach(item => {
-                const classe = item.resultado === 'PLAYER' ? 'numero-player' : 
-                              item.resultado === 'BANKER' ? 'numero-banker' : 'numero-tie';
-                const simbolo = item.resultado === 'PLAYER' ? '🔵' : 
-                               item.resultado === 'BANKER' ? '🔴' : '🟡';
-                
-                html += `
-                    <div class="numero-item ${classe}" onclick="window.open('/api/tabela/${limiteAtual}', '_blank')">
-                        <div class="numero-valor">${item.player} vs ${item.banker}</div>
-                        <div class="numero-horario">${item.data || ''}</div>
-                        <div class="numero-simbolo">${simbolo}</div>
-                    </div>
-                `;
-            });
-
-            document.getElementById('numerosGrid').innerHTML = html;
-        }
-
-        async function carregarTabela(limite) {
-            limiteAtual = limite;
-            
-            document.querySelectorAll('.limite-btn').forEach(btn => btn.classList.remove('active'));
-            event.target.classList.add('active');
-            
-            try {
-                const response = await fetch(`/api/tabela/${limite}`);
-                const dados = await response.json();
-                
-                dadosCompletos = removerDuplicatas(dados);
-                
-                // Atualizar cache
-                cacheTabela = {
-                    dados: dadosCompletos,
-                    timestamp: Date.now(),
-                    limite: limite
-                };
-                
-                atualizarInterfaceTabela();
-                
-            } catch (error) {
-                console.error('Erro:', error);
-            }
-        }
-
-        async function atualizarTudo() {
-            try {
-                const agora = Date.now();
-                if (agora - ultimaAtualizacao < 1900) return;
-                
-                const [statsRes, aprendizadoRes] = await Promise.allSettled([
-                    fetch('/api/stats').then(r => r.json()),
-                    fetch('/api/aprendizado').then(r => r.json())
-                ]);
-
-                // Atualiza stats
-                if (statsRes.status === 'fulfilled' && statsRes.value) {
-                    const s = statsRes.value;
-                    
-                    if (s.ultima_atualizacao) {
-                        document.getElementById('updateTime').textContent = s.ultima_atualizacao;
-                    }
-
-                    if (s.previsao) {
-                        const p = s.previsao;
-                        document.getElementById('modoAlgoritmo').textContent = p.modo || '-';
-                        document.getElementById('modoDescricao').textContent = p.modo || '-';
-                        
-                        const modoElem = document.getElementById('modoAlgoritmo');
-                        modoElem.className = 'modo-badge';
-                        if (p.modo === 'AGRESSIVO') modoElem.classList.add('modo-agressivo');
-                        else if (p.modo === 'PREDATORIO') modoElem.classList.add('modo-predatorio');
-                        else if (p.modo === 'MOEDOR') modoElem.classList.add('modo-moedor');
-                        else if (p.modo === 'ESPECIALISTA') modoElem.classList.add('modo-especialista');
-                        else modoElem.classList.add('modo-equilibrado');
-                        
-                        document.getElementById('proximaCorSimbolo').textContent = p.simbolo || '⚪';
-                        document.getElementById('proximaCorTexto').textContent = p.previsao || '-';
-                        document.getElementById('confianca').textContent = (p.confianca || 0) + '%';
-                        document.getElementById('totalAgentes').textContent = (p.estrategias || []).length;
-                        
-                        const agentesDiv = document.getElementById('agentesAtivos');
-                        if (p.estrategias && p.estrategias.length > 0) {
-                            let html = '';
-                            p.estrategias.forEach(e => {
-                                const classe = getClasseAgente(e);
-                                html += `<span class="agente-tag ${classe}">${e}</span>`;
-                            });
-                            agentesDiv.innerHTML = html;
-                        } else {
-                            agentesDiv.innerHTML = '<span class="agente-tag">🧠 Nenhum agente ativo</span>';
-                        }
-                    }
-
-                    if (s.estatisticas) {
-                        document.getElementById('totalPrevisoesIA').textContent = s.estatisticas.total_previsoes || 0;
-                        document.getElementById('acertosIA').textContent = s.estatisticas.acertos || 0;
-                        document.getElementById('errosIA').textContent = s.estatisticas.erros || 0;
-                        
-                        if (acertosErrosChart) {
-                            acertosErrosChart.data.datasets[0].data = [
-                                s.estatisticas.acertos || 0,
-                                s.estatisticas.erros || 0
-                            ];
-                            acertosErrosChart.update();
-                        }
-                        
-                        if (s.estatisticas.ultimas_20_previsoes) {
-                            atualizarTimeline(s.estatisticas.ultimas_20_previsoes);
-                        }
-                    }
-
-                    if (s.indice_manipulacao !== undefined) {
-                        document.getElementById('manipulacoesIA').textContent = s.indice_manipulacao || 0;
-                    }
-                    
-                    if (s.padroes_descobertos) {
-                        document.getElementById('padroesDescobertos').textContent = s.padroes_descobertos.length || 0;
-                    }
-                }
-
-                // Atualiza aprendizado
-                if (aprendizadoRes.status === 'fulfilled' && aprendizadoRes.value) {
-                    const a = aprendizadoRes.value;
-                    
-                    document.getElementById('geracaoAtual').textContent = `Geração ${a.geracao || 0}`;
-                    document.getElementById('geracaoNumero').textContent = a.geracao || 0;
-                    document.getElementById('totalRodadasIA').textContent = a.total_rodadas || 0;
-                    
-                    // Encontrar melhor precisão entre agentes
-                    if (a.agentes && a.agentes.length > 0) {
-                        const melhorAgente = a.agentes.reduce((max, ag) => 
-                            (ag.precisao || 0) > (max.precisao || 0) ? ag : max, a.agentes[0]);
-                        document.getElementById('melhorPrecisao').textContent = (melhorAgente.precisao || 0).toFixed(1) + '%';
-                    }
-                    
-                    document.getElementById('manipulacoesIA').textContent = a.manipulacoes_detectadas || 0;
-                    
-                    if (a.agentes) {
-                        atualizarTabelaAgentes(a.agentes);
-                        
-                        // Atualiza gráfico de evolução
-                        if (evolucaoChart) {
-                            const labels = a.agentes.map(ag => ag.nome.substring(0, 10));
-                            const data = a.agentes.map(ag => ag.precisao || 0);
-                            
-                            evolucaoChart.data.labels = labels;
-                            evolucaoChart.data.datasets[0].data = data;
-                            evolucaoChart.update();
-                        }
-
-                        // Atualiza gráfico de saúde
-                        if (saudeChart) {
-                            const labels = a.agentes.map(ag => ag.nome.substring(0, 10));
-                            const saude = a.agentes.map(ag => ag.saude || 100);
-                            
-                            saudeChart.data.labels = labels;
-                            saudeChart.data.datasets[0].data = saude;
-                            saudeChart.update();
-                        }
-                    }
-                }
-
-                ultimaAtualizacao = agora;
-
-            } catch (error) {
-                console.error('Erro:', error);
-            }
-        }
-
-        // =========================================================================
-        // INICIALIZAÇÃO
-        // =========================================================================
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('🚀 Iniciando BacBo com 1950 Agentes + Cache Inteligente');
-            
-            criarGraficos();
-            carregarTabelaCache(50);
-            
-            atualizarRelogio();
-            setInterval(atualizarRelogio, CONFIG.INTERVALO_RELOGIO);
-            setInterval(atualizarTudo, CONFIG.INTERVALO_ATUALIZACAO);
-            
-            // Atualização inicial
-            setTimeout(atualizarTudo, 100);
+    // =========================================================================
+    // FUNÇÕES AUXILIARES
+    // =========================================================================
+    function removerDuplicatas(rodadas) {
+        const seen = new Set();
+        return rodadas.filter(rodada => {
+            const chave = `${rodada.data}-${rodada.player}-${rodada.banker}`;
+            if (seen.has(chave)) return false;
+            seen.add(chave);
+            return true;
         });
-    </script>
+    }
+
+    function atualizarRelogio() {
+        const agora = new Date();
+        const brasilia = new Date(agora.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+        
+        const horas = String(brasilia.getHours()).padStart(2, '0');
+        const minutos = String(brasilia.getMinutes()).padStart(2, '0');
+        const segundos = String(brasilia.getSeconds()).padStart(2, '0');
+        
+        document.getElementById('updateTime').textContent = `${horas}:${minutos}:${segundos}`;
+    }
+
+    function setFiltro(tipo) {
+        filtroAtual = filtroAtual === tipo ? null : tipo;
+        document.getElementById('filtroAtivo').textContent = filtroAtual ? `apenas ${filtroAtual}` : 'todas';
+        exibirHistorico(dadosCompletos);
+    }
+
+    function getClasseSaude(saude) {
+        if (saude >= 80) return 'saude-alta';
+        if (saude >= 60) return 'saude-media';
+        return 'saude-baixa';
+    }
+
+    function getClasseForca(precisao) {
+        if (precisao >= 70) return 'forca-alta';
+        if (precisao >= 50) return 'forca-media';
+        return 'forca-baixa';
+    }
+
+    function getClasseAgente(nome) {
+        if (nome.includes('Contragolpe')) return 'contragolpe';
+        if (nome.includes('Paredão')) return 'paredao';
+        if (nome.includes('Saturação')) return 'saturacao';
+        if (nome.includes('Meta')) return 'meta';
+        if (nome.includes('Avançada')) return 'avancado';
+        if (nome.includes('Anti')) return 'anti';
+        if (nome.includes('Especialista')) return 'meta';
+        return '';
+    }
+
+    function ordenarTabela(coluna) {
+        if (ordemTabela.coluna === coluna) {
+            ordemTabela.direcao = ordemTabela.direcao === 'asc' ? 'desc' : 'asc';
+        } else {
+            ordemTabela.coluna = coluna;
+            ordemTabela.direcao = 'desc';
+        }
+        atualizarTabelaAgentes(dadosAgentes);
+    }
+
+    // =========================================================================
+    // GRÁFICOS
+    // =========================================================================
+    function criarGraficos() {
+        // Gráfico de Evolução
+        const ctxEvolucao = document.getElementById('evolucaoChart').getContext('2d');
+        evolucaoChart = new Chart(ctxEvolucao, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Precisão dos Agentes',
+                    data: [],
+                    borderColor: '#4d4dff',
+                    backgroundColor: '#4d4dff20',
+                    tension: 0.4,
+                    fill: true,
+                    pointBackgroundColor: '#4d4dff',
+                    pointBorderColor: '#fff',
+                    pointRadius: 3,
+                    pointHoverRadius: 5
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 100,
+                        grid: { color: '#2a2f35' },
+                        ticks: { color: '#8a8f99', stepSize: 20 }
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: { color: '#8a8f99', maxRotation: 45, font: { size: 8 } }
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { enabled: true }
+                }
+            }
+        });
+
+        // Gráfico de Saúde
+        const ctxSaude = document.getElementById('saudeChart').getContext('2d');
+        saudeChart = new Chart(ctxSaude, {
+            type: 'bar',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Saúde',
+                    data: [],
+                    backgroundColor: '#00ff88',
+                    borderRadius: 6,
+                    barPercentage: 0.7
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 100,
+                        grid: { color: '#2a2f35' },
+                        ticks: { color: '#8a8f99', stepSize: 20 }
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: { color: '#8a8f99', maxRotation: 45, font: { size: 8 } }
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { enabled: true }
+                }
+            }
+        });
+
+        // Gráfico de Acertos vs Erros
+        const ctxAcertosErros = document.getElementById('acertosErrosChart').getContext('2d');
+        acertosErrosChart = new Chart(ctxAcertosErros, {
+            type: 'bar',
+            data: {
+                labels: ['Acertos', 'Erros'],
+                datasets: [{
+                    data: [0, 0],
+                    backgroundColor: ['#00ff88', '#ff4d4d'],
+                    borderRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: '#2a2f35' },
+                        ticks: { color: '#8a8f99' }
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: { color: '#8a8f99' }
+                    }
+                },
+                plugins: {
+                    legend: { display: false }
+                }
+            }
+        });
+
+        // Gráfico de Força (Pizza)
+        const ctxForca = document.getElementById('forcaChart').getContext('2d');
+        forcaChart = new Chart(ctxForca, {
+            type: 'doughnut',
+            data: {
+                labels: ['Força Alta (70%+)', 'Força Média (50-69%)', 'Força Baixa (<50%)'],
+                datasets: [{
+                    data: [0, 0, 0],
+                    backgroundColor: ['#00ff88', '#ffaa00', '#ff4d4d'],
+                    borderColor: '#15181c',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { color: '#8a8f99', font: { size: 10 } }
+                    }
+                },
+                cutout: '60%'
+            }
+        });
+    }
+
+    // =========================================================================
+    // FUNÇÕES DE CACHE PARA TABELA
+    // =========================================================================
+    async function carregarTabelaCache(limite) {
+        const agora = Date.now();
+        limiteAtual = limite;
+        
+        // Atualizar botões ativos
+        document.querySelectorAll('.limite-btn').forEach(btn => {
+            btn.classList.remove('active');
+            if (btn.textContent == limite || 
+                (btn.textContent.includes('K') && limite == parseInt(btn.textContent) * 1000)) {
+                btn.classList.add('active');
+            }
+        });
+        
+        // Se o cache ainda é válido (menos de 1 minuto) e é o mesmo limite
+        if (cacheTabela.dados && 
+            cacheTabela.limite === limite && 
+            agora - cacheTabela.timestamp < CONFIG.INTERVALO_CACHE) {
+            
+            console.log('📦 Usando cache da tabela');
+            dadosCompletos = cacheTabela.dados;
+            atualizarInterfaceTabela();
+            return;
+        }
+        
+        // Se não, carrega do servidor
+        await carregarTabela(limite);
+    }
+
+    function atualizarInterfaceTabela() {
+        if (!dadosCompletos || dadosCompletos.length === 0) {
+            document.getElementById('numerosGrid').innerHTML = '<div class="loading">Sem dados históricos</div>';
+            return;
+        }
+        
+        const player = dadosCompletos.filter(r => r.resultado === 'PLAYER').length;
+        const banker = dadosCompletos.filter(r => r.resultado === 'BANKER').length;
+        const tie = dadosCompletos.filter(r => r.resultado === 'TIE').length;
+        const total = dadosCompletos.length;
+        
+        document.getElementById('tabelaCount').textContent = total;
+        document.getElementById('playerNumero').textContent = player;
+        document.getElementById('bankerNumero').textContent = banker;
+        document.getElementById('tieNumero').textContent = tie;
+        
+        if (total > 0) {
+            document.getElementById('playerPercent').textContent = ((player/total)*100).toFixed(1) + '%';
+            document.getElementById('bankerPercent').textContent = ((banker/total)*100).toFixed(1) + '%';
+            document.getElementById('tiePercent').textContent = ((tie/total)*100).toFixed(1) + '%';
+        }
+        
+        exibirHistorico(dadosCompletos);
+    }
+
+    // =========================================================================
+    // ATUALIZAÇÕES
+    // =========================================================================
+    function atualizarTabelaAgentes(agentes) {
+        if (!agentes || agentes.length === 0) {
+            document.getElementById('agentesTableBody').innerHTML = '<tr><td colspan="8" class="text-center">Nenhum agente disponível</td></tr>';
+            return;
+        }
+
+        dadosAgentes = agentes;
+        
+        // CORREÇÃO: Mostrar TODOS os agentes, não apenas com total > 0
+        let agentesAtivos = agentes.filter(a => a); // Mostra todos
+        
+        // Ordenar conforme a ordem atual
+        agentesAtivos.sort((a, b) => {
+            let valA, valB;
+            
+            switch(ordemTabela.coluna) {
+                case 'nome':
+                    valA = a.nome;
+                    valB = b.nome;
+                    break;
+                case 'acertos':
+                    valA = a.acertos;
+                    valB = b.acertos;
+                    break;
+                case 'erros':
+                    valA = a.erros;
+                    valB = b.erros;
+                    break;
+                case 'precisao':
+                    valA = a.precisao;
+                    valB = b.precisao;
+                    break;
+                case 'peso':
+                    valA = a.peso || 1;
+                    valB = b.peso || 1;
+                    break;
+                case 'saude':
+                    valA = a.saude || 100;
+                    valB = b.saude || 100;
+                    break;
+                case 'fitness':
+                    valA = a.fitness || a.precisao;
+                    valB = b.fitness || b.precisao;
+                    break;
+                default:
+                    valA = a.precisao;
+                    valB = b.precisao;
+            }
+            
+            if (ordemTabela.direcao === 'asc') {
+                return valA > valB ? 1 : -1;
+            } else {
+                return valA < valB ? 1 : -1;
+            }
+        });
+
+        document.getElementById('agentesAtivosCount').textContent = `${agentesAtivos.length} ativos`;
+        document.getElementById('agentesAtivosDisplay').textContent = `${agentesAtivos.length} ativos`;
+
+        let html = '';
+        let totalSaude = 0;
+        let forcaAlta = 0, forcaMedia = 0, forcaBaixa = 0;
+        let especialistasCount = 0;
+        
+        agentesAtivos.forEach(a => {
+            const precisao = a.precisao || 0;
+            const saude = a.saude || 100;
+            const fitness = a.fitness || precisao;
+            const peso = a.peso || 1;
+            
+            totalSaude += saude;
+            
+            // Classificar força
+            if (precisao >= 70) forcaAlta++;
+            else if (precisao >= 50) forcaMedia++;
+            else forcaBaixa++;
+            
+            // Contar especialistas
+            if (a.nome.includes('Especialista')) especialistasCount++;
+            
+            const saudeClass = getClasseSaude(saude);
+            const forcaClass = getClasseForca(precisao);
+            const agenteClass = getClasseAgente(a.nome);
+            
+            html += `
+                <tr>
+                    <td class="agente-nome ${agenteClass}">${a.nome}</td>
+                    <td class="agente-acertos">${a.acertos}</td>
+                    <td class="agente-erros">${a.erros}</td>
+                    <td class="agente-precisao ${forcaClass}">${precisao.toFixed(1)}%</td>
+                    <td class="agente-pesos">B:${peso.toFixed(2)} P:${peso.toFixed(2)}</td>
+                    <td><span class="agente-saude ${saudeClass}">${saude}%</span></td>
+                    <td><span class="agente-forca ${forcaClass}">${fitness.toFixed(1)}%</span></td>
+                    <td>${a.especialidade || '-'}</td>
+                </tr>
+            `;
+        });
+
+        document.getElementById('agentesTableBody').innerHTML = html;
+        
+        const saudeMedia = agentesAtivos.length > 0 ? (totalSaude / agentesAtivos.length).toFixed(1) : 100;
+        document.getElementById('saudeMediaIA').textContent = saudeMedia + '%';
+        document.getElementById('especialistasAtivos').textContent = especialistasCount;
+        document.getElementById('paralelosAtivos').textContent = '900';
+        document.getElementById('padroesDescobertos').textContent = '0';
+
+        // Atualizar gráfico de força
+        if (forcaChart) {
+            forcaChart.data.datasets[0].data = [forcaAlta, forcaMedia, forcaBaixa];
+            forcaChart.update();
+        }
+    }
+
+    function atualizarTimeline(previsoes) {
+        const grid = document.getElementById('timelineGrid');
+        
+        if (!previsoes || previsoes.length === 0) {
+            grid.innerHTML = '<div class="loading">Nenhuma previsão</div>';
+            return;
+        }
+
+        let html = '';
+        let manipuladasCount = 0;
+        
+        previsoes.slice(0, 20).forEach(p => {
+            const acertou = p.acertou || false;
+            const manipulada = p.manipulado || false;
+            
+            if (manipulada) manipuladasCount++;
+            
+            let classe = acertou ? 'timeline-acerto' : 'timeline-erro';
+            if (manipulada) classe = 'timeline-manipulado';
+            
+            const simbolo = p.simbolo || (p.previsao === 'BANKER' ? '🔴' : '🔵');
+            
+            html += `
+                <div class="timeline-item ${classe}">
+                    <div class="timeline-header">
+                        <span class="timeline-previsao">${simbolo} ${p.previsao}</span>
+                        <span class="timeline-confianca">${p.confianca}%</span>
+                    </div>
+                    <div class="timeline-resultado">
+                        Real: ${p.resultado_real || p.resultado} | ${p.data}
+                        ${manipulada ? '<span class="badge-manipulacao ms-2">MANIPULADA</span>' : ''}
+                    </div>
+                    <div class="timeline-agentes">
+                        ${(p.estrategias || []).map(e => 
+                            `<span class="timeline-agente-tag">${e}</span>`
+                        ).join('')}
+                    </div>
+                </div>
+            `;
+        });
+
+        grid.innerHTML = html;
+        document.getElementById('manipuladasRecent').textContent = `${manipuladasCount} manipuladas`;
+    }
+
+    function exibirHistorico(data) {
+        if (!data || data.length === 0) {
+            document.getElementById('numerosGrid').innerHTML = '<div class="loading">Sem dados</div>';
+            return;
+        }
+
+        const dadosUnicos = removerDuplicatas(data);
+        let dadosParaExibir = dadosUnicos;
+        
+        if (filtroAtual) {
+            dadosParaExibir = dadosUnicos.filter(r => 
+                r.resultado.toLowerCase() === filtroAtual.toLowerCase()
+            );
+        }
+
+        let html = '';
+        dadosParaExibir.slice(0, 100).forEach(item => {
+            const classe = item.resultado === 'PLAYER' ? 'numero-player' : 
+                          item.resultado === 'BANKER' ? 'numero-banker' : 'numero-tie';
+            const simbolo = item.resultado === 'PLAYER' ? '🔵' : 
+                           item.resultado === 'BANKER' ? '🔴' : '🟡';
+            
+            html += `
+                <div class="numero-item ${classe}">
+                    <div class="numero-valor">${item.player} vs ${item.banker}</div>
+                    <div class="numero-horario">${item.data || ''}</div>
+                    <div class="numero-simbolo">${simbolo}</div>
+                </div>
+            `;
+        });
+
+        document.getElementById('numerosGrid').innerHTML = html;
+    }
+
+    async function carregarTabela(limite) {
+        try {
+            const response = await fetch(`/api/tabela/${limite}`);
+            const dados = await response.json();
+            
+            dadosCompletos = removerDuplicatas(dados);
+            
+            // Atualizar cache
+            cacheTabela = {
+                dados: dadosCompletos,
+                timestamp: Date.now(),
+                limite: limite
+            };
+            
+            atualizarInterfaceTabela();
+            
+        } catch (error) {
+            console.error('Erro ao carregar tabela:', error);
+        }
+    }
+
+    async function atualizarTudo() {
+        try {
+            const agora = Date.now();
+            if (agora - ultimaAtualizacao < 1900) return;
+            
+            const [tabelaRes, statsRes, aprendizadoRes] = await Promise.allSettled([
+                fetch(`/api/tabela/${limiteAtual}`).then(r => r.json()),
+                fetch('/api/stats').then(r => r.json()),
+                fetch('/api/aprendizado').then(r => r.json())
+            ]);
+
+            // Atualiza tabela
+            if (tabelaRes.status === 'fulfilled' && tabelaRes.value) {
+                dadosCompletos = removerDuplicatas(tabelaRes.value);
+                cacheTabela.dados = dadosCompletos;
+                cacheTabela.timestamp = Date.now();
+                atualizarInterfaceTabela();
+            }
+
+            // Atualiza stats
+            if (statsRes.status === 'fulfilled' && statsRes.value) {
+                const s = statsRes.value;
+                
+                if (s.ultima_atualizacao) {
+                    document.getElementById('updateTime').textContent = s.ultima_atualizacao;
+                }
+
+                if (s.previsao) {
+                    const p = s.previsao;
+                    document.getElementById('modoAlgoritmo').textContent = p.modo || '-';
+                    document.getElementById('modoDescricao').textContent = p.modo || '-';
+                    
+                    const modoElem = document.getElementById('modoAlgoritmo');
+                    modoElem.className = 'modo-badge';
+                    if (p.modo === 'AGRESSIVO') modoElem.classList.add('modo-agressivo');
+                    else if (p.modo === 'PREDATORIO') modoElem.classList.add('modo-predatorio');
+                    else if (p.modo === 'MOEDOR') modoElem.classList.add('modo-moedor');
+                    else if (p.modo === 'ESPECIALISTA') modoElem.classList.add('modo-especialista');
+                    else modoElem.classList.add('modo-equilibrado');
+                    
+                    document.getElementById('proximaCorSimbolo').textContent = p.simbolo || '⚪';
+                    document.getElementById('proximaCorTexto').textContent = p.previsao || '-';
+                    document.getElementById('confianca').textContent = (p.confianca || 0) + '%';
+                    document.getElementById('totalAgentes').textContent = (p.estrategias || []).length;
+                    
+                    const agentesDiv = document.getElementById('agentesAtivos');
+                    if (p.estrategias && p.estrategias.length > 0) {
+                        let html = '';
+                        p.estrategias.forEach(e => {
+                            const classe = getClasseAgente(e);
+                            html += `<span class="agente-tag ${classe}">${e}</span>`;
+                        });
+                        agentesDiv.innerHTML = html;
+                    } else {
+                        agentesDiv.innerHTML = '<span class="agente-tag">🧠 Nenhum agente ativo</span>';
+                    }
+                }
+
+                if (s.estatisticas) {
+                    document.getElementById('totalPrevisoesIA').textContent = s.estatisticas.total_previsoes || 0;
+                    document.getElementById('acertosIA').textContent = s.estatisticas.acertos || 0;
+                    document.getElementById('errosIA').textContent = s.estatisticas.erros || 0;
+                    
+                    if (acertosErrosChart) {
+                        acertosErrosChart.data.datasets[0].data = [
+                            s.estatisticas.acertos || 0,
+                            s.estatisticas.erros || 0
+                        ];
+                        acertosErrosChart.update();
+                    }
+                    
+                    if (s.estatisticas.ultimas_20_previsoes) {
+                        atualizarTimeline(s.estatisticas.ultimas_20_previsoes);
+                    }
+                }
+
+                if (s.indice_manipulacao !== undefined) {
+                    document.getElementById('manipulacoesIA').textContent = s.indice_manipulacao || 0;
+                }
+                
+                if (s.padroes_descobertos) {
+                    document.getElementById('padroesDescobertos').textContent = s.padroes_descobertos.length || 0;
+                }
+                
+                // Atualizar totais da distribuição
+                if (s.total_rodadas) {
+                    document.getElementById('totalRodadasIA').textContent = s.total_rodadas;
+                }
+            }
+
+            // Atualiza aprendizado
+            if (aprendizadoRes.status === 'fulfilled' && aprendizadoRes.value) {
+                const a = aprendizadoRes.value;
+                
+                document.getElementById('geracaoAtual').textContent = `Geração ${a.geracao || 0}`;
+                document.getElementById('geracaoNumero').textContent = a.geracao || 0;
+                
+                // Encontrar melhor precisão entre agentes
+                if (a.agentes && a.agentes.length > 0) {
+                    const melhorAgente = a.agentes.reduce((max, ag) => 
+                        (ag.precisao || 0) > (max.precisao || 0) ? ag : max, a.agentes[0]);
+                    document.getElementById('melhorPrecisao').textContent = (melhorAgente.precisao || 0).toFixed(1) + '%';
+                }
+                
+                document.getElementById('manipulacoesIA').textContent = a.manipulacoes_detectadas || 0;
+                
+                if (a.agentes) {
+                    atualizarTabelaAgentes(a.agentes);
+                    
+                    // Atualiza gráfico de evolução
+                    if (evolucaoChart) {
+                        const labels = a.agentes.map(ag => ag.nome.substring(0, 10));
+                        const data = a.agentes.map(ag => ag.precisao || 0);
+                        
+                        evolucaoChart.data.labels = labels;
+                        evolucaoChart.data.datasets[0].data = data;
+                        evolucaoChart.update();
+                    }
+
+                    // Atualiza gráfico de saúde
+                    if (saudeChart) {
+                        const labels = a.agentes.map(ag => ag.nome.substring(0, 10));
+                        const saude = a.agentes.map(ag => ag.saude || 100);
+                        
+                        saudeChart.data.labels = labels;
+                        saudeChart.data.datasets[0].data = saude;
+                        saudeChart.update();
+                    }
+                }
+            }
+
+            ultimaAtualizacao = agora;
+
+        } catch (error) {
+            console.error('Erro na atualização:', error);
+        }
+    }
+
+    // =========================================================================
+    // INICIALIZAÇÃO
+    // =========================================================================
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('🚀 Iniciando BacBo com 1950 Agentes');
+        
+        criarGraficos();
+        
+        // Carregar tabela inicial
+        setTimeout(() => {
+            carregarTabelaCache(50);
+        }, 100);
+        
+        atualizarRelogio();
+        setInterval(atualizarRelogio, CONFIG.INTERVALO_RELOGIO);
+        setInterval(atualizarTudo, CONFIG.INTERVALO_ATUALIZACAO);
+        
+        // Atualização inicial
+        setTimeout(atualizarTudo, 500);
+    });
+
+    // Exportar funções para o escopo global
+    window.carregarTabelaCache = carregarTabelaCache;
+    window.setFiltro = setFiltro;
+    window.ordenarTabela = ordenarTabela;
+</script>
 </body>
 </html>
