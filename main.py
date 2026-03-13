@@ -1140,7 +1140,374 @@ class DetectorPadroesReversos:
             }
         
         return None
+        
+# =============================================================================
+# 🛡️ SISTEMA ANTI-TIE E PÓS-EMPATE - VERSÃO 10.0
+# =============================================================================
 
+class SistemaAntiTIE:
+    """
+    Sistema especializado para lidar com sequências de TIE
+    e prevenir erros em cascata pós-empate
+    """
+    
+    def __init__(self):
+        self.ultimo_tie = None
+        self.contador_pos_tie = 0
+        self.modo_recuperacao = False
+        self.acertos_pos_tie = 0
+        self.erros_pos_tie = 0
+        self.historico_ties = deque(maxlen=50)
+        
+        # Configurações
+        self.rodadas_recuperacao = 3  # Número de rodadas para ignorar após TIE
+        self.confianca_minima_pos_tie = 65  # Só aposta se confiança > 65%
+        
+        print("\n" + "="*80)
+        print("🛡️ SISTEMA ANTI-TIE INICIALIZADO")
+        print(f"📊 Modo recuperação: {self.rodadas_recuperacao} rodadas")
+        print(f"🎯 Confiança mínima pós-TIE: {self.confianca_minima_pos_tie}%")
+        print("="*80)
+    
+    def analisar_sequencia_tie(self, historico):
+        """
+        Analisa se estamos em uma sequência problemática de TIE
+        """
+        if len(historico) < 3:
+            return False, 0
+        
+        # Verificar últimos resultados
+        ultimos_3 = historico[:3]
+        ties_nos_ultimos_3 = sum(1 for r in ultimos_3 if r['resultado'] == 'TIE')
+        
+        # Se 2 ou mais TIE nos últimos 3, é sequência problemática
+        if ties_nos_ultimos_3 >= 2:
+            return True, ties_nos_ultimos_3
+        
+        return False, ties_nos_ultimos_3
+    
+    def processar_novo_resultado(self, resultado):
+        """
+        Processa cada novo resultado para atualizar estado
+        """
+        if resultado == 'TIE':
+            self.ultimo_tie = time.time()
+            self.contador_pos_tie = self.rodadas_recuperacao
+            self.modo_recuperacao = True
+            self.historico_ties.append({
+                'timestamp': time.time(),
+                'posicao': self.contador_pos_tie
+            })
+            print(f"⚠️ TIE DETECTADO! Modo recuperação ativado por {self.rodadas_recuperacao} rodadas")
+        else:
+            if self.modo_recuperacao:
+                self.contador_pos_tie -= 1
+                if self.contador_pos_tie <= 0:
+                    self.modo_recuperacao = False
+                    print("✅ Modo recuperação desativado")
+    
+    def decidir_aposta_pos_tie(self, previsao_normal, confianca_normal, historico):
+        """
+        Decide se deve apostar ou não baseado no contexto pós-TIE
+        """
+        # Verificar se estamos em modo recuperação
+        if self.modo_recuperacao:
+            # Análise especial para período pós-TIE
+            sequencia_critica, num_ties = self.analisar_sequencia_tie(historico)
+            
+            if sequencia_critica:
+                print(f"🚫 BLOQUEADO: Sequência crítica de {num_ties} TIE detectada")
+                return {
+                    'apostar': False,
+                    'motivo': f'sequencia_tie_{num_ties}',
+                    'confianca_original': confianca_normal
+                }
+            
+            # Só aposta se confiança for muito alta
+            if confianca_normal >= self.confianca_minima_pos_tie:
+                # Verificar consistência com histórico recente (ignorando TIE)
+                ultimos_sem_tie = [r for r in historico[:5] if r['resultado'] != 'TIE']
+                if len(ultimos_sem_tie) >= 2:
+                    tendencia = ultimos_sem_tie[0]['resultado']
+                    if previsao_normal == tendencia:
+                        return {
+                            'apostar': True,
+                            'previsao': previsao_normal,
+                            'confianca': confianca_normal,
+                            'motivo': 'tendencia_pos_tie'
+                        }
+                
+                return {
+                    'apostar': False,
+                    'motivo': 'confianca_insuficiente_pos_tie',
+                    'confianca_original': confianca_normal
+                }
+            else:
+                return {
+                    'apostar': False,
+                    'motivo': f'confianca_baixa_pos_tie_{confianca_normal}',
+                    'confianca_original': confianca_normal
+                }
+        
+        # Não está em modo recuperação, comportamento normal
+        return None
+    
+    def registrar_resultado_pos_tie(self, apostou, acertou):
+        """
+        Registra resultados para aprendizado futuro
+        """
+        if self.modo_recuperacao and apostou:
+            if acertou:
+                self.acertos_pos_tie += 1
+                print(f"✅ Acerto pós-TIE! ({self.acertos_pos_tie}/{self.acertos_pos_tie + self.erros_pos_tie})")
+            else:
+                self.erros_pos_tie += 1
+                print(f"❌ Erro pós-TIE! ({self.acertos_pos_tie}/{self.acertos_pos_tie + self.erros_pos_tie})")
+    
+    def get_stats(self):
+        total_pos_tie = self.acertos_pos_tie + self.erros_pos_tie
+        precisao_pos_tie = (self.acertos_pos_tie / total_pos_tie * 100) if total_pos_tie > 0 else 0
+        
+        return {
+            'modo_recuperacao': self.modo_recuperacao,
+            'rodadas_restantes': max(0, self.contador_pos_tie),
+            'acertos_pos_tie': self.acertos_pos_tie,
+            'erros_pos_tie': self.erros_pos_tie,
+            'precisao_pos_tie': round(precisao_pos_tie, 1),
+            'total_ties_historico': len(self.historico_ties)
+        }
+
+
+# =============================================================================
+# 🎯 ESTRATÉGIA ESPECIALISTA EM TIE
+# =============================================================================
+
+class EstrategistaTIE:
+    """
+    Agente especializado em prever resultados após TIE
+    """
+    
+    def __init__(self):
+        self.padroes_pos_tie = {}
+        self.acertos = 0
+        self.erros = 0
+        self.total_analises = 0
+        
+    def analisar_padrao_pos_tie(self, historico):
+        """
+        Analisa o que acontece depois de um TIE
+        """
+        if len(historico) < 4:
+            return None
+        
+        # Procurar por TIE nos últimos resultados
+        for i in range(min(5, len(historico)-1)):
+            if historico[i]['resultado'] == 'TIE':
+                # Ver o próximo resultado (ignorando outros TIE)
+                for j in range(i+1, min(i+4, len(historico))):
+                    if historico[j]['resultado'] != 'TIE':
+                        proximo = historico[j]['resultado']
+                        
+                        # Criar padrão baseado no que veio antes do TIE
+                        if i+1 < len(historico) and historico[i+1]['resultado'] != 'TIE':
+                            antes_do_tie = historico[i+1]['resultado']
+                            chave = f"{antes_do_tie}_DEPOIS_TIE"
+                            
+                            if chave not in self.padroes_pos_tie:
+                                self.padroes_pos_tie[chave] = {'BANKER': 0, 'PLAYER': 0}
+                            
+                            self.padroes_pos_tie[chave][proximo] += 1
+                            self.total_analises += 1
+                        
+                        break
+        
+        return self._gerar_recomendacao()
+    
+    def _gerar_recomendacao(self):
+        """
+        Gera recomendação baseada nos padrões observados
+        """
+        if self.total_analises < 10:
+            return None
+        
+        # Analisar padrões mais fortes
+        for padrao, contagens in self.padroes_pos_tie.items():
+            total = sum(contagens.values())
+            if total >= 5:
+                banker_pct = (contagens['BANKER'] / total) * 100
+                player_pct = (contagens['PLAYER'] / total) * 100
+                
+                if banker_pct >= 70:
+                    return {
+                        'previsao': 'BANKER',
+                        'confianca': banker_pct,
+                        'padrao': padrao
+                    }
+                elif player_pct >= 70:
+                    return {
+                        'previsao': 'PLAYER',
+                        'confianca': player_pct,
+                        'padrao': padrao
+                    }
+        
+        return None
+    
+    def registrar_resultado(self, previsao, real):
+        if previsao == real:
+            self.acertos += 1
+        else:
+            self.erros += 1
+
+
+# =============================================================================
+# 🧠 MODIFICAÇÃO NO AGENTE RL PARA IGNORAR TIE
+# =============================================================================
+
+class AgenteRLIgnoraTIE(AgenteRLPuro):
+    """
+    Versão do agente que filtra TIE do histórico de aprendizado
+    """
+    
+    def __init__(self, nome, id_agente):
+        super().__init__(nome, id_agente)
+        self.historico_filtrado = deque(maxlen=100)
+        print(f"✅ Agente {nome} configurado para ignorar TIE")
+    
+    def get_state_tensor_filtrado(self, historico):
+        """
+        Cria tensor ignorando resultados TIE
+        """
+        # Filtrar apenas BANKER/PLAYER
+        historico_filtrado = [r for r in historico if r['resultado'] != 'TIE']
+        
+        if len(historico_filtrado) < 30:
+            # Se não tem 30 resultados válidos, completa com os últimos disponíveis
+            return self.get_state_tensor(historico)
+        
+        state = []
+        for i, rodada in enumerate(historico_filtrado[:30]):
+            if rodada['resultado'] == 'BANKER':
+                state.extend([1, 0, 0])
+            elif rodada['resultado'] == 'PLAYER':
+                state.extend([0, 1, 0])
+            
+            state.append(rodada.get('player_score', 0) / 12)
+            state.append(rodada.get('banker_score', 0) / 12)
+        
+        while len(state) < self.state_size:
+            state.extend([0, 0, 0, 0, 0])
+        
+        return torch.FloatTensor(state).unsqueeze(0).to(self.device)
+    
+    def agir_filtrado(self, historico):
+        """
+        Versão do agir que usa histórico filtrado
+        """
+        self.total_uso += 1
+        
+        historico_filtrado = [r for r in historico if r['resultado'] != 'TIE']
+        
+        if len(historico_filtrado) < 15:  # Reduzido para 15 ao invés de 30
+            return random.choice([0, 1]), 0.5
+        
+        state_tensor = self.get_state_tensor_filtrado(historico)
+        self.ultimo_estado = state_tensor
+        
+        if np.random.rand() <= self.epsilon:
+            acao = random.choice([0, 1])
+            confianca = 0.5
+        else:
+            if self.model is not None:
+                try:
+                    with torch.no_grad():
+                        q_values = self.model(state_tensor).cpu().numpy()[0]
+                        acao = np.argmax(q_values)
+                        
+                        q_max = np.max(q_values)
+                        q_min = np.min(q_values)
+                        q_diff = q_max - q_min
+                        
+                        confianca = min(0.5 + q_diff / (abs(q_max) + 1e-8), 0.95)
+                        
+                except Exception as e:
+                    print(f"⚠️ Erro no predict PyTorch: {e}")
+                    acao = random.choice([0, 1])
+                    confianca = 0.5
+            else:
+                acao = random.choice([0, 1])
+                confianca = 0.5
+        
+        self.ultima_acao = acao
+        self.confianca = confianca
+        return acao, confianca
+
+
+# =============================================================================
+# 🚀 INTEGRAÇÃO NO SISTEMA PRINCIPAL
+# =============================================================================
+
+def integrar_sistema_anti_tie():
+    """
+    Ativa todas as proteções contra TIE
+    """
+    print("\n" + "="*80)
+    print("🛡️ ATIVANDO SISTEMA ANTI-TIE")
+    print("="*80)
+    
+    # Criar sistema anti-TIE
+    anti_tie = SistemaAntiTIE()
+    cache['anti_tie'] = anti_tie
+    
+    # Criar estrategista TIE
+    estrategista_tie = EstrategistaTIE()
+    cache['estrategista_tie'] = estrategista_tie
+    
+    # Converter agentes existentes para versão que ignora TIE
+    if cache.get('rl_system'):
+        print("🔄 Convertendo agentes para modo IGNORAR TIE...")
+        for nome, agente in list(cache['rl_system'].agentes.items()):
+            if 'Especialista' not in nome:
+                novo_agente = AgenteRLIgnoraTIE(nome, agente.id)
+                novo_agente.acertos = agente.acertos
+                novo_agente.erros = agente.erros
+                novo_agente.total_uso = agente.total_uso
+                novo_agente.peso = agente.peso
+                cache['rl_system'].agentes[nome] = novo_agente
+        print(f"✅ {len(cache['rl_system'].agentes)} agentes convertidos")
+    
+    print("✅ Sistema Anti-TIE ativado!")
+    print("📊 Estratégias:")
+    print("   • Bloqueio pós-TIE por 3 rodadas")
+    print("   • Agentes ignoram TIE no aprendizado")
+    print("   • Detecção de padrões pós-TIE")
+    
+    return anti_tie
+
+
+# =============================================================================
+# 📊 NOVA ROTA PARA MONITORAR ANTI-TIE
+# =============================================================================
+
+@app.route('/api/anti-tie')
+def api_anti_tie():
+    if not cache.get('anti_tie'):
+        return jsonify({'status': 'inativo'})
+    
+    anti_tie = cache['anti_tie']
+    stats = anti_tie.get_stats()
+    
+    estrategista = cache.get('estrategista_tie')
+    stats_estrategista = {
+        'acertos': estrategista.acertos if estrategista else 0,
+        'erros': estrategista.erros if estrategista else 0,
+        'total_analises': estrategista.total_analises if estrategista else 0
+    } if estrategista else {}
+    
+    return jsonify({
+        'status': 'ativo',
+        'anti_tie': stats,
+        'estrategista': stats_estrategista
+    }) 
 
 # =============================================================================
 # 🧠 REDES NEURAIS PyTorch PARA RL
@@ -4216,11 +4583,11 @@ def loop_api_fallback():
 
 
 # =============================================================================
-# PROCESSADOR DA FILA (COM SISTEMA CURTO PRAZO)
+# PROCESSADOR DA FILA (COM SISTEMA ANTI-TIE + CURTO PRAZO)
 # =============================================================================
 
 def processar_fila():
-    print("🚀 Processador SISTEMA CURTO PRAZO iniciado...")
+    print("🚀 Processador SISTEMA ANTI-TIE + CURTO PRAZO iniciado...")
     
     historico_buffer = []
     ultima_previsao_feita = None
@@ -4237,8 +4604,24 @@ def processar_fila():
                         cache['ultimo_resultado_real'] = rodada['resultado']
                         print(f"✅ SALVO: {rodada['player_score']} vs {rodada['banker_score']} - {rodada['resultado']}")
                         
+                        # =========================================================================
+                        # ATUALIZAR SISTEMA ANTI-TIE COM O NOVO RESULTADO
+                        # =========================================================================
+                        if cache.get('anti_tie'):
+                            cache['anti_tie'].processar_novo_resultado(rodada['resultado'])
+                        
+                        # =========================================================================
+                        # VERIFICAR PREVISÃO ANTERIOR
+                        # =========================================================================
                         if ultima_previsao_feita:
                             resultado_real = rodada['resultado']
+                            
+                            # Registrar resultado no estrategista TIE (sempre, mesmo sendo TIE)
+                            if cache.get('estrategista_tie') and resultado_real != 'TIE':
+                                cache['estrategista_tie'].registrar_resultado(
+                                    ultima_previsao_feita['previsao'],
+                                    resultado_real
+                                )
                             
                             if resultado_real != 'TIE':
                                 acertou = (ultima_previsao_feita['previsao'] == resultado_real)
@@ -4254,6 +4637,14 @@ def processar_fila():
                                 if cache.get('analisador_erros') and not acertou:
                                     causa_erro = cache['analisador_erros'].analisar_erro_em_tempo_real(
                                         ultima_previsao_feita, resultado_real, contexto, indice_manipulacao
+                                    )
+                                
+                                # Registrar resultado no sistema anti-TIE
+                                if cache.get('anti_tie'):
+                                    cache['anti_tie'].registrar_resultado_pos_tie(
+                                        ultima_previsao_feita['modo'] == 'ANTI_TIE' or 
+                                        ultima_previsao_feita['modo'] == 'CURTO_PRAZO_ANTI_TIE',
+                                        acertou
                                     )
                                 
                                 salvar_previsao_completa_segura(
@@ -4296,6 +4687,7 @@ def processar_fila():
                                 if len(cache['estatisticas']['ultimas_20_previsoes']) > 20:
                                     cache['estatisticas']['ultimas_20_previsoes'].pop()
                                 
+                                # Aprendizado RL (ignorando TIE)
                                 if cache.get('rl_system') and len(cache['leves']['ultimas_50']) >= 30:
                                     cache['rl_system'].aprender_com_resultado(
                                         cache['leves']['ultimas_50'], resultado_real
@@ -4316,8 +4708,57 @@ def processar_fila():
                 if len(historico_buffer) > 0:
                     atualizar_dados_leves()
                     
-                    # PRIORIDADE 1: Sistema Curto Prazo
-                    if cache.get('curto_prazo') and len(cache['leves']['ultimas_50']) >= 30:
+                    # =========================================================================
+                    # PRIORIDADE 1: SISTEMA ANTI-TIE (quando em modo recuperação)
+                    # =========================================================================
+                    if cache.get('anti_tie') and cache['anti_tie'].modo_recuperacao:
+                        if cache.get('rl_system') and len(cache['leves']['ultimas_50']) >= 30:
+                            historico_completo = cache['leves']['ultimas_50']
+                            
+                            # Usar agentes que ignoram TIE
+                            previsao_rl = cache['rl_system'].processar_rodada(historico_completo)
+                            
+                            if previsao_rl:
+                                # Consultar estrategista TIE
+                                recomendacao = None
+                                if cache.get('estrategista_tie'):
+                                    recomendacao = cache['estrategista_tie'].analisar_padrao_pos_tie(historico_completo)
+                                    if recomendacao and recomendacao['confianca'] > 70:
+                                        previsao_rl['previsao'] = recomendacao['previsao']
+                                        previsao_rl['confianca'] = recomendacao['confianca']
+                                        print(f"🎯 ESTRATEGISTA TIE: {recomendacao['previsao']} com {recomendacao['confianca']}%")
+                                
+                                # Decisão do sistema anti-TIE
+                                decisao_anti = cache['anti_tie'].decidir_aposta_pos_tie(
+                                    previsao_rl['previsao'],
+                                    previsao_rl['confianca'],
+                                    historico_completo
+                                )
+                                
+                                if decisao_anti and not decisao_anti['apostar']:
+                                    print(f"⏸️ ANTI-TIE BLOQUEANDO: {decisao_anti['motivo']}")
+                                    ultima_previsao_feita = None
+                                else:
+                                    # Verificar se tem recomendação do estrategista
+                                    estrategia_extra = []
+                                    if recomendacao:
+                                        estrategia_extra = [f"TIE_{recomendacao['padrao']}"]
+                                    
+                                    ultima_previsao_feita = {
+                                        'modo': 'ANTI_TIE',
+                                        'previsao': previsao_rl['previsao'],
+                                        'simbolo': '🔴' if previsao_rl['previsao'] == 'BANKER' else '🔵',
+                                        'confianca': previsao_rl['confianca'],
+                                        'estrategias': ['ANTI_TIE'] + estrategia_extra + [v['agente'] for v in previsao_rl['votos'][:2]]
+                                    }
+                                    cache['ultima_previsao'] = ultima_previsao_feita
+                                    cache['leves']['previsao'] = ultima_previsao_feita
+                                    print(f"\n🎯 ANTI-TIE APROVOU: {ultima_previsao_feita['previsao']} com {ultima_previsao_feita['confianca']}%")
+                    
+                    # =========================================================================
+                    # PRIORIDADE 2: SISTEMA CURTO PRAZO (quando não em recuperação)
+                    # =========================================================================
+                    elif cache.get('curto_prazo') and len(cache['leves']['ultimas_50']) >= 30:
                         historico_completo = cache['leves']['ultimas_50']
                         
                         previsao_cp = cache['curto_prazo'].processar_rodada(historico_completo)
@@ -4344,7 +4785,9 @@ def processar_fila():
                             
                             print(f"\n🎯 CP CICLO {previsao_cp['ciclo']} R{previsao_cp['rodada_no_ciclo']}: {previsao_cp['previsao']} com {previsao_cp['confianca']}%")
                     
-                    # PRIORIDADE 2: Ultra Precisão (fallback)
+                    # =========================================================================
+                    # PRIORIDADE 3: ULTRA PRECISÃO (fallback)
+                    # =========================================================================
                     elif cache.get('ultra_precisao') and len(cache['leves']['ultimas_50']) >= 30:
                         historico_completo = cache['leves']['ultimas_50']
                         previsao_rl = cache['rl_system'].processar_rodada(historico_completo)
@@ -4371,6 +4814,9 @@ def processar_fila():
                             else:
                                 print(f"\n⏸️ ULTRA AGUARDANDO... {decisao['motivo']}")
                     
+                    # =========================================================================
+                    # PRIORIDADE 4: MULTIPROCESSING
+                    # =========================================================================
                     elif cache.get('mp_system') and len(cache['leves']['ultimas_50']) >= 30:
                         stats_mp = cache['mp_system'].get_stats()
                         ultima_previsao_feita = {
@@ -4385,6 +4831,9 @@ def processar_fila():
                         
                         print(f"\n🎯 NOVA PREVISÃO (Multiprocessing): {ultima_previsao_feita['previsao']} com {ultima_previsao_feita['confianca']}%")
                     
+                    # =========================================================================
+                    # PRIORIDADE 5: RL PURO (último recurso)
+                    # =========================================================================
                     elif cache.get('rl_system') and len(cache['leves']['ultimas_50']) >= 30:
                         historico_completo = cache['leves']['ultimas_50']
                         previsao_rl = cache['rl_system'].processar_rodada(historico_completo)
@@ -4410,7 +4859,6 @@ def processar_fila():
             print(f"❌ Erro no processador: {e}")
             traceback.print_exc()
             time.sleep(0.1)
-
 
 # =============================================================================
 # FUNÇÕES DA API
