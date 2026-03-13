@@ -135,6 +135,18 @@
             font-weight: 600;
         }
 
+        .modo-curto-prazo {
+            background: #00ff8820;
+            color: #00ff88;
+            border: 1px solid #00ff88;
+        }
+
+        .modo-ultra {
+            background: #4d4dff20;
+            color: #4d4dff;
+            border: 1px solid #4d4dff;
+        }
+
         .modo-agressivo {
             background: #ff4d4d20;
             color: #ff4d4d;
@@ -167,7 +179,7 @@
 
         .previsao-grid {
             display: grid;
-            grid-template-columns: repeat(5, 1fr);
+            grid-template-columns: repeat(6, 1fr);
             gap: 20px;
         }
 
@@ -199,6 +211,18 @@
             font-size: 32px;
             font-weight: 700;
             color: #00ff88;
+        }
+
+        .previsao-ciclo {
+            font-size: 18px;
+            color: #ffaa00;
+            margin-top: 5px;
+        }
+
+        .previsao-ultimas5 {
+            font-size: 14px;
+            color: #ff69b4;
+            margin-top: 5px;
         }
 
         .agentes-list {
@@ -280,7 +304,7 @@
         /* Stats da IA - Grid expandido */
         .stats-ia-grid {
             display: grid;
-            grid-template-columns: repeat(12, 1fr);
+            grid-template-columns: repeat(14, 1fr);
             gap: 15px;
             margin-bottom: 25px;
         }
@@ -319,6 +343,7 @@
         .stats-ia-saude { color: #00ffff; }
         .stats-ia-especialista { color: #9370db; }
         .stats-ia-paralelo { color: #4d4dff; }
+        .stats-ia-ciclo { color: #00ff88; }
 
         /* Tabela de Agentes */
         .agentes-table {
@@ -475,6 +500,11 @@
         .timeline-manipulado {
             border-left: 4px solid #ff69b4;
             background: #ff69b410;
+        }
+
+        .timeline-curto-prazo {
+            border-left: 4px solid #00ff88;
+            background: #00ff8810;
         }
 
         .timeline-header {
@@ -656,6 +686,54 @@
         .numero-banker { border-left: 3px solid #ff4d4d; }
         .numero-tie { border-left: 3px solid #ffaa00; }
 
+        /* Ciclos Cards */
+        .ciclos-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 10px;
+            margin-top: 15px;
+            max-height: 300px;
+            overflow-y: auto;
+            padding: 10px;
+            background: #1e2227;
+            border-radius: 8px;
+        }
+
+        .ciclo-item {
+            padding: 12px;
+            background: #0a0c0f;
+            border: 1px solid #2a2f35;
+            border-radius: 8px;
+            font-size: 12px;
+            text-align: center;
+        }
+
+        .ciclo-item.alta-precisao {
+            border-left: 4px solid #00ff88;
+            background: #00ff8810;
+        }
+
+        .ciclo-item.media-precisao {
+            border-left: 4px solid #ffaa00;
+            background: #ffaa0010;
+        }
+
+        .ciclo-numero {
+            font-weight: 700;
+            color: #00ff88;
+        }
+
+        .ciclo-precisao {
+            font-size: 16px;
+            font-weight: 700;
+            margin: 5px 0;
+        }
+
+        .ciclo-acertos {
+            color: #8a8f99;
+            font-size: 11px;
+        }
+
         /* Loading */
         .loading {
             text-align: center;
@@ -678,6 +756,15 @@
             background: #ff69b420;
             color: #ff69b4;
             border: 1px solid #ff69b4;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+        }
+
+        .badge-curto-prazo {
+            background: #00ff8820;
+            color: #00ff88;
+            border: 1px solid #00ff88;
             padding: 2px 8px;
             border-radius: 12px;
             font-size: 11px;
@@ -742,6 +829,7 @@
         .dot-yellow { background: #ffaa00; }
         .dot-red { background: #ff4d4d; }
         .dot-purple { background: #9370db; }
+        .dot-blue { background: #4d4dff; }
 
         /* Cache indicator */
         .cache-indicator {
@@ -778,7 +866,7 @@
             </h1>
             <div class="ia-badge">
                 <span class="ia-dot"></span>
-                <span id="liveStatus">5 CAMADAS ANTI-QUEDA</span>
+                <span id="liveStatus">6 CAMADAS ANTI-QUEDA</span>
                 <span class="update-time" id="updateTime">carregando...</span>
             </div>
         </div>
@@ -798,8 +886,12 @@
                 <span>900 Paralelos</span>
             </div>
             <div class="status-item">
-                <span class="status-dot" style="background: #4d4dff;"></span>
+                <span class="status-dot dot-blue"></span>
                 <span id="agentesAtivosDisplay">0 ativos</span>
+            </div>
+            <div class="status-item">
+                <span class="status-dot dot-green"></span>
+                <span id="cicloAtual">Ciclo 0/20</span>
             </div>
             <div class="cache-indicator">
                 <span class="cache-dot"></span>
@@ -814,7 +906,7 @@
                     <i class="bi bi-brain"></i>
                     DECISÃO DOS AGENTES
                 </div>
-                <div class="modo-badge" id="modoAlgoritmo">ANALISANDO...</div>
+                <div class="modo-badge" id="modoAlgoritmo">CURTO PRAZO</div>
             </div>
 
             <div class="previsao-grid">
@@ -836,8 +928,12 @@
                     <div class="previsao-valor" id="totalAgentes">0</div>
                 </div>
                 <div class="previsao-item">
-                    <div class="previsao-label">ESPECIALISTAS</div>
-                    <div class="previsao-valor" id="totalEspecialistas">0</div>
+                    <div class="previsao-label">CICLO</div>
+                    <div class="previsao-ciclo" id="cicloInfo">-</div>
+                </div>
+                <div class="previsao-item">
+                    <div class="previsao-label">ÚLTIMAS 5</div>
+                    <div class="previsao-ultimas5" id="ultimas5Info">-</div>
                 </div>
             </div>
 
@@ -892,6 +988,14 @@
             <div class="stats-ia-card" onclick="window.location.href='/api/stats'">
                 <div class="stats-ia-valor stats-ia-paralelo" id="paralelosAtivos">0</div>
                 <div class="stats-ia-label">PARALELOS</div>
+            </div>
+            <div class="stats-ia-card" onclick="window.location.href='/api/curto-prazo'">
+                <div class="stats-ia-valor stats-ia-ciclo" id="precisaoCicloAtual">0%</div>
+                <div class="stats-ia-label">CICLO ATUAL</div>
+            </div>
+            <div class="stats-ia-card" onclick="window.location.href='/api/curto-prazo'">
+                <div class="stats-ia-valor stats-ia-acerto" id="melhorCiclo">0%</div>
+                <div class="stats-ia-label">MELHOR CICLO</div>
             </div>
             <div class="stats-ia-card" onclick="window.location.href='/api/corrigir-agora'">
                 <div class="stats-ia-valor stats-ia-manipulacao" id="correcoesPendentes">0</div>
@@ -964,7 +1068,7 @@
             </div>
         </div>
 
-        <!-- Timeline e Histórico -->
+        <!-- Timeline e Histórico com Ciclos -->
         <div class="row">
             <div class="col-5">
                 <div class="card">
@@ -972,6 +1076,7 @@
                         <i class="bi bi-clock-history"></i>
                         ÚLTIMAS 20 DECISÕES
                         <span class="badge-manipulacao" id="manipuladasRecent">0 manipuladas</span>
+                        <span class="badge-curto-prazo" id="curtoPrazoRecent">0 CP</span>
                     </div>
                     <div class="timeline-grid" id="timelineGrid">
                         <div class="loading">Carregando...</div>
@@ -979,6 +1084,19 @@
                 </div>
             </div>
             <div class="col-7">
+                <!-- Cards de Ciclo (NOVO!) -->
+                <div class="card" style="margin-bottom: 20px;">
+                    <div class="card-title">
+                        <i class="bi bi-arrow-repeat"></i>
+                        CICLOS DE 20 RODADAS
+                        <span class="info-badge" id="totalCiclos">0 ciclos</span>
+                        <span class="badge-curto-prazo" id="mediaCiclos">0% média</span>
+                    </div>
+                    <div class="ciclos-grid" id="ciclosGrid">
+                        <div class="loading">Carregando ciclos...</div>
+                    </div>
+                </div>
+
                 <!-- Distribuição Cards -->
                 <div class="distribuicao-grid" id="distribuicaoGrid">
                     <div class="distribuicao-card" onclick="setFiltro('player')">
@@ -1046,6 +1164,7 @@
     let ultimaAtualizacao = 0;
     let ordemTabela = { coluna: 'precisao', direcao: 'desc' };
     let dadosAgentes = [];
+    let dadosCurtoPrazo = null;
     
     // Sistema de Cache
     let cacheTabela = {
@@ -1314,6 +1433,50 @@
     }
 
     // =========================================================================
+    // FUNÇÃO PARA CARREGAR DADOS DO CURTO PRAZO (NOVA!)
+    // =========================================================================
+    async function carregarCurtoPrazo() {
+        try {
+            const response = await fetch('/api/curto-prazo');
+            if (!response.ok) return;
+            
+            const data = await response.json();
+            if (data.status === 'ativo' && data.estatisticas) {
+                dadosCurtoPrazo = data;
+                
+                const e = data.estatisticas;
+                
+                document.getElementById('cicloAtual').textContent = `Ciclo ${e.ciclo_atual}/${e.rodada_no_ciclo}`;
+                document.getElementById('precisaoCicloAtual').textContent = e.precisao_ciclo_atual + '%';
+                document.getElementById('melhorCiclo').textContent = (e.melhor_ciclo?.precisao || 0) + '%';
+                document.getElementById('totalCiclos').textContent = e.total_ciclos + ' ciclos';
+                document.getElementById('mediaCiclos').textContent = e.media_precisao_ciclos + '% média';
+                
+                // Atualizar grid de ciclos
+                if (data.ultimos_ciclos && data.ultimos_ciclos.length > 0) {
+                    let ciclosHtml = '';
+                    data.ultimos_ciclos.forEach(c => {
+                        const classe = c.precisao >= 80 ? 'alta-precisao' : 
+                                      c.precisao >= 60 ? 'media-precisao' : '';
+                        ciclosHtml += `
+                            <div class="ciclo-item ${classe}">
+                                <div class="ciclo-numero">Ciclo ${c.ciclo}</div>
+                                <div class="ciclo-precisao">${c.precisao}%</div>
+                                <div class="ciclo-acertos">${c.acertos}/${c.acertos + c.erros}</div>
+                            </div>
+                        `;
+                    });
+                    document.getElementById('ciclosGrid').innerHTML = ciclosHtml;
+                } else {
+                    document.getElementById('ciclosGrid').innerHTML = '<div class="loading">Nenhum ciclo completo</div>';
+                }
+            }
+        } catch (error) {
+            console.error('Erro ao carregar curto prazo:', error);
+        }
+    }
+
+    // =========================================================================
     // ATUALIZAÇÕES
     // =========================================================================
     function atualizarTabelaAgentes(agentes) {
@@ -1324,8 +1487,8 @@
 
         dadosAgentes = agentes;
         
-        // CORREÇÃO: Mostrar TODOS os agentes, não apenas com total > 0
-        let agentesAtivos = agentes.filter(a => a); // Mostra todos
+        // Mostrar TODOS os agentes
+        let agentesAtivos = agentes.filter(a => a);
         
         // Ordenar conforme a ordem atual
         agentesAtivos.sort((a, b) => {
@@ -1388,12 +1551,10 @@
             
             totalSaude += saude;
             
-            // Classificar força
             if (precisao >= 70) forcaAlta++;
             else if (precisao >= 50) forcaMedia++;
             else forcaBaixa++;
             
-            // Contar especialistas
             if (a.nome.includes('Especialista')) especialistasCount++;
             
             const saudeClass = getClasseSaude(saude);
@@ -1420,7 +1581,6 @@
         document.getElementById('saudeMediaIA').textContent = saudeMedia + '%';
         document.getElementById('especialistasAtivos').textContent = especialistasCount;
         document.getElementById('paralelosAtivos').textContent = '900';
-        document.getElementById('padroesDescobertos').textContent = '0';
 
         // Atualizar gráfico de força
         if (forcaChart) {
@@ -1439,15 +1599,19 @@
 
         let html = '';
         let manipuladasCount = 0;
+        let curtoPrazoCount = 0;
         
         previsoes.slice(0, 20).forEach(p => {
             const acertou = p.acertou || false;
             const manipulada = p.manipulado || false;
+            const modo = p.modo || '';
             
             if (manipulada) manipuladasCount++;
+            if (modo === 'CURTO_PRAZO') curtoPrazoCount++;
             
             let classe = acertou ? 'timeline-acerto' : 'timeline-erro';
             if (manipulada) classe = 'timeline-manipulado';
+            if (modo === 'CURTO_PRAZO') classe = 'timeline-curto-prazo';
             
             const simbolo = p.simbolo || (p.previsao === 'BANKER' ? '🔴' : '🔵');
             
@@ -1459,7 +1623,8 @@
                     </div>
                     <div class="timeline-resultado">
                         Real: ${p.resultado_real || p.resultado} | ${p.data}
-                        ${manipulada ? '<span class="badge-manipulacao ms-2">MANIPULADA</span>' : ''}
+                        ${manipulada ? '<span class="badge-manipulacao ms-2">MANIP</span>' : ''}
+                        ${modo === 'CURTO_PRAZO' ? '<span class="badge-curto-prazo ms-2">CP</span>' : ''}
                     </div>
                     <div class="timeline-agentes">
                         ${(p.estrategias || []).map(e => 
@@ -1472,6 +1637,7 @@
 
         grid.innerHTML = html;
         document.getElementById('manipuladasRecent').textContent = `${manipuladasCount} manipuladas`;
+        document.getElementById('curtoPrazoRecent').textContent = `${curtoPrazoCount} CP`;
     }
 
     function exibirHistorico(data) {
@@ -1534,6 +1700,9 @@
             const agora = Date.now();
             if (agora - ultimaAtualizacao < 1900) return;
             
+            // Carregar dados do curto prazo primeiro (NOVO!)
+            await carregarCurtoPrazo();
+            
             const [tabelaRes, statsRes, aprendizadoRes] = await Promise.allSettled([
                 fetch(`/api/tabela/${limiteAtual}`).then(r => r.json()),
                 fetch('/api/stats').then(r => r.json()),
@@ -1558,12 +1727,13 @@
 
                 if (s.previsao) {
                     const p = s.previsao;
-                    document.getElementById('modoAlgoritmo').textContent = p.modo || '-';
-                    document.getElementById('modoDescricao').textContent = p.modo || '-';
+                    document.getElementById('modoAlgoritmo').textContent = p.modo || 'CURTO_PRAZO';
+                    document.getElementById('modoDescricao').textContent = p.modo || 'CURTO_PRAZO';
                     
                     const modoElem = document.getElementById('modoAlgoritmo');
                     modoElem.className = 'modo-badge';
-                    if (p.modo === 'AGRESSIVO') modoElem.classList.add('modo-agressivo');
+                    if (p.modo === 'CURTO_PRAZO') modoElem.classList.add('modo-curto-prazo');
+                    else if (p.modo === 'AGRESSIVO') modoElem.classList.add('modo-agressivo');
                     else if (p.modo === 'PREDATORIO') modoElem.classList.add('modo-predatorio');
                     else if (p.modo === 'MOEDOR') modoElem.classList.add('modo-moedor');
                     else if (p.modo === 'ESPECIALISTA') modoElem.classList.add('modo-especialista');
@@ -1574,16 +1744,21 @@
                     document.getElementById('confianca').textContent = (p.confianca || 0) + '%';
                     document.getElementById('totalAgentes').textContent = (p.estrategias || []).length;
                     
-                    const agentesDiv = document.getElementById('agentesAtivos');
                     if (p.estrategias && p.estrategias.length > 0) {
                         let html = '';
-                        p.estrategias.forEach(e => {
+                        p.estrategias.slice(0, 8).forEach(e => {
                             const classe = getClasseAgente(e);
                             html += `<span class="agente-tag ${classe}">${e}</span>`;
                         });
-                        agentesDiv.innerHTML = html;
+                        document.getElementById('agentesAtivos').innerHTML = html;
                     } else {
-                        agentesDiv.innerHTML = '<span class="agente-tag">🧠 Nenhum agente ativo</span>';
+                        document.getElementById('agentesAtivos').innerHTML = '<span class="agente-tag">🧠 Nenhum agente ativo</span>';
+                    }
+                    
+                    // Atualizar info do ciclo se disponível
+                    if (p.ciclo !== undefined) {
+                        document.getElementById('cicloInfo').textContent = `${p.ciclo}/${p.rodada_no_ciclo || 0}`;
+                        document.getElementById('ultimas5Info').textContent = p.ultimas_5 ? 'ATIVO 🔥' : 'aguardando';
                     }
                 }
 
@@ -1613,7 +1788,6 @@
                     document.getElementById('padroesDescobertos').textContent = s.padroes_descobertos.length || 0;
                 }
                 
-                // Atualizar totais da distribuição
                 if (s.total_rodadas) {
                     document.getElementById('totalRodadasIA').textContent = s.total_rodadas;
                 }
@@ -1626,7 +1800,6 @@
                 document.getElementById('geracaoAtual').textContent = `Geração ${a.geracao || 0}`;
                 document.getElementById('geracaoNumero').textContent = a.geracao || 0;
                 
-                // Encontrar melhor precisão entre agentes
                 if (a.agentes && a.agentes.length > 0) {
                     const melhorAgente = a.agentes.reduce((max, ag) => 
                         (ag.precisao || 0) > (max.precisao || 0) ? ag : max, a.agentes[0]);
@@ -1638,7 +1811,6 @@
                 if (a.agentes) {
                     atualizarTabelaAgentes(a.agentes);
                     
-                    // Atualiza gráfico de evolução
                     if (evolucaoChart) {
                         const labels = a.agentes.map(ag => ag.nome.substring(0, 10));
                         const data = a.agentes.map(ag => ag.precisao || 0);
@@ -1648,7 +1820,6 @@
                         evolucaoChart.update();
                     }
 
-                    // Atualiza gráfico de saúde
                     if (saudeChart) {
                         const labels = a.agentes.map(ag => ag.nome.substring(0, 10));
                         const saude = a.agentes.map(ag => ag.saude || 100);
@@ -1671,7 +1842,7 @@
     // INICIALIZAÇÃO
     // =========================================================================
     document.addEventListener('DOMContentLoaded', function() {
-        console.log('🚀 Iniciando BacBo com 1950 Agentes');
+        console.log('🚀 Iniciando BacBo com 1950 Agentes - Modo Curto Prazo');
         
         criarGraficos();
         
