@@ -1,5 +1,5 @@
 # =============================================================================
-# main.py - VERSÃO ULTRA PRECISÃO 9.0 (TURBINADA 95%+)
+# main.py - VERSÃO ULTRA PRECISÃO 9.0 (TURBINADA 95%+) - COM MELHORIAS
 # =============================================================================
 
 import os
@@ -36,7 +36,7 @@ app = Flask(__name__)
 CORS(app)
 
 # =============================================================================
-# 🏥 HEALTHCHECK URGENTE (RESPONDE IMEDIATAMENTE)
+# 🏥 HEALTHCHECK URGENTE (RESPONDE NA HORA)
 # =============================================================================
 @app.route('/health', methods=['GET'])
 def health_urgente():
@@ -368,7 +368,8 @@ cache = {
     'rl_system': None,
     'analisador_erros': None,
     'ultimo_contexto_erro': None,
-    'indice_manipulacao': 0,
+    'indice_confianca': 50,  # NOVO: substitui indice_manipulacao
+    'detector_72': None,      # NOVO: detector de padrão
     'padroes_descobertos': [],
     'mp_system': None,
     'ultra_precisao': None,
@@ -376,7 +377,7 @@ cache = {
     'estrategia_surto': None,
     'cacador_padroes': None,
     'num_agentes_paralelos': 50,
-    'evolucao': None  # NOVO: Sistema de evolução
+    'evolucao': None
 }
 
 # =============================================================================
@@ -403,6 +404,140 @@ def calcular_precisao():
     if total == 0:
         return 0
     return round((cache['estatisticas']['acertos'] / total) * 100)
+
+# =============================================================================
+# 🔄 NOVO DETECTOR DE PADRÃO 7:2
+# =============================================================================
+
+class DetectorPadrao72:
+    """
+    Detecta padrão DUPLO TIE seguido de sequência 7:2
+    """
+    def __init__(self):
+        self.duplo_tie_detectado = False
+        self.rodadas_desde_duplo_tie = 0
+        self.ultimo_duplo_tie = None
+        self.total_deteccoes = 0
+    
+    def analisar(self, historico):
+        """
+        Analisa histórico em busca do padrão 7:2
+        Retorna previsão se detectado, None caso contrário
+        """
+        if len(historico) < 10:
+            return None
+        
+        # Procurar por duplo TIE
+        for i in range(min(20, len(historico)-1)):
+            if (historico[i]['resultado'] == 'TIE' and 
+                historico[i+1]['resultado'] == 'TIE'):
+                
+                self.duplo_tie_detectado = True
+                self.rodadas_desde_duplo_tie = 0
+                self.ultimo_duplo_tie = datetime.now()
+                self.total_deteccoes += 1
+                
+                # Analisa próximos resultados (até 20 rodadas após o duplo TIE)
+                proximos = []
+                for j in range(i+2, min(i+22, len(historico))):
+                    if historico[j]['resultado'] != 'TIE':
+                        proximos.append(historico[j]['resultado'])
+                        if len(proximos) >= 9:
+                            break
+                
+                # Se encontrou pelo menos 9 resultados não-TIE
+                if len(proximos) >= 9:
+                    banker = proximos.count('BANKER')
+                    player = proximos.count('PLAYER')
+                    total = banker + player
+                    
+                    if total > 0:
+                        banker_pct = (banker / total) * 100
+                        
+                        # Padrão 7:2 (77.7% BANKER) ou inverso 2:7 (22.2% BANKER)
+                        if banker_pct > 60:  # Dominância BANKER
+                            print(f"\n🎯 PADRÃO 7:2 DETECTADO! {banker} BANKER : {player} PLAYER ({banker_pct:.1f}%)")
+                            return {
+                                'previsao': 'BANKER',
+                                'confianca': min(75, 60 + banker_pct/2),
+                                'tipo': '7:2_BANKER',
+                                'proporcao': f"{banker}:{player}"
+                            }
+                        elif banker_pct < 40:  # Dominância PLAYER
+                            print(f"\n🎯 PADRÃO 2:7 DETECTADO! {banker} BANKER : {player} PLAYER ({banker_pct:.1f}%)")
+                            return {
+                                'previsao': 'PLAYER',
+                                'confianca': min(75, 60 + (100-banker_pct)/2),
+                                'tipo': '2:7_PLAYER',
+                                'proporcao': f"{banker}:{player}"
+                            }
+        
+        # Atualizar contador de rodadas desde último duplo TIE
+        if self.duplo_tie_detectado:
+            self.rodadas_desde_duplo_tie += 1
+            if self.rodadas_desde_duplo_tie > 30:
+                self.duplo_tie_detectado = False
+        
+        return None
+    
+    def get_stats(self):
+        """Retorna estatísticas do detector"""
+        return {
+            'total_deteccoes': self.total_deteccoes,
+            'duplo_tie_ativo': self.duplo_tie_detectado,
+            'rodadas_desde_ultimo': self.rodadas_desde_duplo_tie,
+            'ultimo_duplo_tie': self.ultimo_duplo_tie.isoformat() if self.ultimo_duplo_tie else None
+        }
+
+
+# =============================================================================
+# 🎯 NOVA FUNÇÃO PARA CALCULAR ÍNDICE DE CONFIANÇA
+# =============================================================================
+
+def calcular_indice_confianca(dados):
+    """
+    Calcula índice de confiança baseado em padrões naturais do jogo
+    Quanto maior, mais confiante na previsão
+    Substitui a antiga calcular_indice_manipulacao
+    """
+    if len(dados) < 10:
+        return 50
+    
+    dados_ord = list(reversed(dados)) if dados else []
+    confianca = 50
+    
+    # Streaks longas AUMENTAM confiança (indicam padrão forte)
+    streak_atual = 1
+    for i in range(1, min(10, len(dados_ord))):
+        if (dados_ord[i]['resultado'] == dados_ord[i-1]['resultado'] and
+                dados_ord[i]['resultado'] != 'TIE'):
+            streak_atual += 1
+        else:
+            break
+    
+    if streak_atual >= 3:
+        confianca += streak_atual * 3
+    
+    # Alternância também AUMENTA confiança (indica equilíbrio)
+    alternancias = 0
+    for i in range(min(20, len(dados_ord)-1)):
+        if (dados_ord[i]['resultado'] != 'TIE' and 
+            dados_ord[i+1]['resultado'] != 'TIE' and
+            dados_ord[i]['resultado'] != dados_ord[i+1]['resultado']):
+            alternancias += 1
+    
+    if alternancias >= 5:
+        confianca += alternancias
+    
+    # TIES em quantidade normal AUMENTAM confiança
+    ties = sum(1 for r in dados_ord[:30] if r['resultado'] == 'TIE')
+    ties_esperados = 3
+    
+    if ties <= ties_esperados * 2:
+        confianca += 10
+    
+    return max(0, min(100, confianca))
+
 
 # =============================================================================
 # 🎯 SISTEMA HÍBRIDO CURTO PRAZO - VERSÃO 9.0
@@ -851,7 +986,7 @@ class SistemaUltraPrecisao:
         features.append(np.mean(scores_banker) / 12 if scores_banker else 0)
         features.append(np.std(scores_banker) / 12 if scores_banker else 0)
         
-        features.append(cache.get('indice_manipulacao', 0) / 100)
+        features.append(cache.get('indice_confianca', 50) / 100)
         features.append(1 if self.detector_reverso.padrao_reverso_detectado else 0)
         features.append(confianca_rl / 100)
         
@@ -2108,9 +2243,7 @@ class SistemaRLCompleto:
             return None
     
     def aprender_com_resultado(self, historico, resultado_real):
-        if resultado_real == 'TIE':
-            return
-            
+        # AGORA processa TIE normalmente (removido o bloco if resultado_real == 'TIE')
         acertos = 0
         for nome, agente in self.agentes.items():
             acao, _ = agente.agir(historico[:-1])
@@ -2365,7 +2498,7 @@ def api_evolucao():
 
 
 # =============================================================================
-# 🧬 SISTEMA DE NEUROEVOLUÇÃO QUE APRENDE COM ERROS
+# 🧬 SISTEMA DE NEUROEVOLUÇÃO QUE APRENDE COM ERROS (VERSÃO CORRIGIDA)
 # =============================================================================
 
 class AnalisadorDeErros:
@@ -2376,13 +2509,13 @@ class AnalisadorDeErros:
         self.ultimos_erros = deque(maxlen=100)
         self.neuro_treinador = None
         
-    def analisar_erro_em_tempo_real(self, previsao, resultado_real, contexto, indice_manipulacao):
+    def analisar_erro_em_tempo_real(self, previsao, resultado_real, contexto, indice_confianca):
         if resultado_real == 'TIE' or previsao['previsao'] == resultado_real:
             return None
         
         print(f"\n🔍 ANALISANDO ERRO EM TEMPO REAL...")
         
-        causa = self._diagnosticar_causa_erro(previsao, resultado_real, contexto, indice_manipulacao)
+        causa = self._diagnosticar_causa_erro(previsao, resultado_real, contexto, indice_confianca)
         
         erro_info = {
             'timestamp': datetime.now(),
@@ -2390,7 +2523,7 @@ class AnalisadorDeErros:
             'real': resultado_real,
             'confianca': previsao['confianca'],
             'causa': causa,
-            'indice_manipulacao': indice_manipulacao,
+            'indice_confianca': indice_confianca,
             'contexto': contexto[:10] if contexto else []
         }
         self.ultimos_erros.append(erro_info)
@@ -2399,7 +2532,7 @@ class AnalisadorDeErros:
         padrao_key = f"{causa}"
         self.padroes_de_erro[padrao_key] = self.padroes_de_erro.get(padrao_key, 0) + 1
         
-        self._ensinar_agentes_sobre_erro(causa, previsao, resultado_real, contexto)
+        self._ensinar_agentes_sobre_erro_corrigido(causa, previsao, resultado_real, contexto)
         
         if self.padroes_de_erro.get(padrao_key, 0) > 3:
             self._criar_agente_especialista_em_erro(causa)
@@ -2407,13 +2540,13 @@ class AnalisadorDeErros:
         print(f"✅ Diagnóstico: {causa}")
         return causa
     
-    def _diagnosticar_causa_erro(self, previsao, real, contexto, indice_manipulacao):
+    def _diagnosticar_causa_erro(self, previsao, real, contexto, indice_confianca):
         if not contexto or len(contexto) < 10:
             return "poucos_dados"
         
         ultimos_resultados = [r['resultado'] for r in contexto[:20] if r['resultado'] != 'TIE']
         
-        if indice_manipulacao > 70:
+        if indice_confianca > 70:
             self.sistema_rl.manipulacoes_detectadas += 1
             for nome, agente in self.sistema_rl.agentes.items():
                 if hasattr(agente, 'deteccoes_manipulacao'):
@@ -2459,8 +2592,11 @@ class AnalisadorDeErros:
                 break
         return streak
     
-    def _ensinar_agentes_sobre_erro(self, causa, previsao, real, contexto):
-        print(f"\n📚 ENSINANDO {len(self.sistema_rl.agentes)} AGENTES SOBRE ERRO: {causa}")
+    def _ensinar_agentes_sobre_erro_corrigido(self, causa, previsao, real, contexto):
+        """
+        Versão CORRIGIDA: Penaliza apenas quem errou, recompensa quem acertou
+        """
+        print(f"\n📚 ENSINANDO AGENTES SOBRE ERRO: {causa}")
         
         if hasattr(self, 'neuro_treinador') and self.neuro_treinador:
             self.neuro_treinador.registrar_erro({
@@ -2468,7 +2604,7 @@ class AnalisadorDeErros:
                 'previsao': previsao['previsao'],
                 'real': real,
                 'confianca': previsao['confianca'],
-                'indice_manipulacao': cache.get('indice_manipulacao', 0),
+                'indice_confianca': cache.get('indice_confianca', 50),
                 'contexto': contexto[:5] if contexto else []
             })
         
@@ -2478,7 +2614,8 @@ class AnalisadorDeErros:
                 previsao_agente = 'BANKER' if acao_agente == 0 else 'PLAYER'
                 
                 if previsao_agente == previsao['previsao']:
-                    agente.peso = max(0.3, agente.peso * 0.85)
+                    # Este agente ERROU - penalize apenas ele
+                    agente.peso = max(0.7, agente.peso * 0.95)  # Penalidade de 5% apenas
                     
                     if not hasattr(agente, 'erros_que_aprendeu'):
                         agente.erros_que_aprendeu = []
@@ -2504,10 +2641,11 @@ class AnalisadorDeErros:
                         except Exception:
                             pass
                     
-                    print(f"   🤖 {nome} aprendeu com o erro (peso agora: {agente.peso:.2f})")
+                    print(f"   🤖 {nome} errou (peso: {agente.peso:.2f})")
                 else:
-                    agente.peso = min(2.5, agente.peso * 1.1)
-                    print(f"   ✅ {nome} já sabia (peso agora: {agente.peso:.2f})")
+                    # Este agente ACERTOU - recompense!
+                    agente.peso = min(1.5, agente.peso * 1.02)
+                    print(f"   ✅ {nome} acertou (peso: {agente.peso:.2f})")
             
             except Exception:
                 continue
@@ -2681,7 +2819,7 @@ class NeuroEvolucaoCorretiva:
             'previsao': erro_info.get('previsao'),
             'real': erro_info.get('real'),
             'confianca': erro_info.get('confianca', 0),
-            'indice_manipulacao': erro_info.get('indice_manipulacao', 0),
+            'indice_confianca': erro_info.get('indice_confianca', 50),
             'contexto': erro_info.get('contexto', [])[:5]
         })
     
@@ -2709,7 +2847,7 @@ class NeuroEvolucaoCorretiva:
                 feature.extend([0, 0, 0])
             
             feature.append(erro['confianca'] / 100)
-            feature.append(erro['indice_manipulacao'] / 100)
+            feature.append(erro['indice_confianca'] / 100)
             
             streak = 1
             if len(erro['contexto']) > 1:
@@ -3126,6 +3264,24 @@ def api_curto_prazo():
 
 
 # =============================================================================
+# 📊 ROTA PARA MONITORAR DETECTOR 7:2
+# =============================================================================
+
+@app.route('/api/detector-72')
+def api_detector_72():
+    if not cache.get('detector_72'):
+        return jsonify({'status': 'inativo'})
+    
+    detector = cache['detector_72']
+    stats = detector.get_stats()
+    
+    return jsonify({
+        'status': 'ativo',
+        'stats': stats
+    })
+
+
+# =============================================================================
 # 🎯 AGENTE MULTIPROCESSING PARALELO
 # =============================================================================
 
@@ -3450,7 +3606,7 @@ def loop_treinamento_multiprocessing():
             time.sleep(5)
 
 # =============================================================================
-# FUNÇÕES PARA DETECÇÃO DE MANIPULAÇÃO
+# FUNÇÕES PARA DETECÇÃO DE PADRÕES (ATUALIZADAS)
 # =============================================================================
 
 def detectar_travamento(rodada_atual, rodada_anterior):
@@ -3486,64 +3642,8 @@ def analisar_empates_forcados(dados):
     return False
 
 
-def calcular_indice_manipulacao(dados):
-    if len(dados) < 10:
-        return 0
-
-    dados_ord = list(reversed(dados)) if dados else []
-    indice = 0
-
-    streaks = 0
-    for i in range(len(dados_ord)-3):
-        if (dados_ord[i]['resultado'] == dados_ord[i+1]['resultado'] ==
-            dados_ord[i+2]['resultado'] == dados_ord[i+3]['resultado'] and
-            dados_ord[i]['resultado'] != 'TIE'):
-            streaks += 1
-    indice += streaks * 10
-
-    streak_atual = 1
-    for i in range(1, min(10, len(dados_ord))):
-        if (dados_ord[i]['resultado'] == dados_ord[i-1]['resultado'] and
-                dados_ord[i]['resultado'] != 'TIE'):
-            streak_atual += 1
-        else:
-            break
-
-    if streak_atual >= 5:
-        indice += streak_atual * 8
-
-    ties = sum(1 for r in dados_ord[:20] if r['resultado'] == 'TIE')
-    if ties > 3:
-        indice += 20
-    if ties > 5:
-        indice += 15
-
-    ties_seguidos = 0
-    for i in range(min(5, len(dados_ord))):
-        if dados_ord[i]['resultado'] == 'TIE':
-            ties_seguidos += 1
-        else:
-            break
-
-    if ties_seguidos >= 2:
-        indice += 30
-
-    repeticoes = 0
-    for i in range(len(dados_ord)-1):
-        if dados_ord[i]['banker_score'] == dados_ord[i+1]['player_score']:
-            repeticoes += 1
-        if dados_ord[i]['player_score'] == dados_ord[i+1]['banker_score']:
-            repeticoes += 1
-    indice += repeticoes * 5
-
-    for i in range(len(dados_ord)-4):
-        if (dados_ord[i]['resultado'] == dados_ord[i+1]['resultado'] == dados_ord[i+2]['resultado'] and
-            dados_ord[i+2]['resultado'] != dados_ord[i+3]['resultado'] and
-            dados_ord[i+3]['resultado'] == dados_ord[i+4]['resultado']):
-            indice += 25
-            break
-
-    return min(100, indice)
+# A antiga função calcular_indice_manipulacao foi SUBSTITUÍDA pela nova calcular_indice_confianca
+# A nova função está definida no início do arquivo
 
 
 # =============================================================================
@@ -3589,7 +3689,7 @@ def limpar_json_para_banco(dados):
 def init_db():
     conn = get_db_connection()
     if not conn:
-        print("⚠️ Banco não disponível - continuando sem banco")
+        print("⚠️ Banco não disponível - continuando sem banco de dados")
         return False
 
     try:
@@ -3624,7 +3724,7 @@ def init_db():
                 modo TEXT,
                 pesos_agentes JSONB,
                 contexto_json JSONB,
-                indice_manipulacao INTEGER DEFAULT 0,
+                indice_confianca INTEGER DEFAULT 50,
                 foi_manipulado BOOLEAN DEFAULT FALSE
             )
         ''')
@@ -3645,7 +3745,7 @@ def init_db():
                 ultimos_10_resultados TEXT,
                 agentes_ativos TEXT,
                 pesos_agentes JSONB,
-                indice_manipulacao INTEGER DEFAULT 0,
+                indice_confianca INTEGER DEFAULT 50,
                 foi_manipulado BOOLEAN DEFAULT FALSE,
                 padrao_detectado TEXT,
                 causa_erro TEXT,
@@ -3737,9 +3837,9 @@ def salvar_rodada(rodada, fonte):
         return False
 
 # =============================================================================
-# 🛡️ FUNÇÃO PARA SALVAR PREVISÃO NO BANCO
+# 🛡️ FUNÇÃO PARA SALVAR PREVISÃO NO BANCO (ATUALIZADA)
 # =============================================================================
-def salvar_previsao_completa_segura(previsao, resultado_real, acertou, contexto, pesos_agentes=None, indice_manipulacao=0, foi_manipulado=False, causa_erro=None):
+def salvar_previsao_completa_segura(previsao, resultado_real, acertou, contexto, pesos_agentes=None, indice_confianca=50, foi_manipulado=False, causa_erro=None):
     conn = get_db_connection()
     if not conn:
         print("⚠️ Sem conexão com banco - não foi possível salvar previsão")
@@ -3761,7 +3861,7 @@ def salvar_previsao_completa_segura(previsao, resultado_real, acertou, contexto,
         cur.execute('''
             INSERT INTO historico_previsoes 
             (data_hora, previsao, simbolo, confianca, resultado_real, acertou, 
-             estrategias, modo, pesos_agentes, contexto_json, indice_manipulacao, foi_manipulado)
+             estrategias, modo, pesos_agentes, contexto_json, indice_confianca, foi_manipulado)
             VALUES (NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ''', (
             previsao['previsao'],
@@ -3773,7 +3873,7 @@ def salvar_previsao_completa_segura(previsao, resultado_real, acertou, contexto,
             previsao.get('modo', 'RL_PURO'),
             json.dumps(pesos_agentes) if pesos_agentes else None,
             contexto_json,
-            indice_manipulacao,
+            indice_confianca,
             foi_manipulado
         ))
         
@@ -3788,7 +3888,7 @@ def salvar_previsao_completa_segura(previsao, resultado_real, acertou, contexto,
                 INSERT INTO analise_erros 
                 (data_hora, previsao_feita, resultado_real, confianca, modo, 
                  streak_atual, ultimos_5_resultados, ultimos_10_resultados,
-                 agentes_ativos, indice_manipulacao, foi_manipulado, causa_erro, acertou)
+                 agentes_ativos, indice_confianca, foi_manipulado, causa_erro, acertou)
                 VALUES (NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ''', (
                 previsao['previsao'],
@@ -3799,7 +3899,7 @@ def salvar_previsao_completa_segura(previsao, resultado_real, acertou, contexto,
                 ','.join(ultimos_10[:5]) if ultimos_10 else '',
                 ','.join(ultimos_10) if ultimos_10 else '',
                 estrategias_str,
-                indice_manipulacao,
+                indice_confianca,
                 foi_manipulado,
                 causa_erro,
                 acertou
@@ -3840,7 +3940,7 @@ def salvar_previsao_completa_segura(previsao, resultado_real, acertou, contexto,
         return False
 
 # =============================================================================
-# 📊 FUNÇÃO PARA CARREGAR ESTATÍSTICAS DO BANCO DE DADOS
+# 📊 FUNÇÃO PARA CARREGAR ESTATÍSTICAS DO BANCO DE DADOS (ATUALIZADA)
 # =============================================================================
 def carregar_estatisticas_do_banco():
     print("\n" + "="*80)
@@ -3900,7 +4000,7 @@ def carregar_estatisticas_do_banco():
                 resultado_real,
                 acertou,
                 estrategias,
-                indice_manipulacao,
+                indice_confianca,
                 modo,
                 id
             FROM historico_previsoes
@@ -3934,7 +4034,7 @@ def carregar_estatisticas_do_banco():
                         'acertou': row[5],
                         'estrategias': estrategias_list,
                         'manipulado': row[7] > 50 if row[7] is not None else False,
-                        'indice_manipulacao': row[7] if row[7] is not None else 0,
+                        'indice_confianca': row[7] if row[7] is not None else 50,
                         'modo': row[8] if row[8] else 'RL_PURO'
                     }
                     ultimas_previsoes.append(previsao_historico)
@@ -4456,7 +4556,7 @@ def buscar_api_normal():
 
 
 # =============================================================================
-# 🚀 FUNÇÃO PARA CARREGAR HISTÓRICO COMPLETO DA API NORMAL
+# 🚀 FUNÇÃO PARA CARREGAR HISTÓRICO COMPLETO DA API NORMAL (ATUALIZADA)
 # =============================================================================
 
 def carregar_historico_completo_para_aprendizado(limite_paginas=100):
@@ -4587,7 +4687,7 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
                         previsao = sistema_rl.processar_rodada(historico_simulado[:-1])
                         
                         if previsao:
-                            indice = calcular_indice_manipulacao(historico_simulado[:-20] if len(historico_simulado) > 20 else historico_simulado)
+                            indice = calcular_indice_confianca(historico_simulado[:-20] if len(historico_simulado) > 20 else historico_simulado)
                             
                             if previsao['previsao'] != rodada['resultado'] and rodada['resultado'] != 'TIE':
                                 causa = analisador.analisar_erro_em_tempo_real(
@@ -4647,7 +4747,7 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
     return analisador
     
 # =============================================================================
-# FUNÇÃO PARA ANALISAR PADRÃO 7x2 ESPECÍFICO
+# FUNÇÃO PARA ANALISAR PADRÃO 7x2 ESPECÍFICO (ATUALIZADA)
 # =============================================================================
 
 def analisar_padrao_7x2_no_historico():
@@ -4686,7 +4786,7 @@ def analisar_padrao_7x2_no_historico():
                 for j in range(i+2, min(i+50, len(resultados))):
                     if resultados[j] != 'TIE':
                         proximos.append(resultados[j])
-                        if len(proximos) >= 20:
+                        if len(proximos) >= 9:
                             break
                 
                 if len(proximos) >= 9:
@@ -4797,7 +4897,7 @@ def loop_api_fallback():
 
 
 # =============================================================================
-# PROCESSADOR DA FILA (COM SISTEMA CURTO PRAZO + TURBINADO)
+# PROCESSADOR DA FILA (COM SISTEMA CURTO PRAZO + TURBINADO + DETECTOR 7:2)
 # =============================================================================
 
 def processar_fila():
@@ -4834,13 +4934,13 @@ def processar_fila():
                                 print(f"   Previsão: {ultima_previsao_feita['previsao']} | Real: {resultado_real} | Acertou: {acertou}")
                                 
                                 contexto = cache['leves']['ultimas_50'] if cache['leves']['ultimas_50'] else []
-                                indice_manipulacao = calcular_indice_manipulacao(contexto)
-                                cache['indice_manipulacao'] = indice_manipulacao
+                                indice_confianca = calcular_indice_confianca(contexto)
+                                cache['indice_confianca'] = indice_confianca
                                 
                                 causa_erro = None
                                 if cache.get('analisador_erros') and not acertou:
                                     causa_erro = cache['analisador_erros'].analisar_erro_em_tempo_real(
-                                        ultima_previsao_feita, resultado_real, contexto, indice_manipulacao
+                                        ultima_previsao_feita, resultado_real, contexto, indice_confianca
                                     )
                                 
                                 salvar_previsao_completa_segura(
@@ -4849,8 +4949,8 @@ def processar_fila():
                                     acertou, 
                                     contexto,
                                     None, 
-                                    indice_manipulacao, 
-                                    indice_manipulacao > 50, 
+                                    indice_confianca, 
+                                    indice_confianca > 50, 
                                     causa_erro
                                 )
                                 
@@ -4876,7 +4976,7 @@ def processar_fila():
                                     'resultado_real': resultado_real,
                                     'acertou': acertou,
                                     'estrategias': ultima_previsao_feita.get('estrategias', []),
-                                    'manipulado': indice_manipulacao > 50
+                                    'manipulado': indice_confianca > 50
                                 }
                                 
                                 cache['estatisticas']['ultimas_20_previsoes'].insert(0, previsao_historico)
@@ -4903,8 +5003,26 @@ def processar_fila():
                 if len(historico_buffer) > 0:
                     atualizar_dados_leves()
                     
+                    # PRIORIDADE 0: Detector de padrão 7:2 (NOVA PRIORIDADE MÁXIMA)
+                    if cache.get('detector_72') and len(cache['leves']['ultimas_50']) >= 30:
+                        historico_completo = cache['leves']['ultimas_50']
+                        padrao_72 = cache['detector_72'].analisar(historico_completo)
+                        
+                        if padrao_72:
+                            ultima_previsao_feita = {
+                                'modo': 'PADRAO_72',
+                                'previsao': padrao_72['previsao'],
+                                'simbolo': '🔴' if padrao_72['previsao'] == 'BANKER' else '🔵',
+                                'confianca': padrao_72['confianca'],
+                                'estrategias': [f"PADRAO_72_{padrao_72['tipo']}"]
+                            }
+                            cache['ultima_previsao'] = ultima_previsao_feita
+                            cache['leves']['previsao'] = ultima_previsao_feita
+                            
+                            print(f"\n🎯 PADRÃO 7:2 DETECTADO! Prevendo {padrao_72['previsao']} com {padrao_72['confianca']}% (proporção {padrao_72['proporcao']})")
+                    
                     # PRIORIDADE 1: Sistema Curto Prazo
-                    if cache.get('curto_prazo') and len(cache['leves']['ultimas_50']) >= 30:
+                    elif cache.get('curto_prazo') and len(cache['leves']['ultimas_50']) >= 30:
                         historico_completo = cache['leves']['ultimas_50']
                         
                         previsao_cp = cache['curto_prazo'].processar_rodada(historico_completo)
@@ -5037,7 +5155,7 @@ def api_analise_erros():
         causas = cur.fetchall()
 
         cur.execute('''
-            SELECT previsao_feita, resultado_real, confianca, modo, indice_manipulacao, causa_erro
+            SELECT previsao_feita, resultado_real, confianca, modo, indice_confianca, causa_erro
             FROM analise_erros
             WHERE foi_manipulado = true AND acertou = false
             ORDER BY data_hora DESC
@@ -5074,8 +5192,9 @@ def api_analise_erros():
         return jsonify({'erro': str(e)})
 
 
-@app.route('/api/manipulacao')
-def api_manipulacao():
+@app.route('/api/confianca')
+def api_confianca():
+    """Nova rota para o índice de confiança"""
     manipulacoes_detectadas = 0
     agentes_com_deteccao = []
     
@@ -5087,7 +5206,7 @@ def api_manipulacao():
         ]
     
     return jsonify({
-        'indice_atual': cache.get('indice_manipulacao', 0),
+        'indice_atual': cache.get('indice_confianca', 50),
         'manipulacoes_detectadas': manipulacoes_detectadas,
         'agentes_com_deteccao': agentes_com_deteccao
     })
@@ -5156,7 +5275,7 @@ def api_stats():
         'fila': len(fila_rodadas),
         'fontes': fontes_status,
         'fonte_ativa': fonte_ativa,
-        'indice_manipulacao': cache.get('indice_manipulacao', 0),
+        'indice_confianca': cache.get('indice_confianca', 50),
         'padroes_descobertos': cache.get('padroes_descobertos', []),
         'estatisticas': {
             'total_previsoes': cache['estatisticas']['total_previsoes'],
@@ -5169,6 +5288,7 @@ def api_stats():
         'aprendizado': aprendizado_stats,
         'ultra_precisao': cache['ultra_precisao'].get_stats() if cache.get('ultra_precisao') else None,
         'curto_prazo': cache['curto_prazo'].get_stats() if cache.get('curto_prazo') else None,
+        'detector_72': cache['detector_72'].get_stats() if cache.get('detector_72') else None,
         'evolucao': {
             'status': 'ativo',
             'geracao': cache['evolucao'].geracao_atual if cache.get('evolucao') else 0,
@@ -5264,9 +5384,10 @@ def health():
         'analisador_erros': 'ativo' if cache.get('analisador_erros') else 'inativo',
         'ultra_precisao': 'ativo' if cache.get('ultra_precisao') else 'inativo',
         'curto_prazo': 'ativo' if cache.get('curto_prazo') else 'inativo',
+        'detector_72': 'ativo' if cache.get('detector_72') else 'inativo',
         'evolucao': 'ativo' if cache.get('evolucao') else 'inativo',
         'padroes_descobertos': len(cache.get('padroes_descobertos', [])),
-        'manipulacao': cache.get('indice_manipulacao', 0)
+        'indice_confianca': cache.get('indice_confianca', 50)
     })
 
 @app.route('/status-fontes')
@@ -5390,7 +5511,7 @@ def salvar_padroes():
 
 
 # =============================================================================
-# MAIN - VERSÃO ULTRA PRECISÃO 9.0 (TURBINADA 95%+)
+# MAIN - VERSÃO ULTRA PRECISÃO 9.0 (TURBINADA 95%+) COM MELHORIAS
 # =============================================================================
 if __name__ == "__main__":
     print("="*80)
@@ -5474,6 +5595,10 @@ if __name__ == "__main__":
             if evolucao:
                 print(f"✅ Sistema turbinado ativo!")
             
+            print("🎯 [BACKGROUND] Inicializando DETECTOR DE PADRÃO 7:2...")
+            cache['detector_72'] = DetectorPadrao72()
+            print(f"✅ Detector 7:2 ativo!")
+            
             print("🔍 [BACKGROUND] Analisando padrão 7x2...")
             analisar_padrao_7x2_no_historico()
             
@@ -5518,6 +5643,8 @@ if __name__ == "__main__":
     print("🚀 FLASK INICIANDO AGORA...")
     print("✅ Healthcheck responderá IMEDIATAMENTE!")
     print("🎯 MODO TURBINADO ATIVO (95%+ EM 24h)")
+    print("🎯 DETECTOR 7:2 ATIVO (PRIORIDADE MÁXIMA)")
+    print("🎯 ÍNDICE DE CONFIANÇA ATIVO (NOVA VERSÃO)")
     print("="*80)
     
     app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
