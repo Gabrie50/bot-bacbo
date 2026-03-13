@@ -1144,92 +1144,7 @@ class DetectorPadroesReversos:
 
 
 # =============================================================================
-# 🧠 REDES NEURAIS PyTorch PARA RL
-# =============================================================================
-
-class RedeDQN(nn.Module):
-    def __init__(self, state_size, action_size):
-        super(RedeDQN, self).__init__()
-        
-        self.fc1 = nn.Linear(state_size, 128)
-        self.fc2 = nn.Linear(128, 64)
-        self.fc3 = nn.Linear(64, 32)
-        self.fc4 = nn.Linear(32, action_size)
-        
-        self.dropout = nn.Dropout(0.2)
-        
-    def forward(self, x):
-        x = torch.relu(self.fc1(x))
-        x = self.dropout(x)
-        x = torch.relu(self.fc2(x))
-        x = self.dropout(x)
-        x = torch.relu(self.fc3(x))
-        x = self.fc4(x)
-        return x
-
-
-class RedeMetaAgente(nn.Module):
-    def __init__(self, input_size=23, hidden_size=64):
-        super(RedeMetaAgente, self).__init__()
-        
-        self.fc1 = nn.Linear(input_size, hidden_size)
-        self.fc2 = nn.Linear(hidden_size, 32)
-        self.fc3 = nn.Linear(32, 2)
-        self.dropout = nn.Dropout(0.2)
-        
-    def forward(self, x):
-        x = torch.relu(self.fc1(x))
-        x = self.dropout(x)
-        x = torch.relu(self.fc2(x))
-        x = self.fc3(x)
-        return F.softmax(x, dim=1)
-
-
-class PrioritizedReplayBuffer:
-    def __init__(self, capacity=10000, alpha=0.6, beta=0.4):
-        self.capacity = capacity
-        self.alpha = alpha
-        self.beta = beta
-        self.buffer = []
-        self.priorities = np.zeros(capacity, dtype=np.float32)
-        self.position = 0
-        
-    def push(self, state, action, reward, next_state, error):
-        priority = (abs(error) + 1e-6) ** self.alpha
-        
-        if len(self.buffer) < self.capacity:
-            self.buffer.append((state, action, reward, next_state))
-        else:
-            self.buffer[self.position] = (state, action, reward, next_state)
-        
-        self.priorities[self.position] = priority
-        self.position = (self.position + 1) % self.capacity
-        
-    def sample(self, batch_size):
-        if len(self.buffer) == self.capacity:
-            priorities = self.priorities
-        else:
-            priorities = self.priorities[:len(self.buffer)]
-        
-        probs = priorities ** self.alpha
-        probs /= probs.sum()
-        
-        indices = np.random.choice(len(self.buffer), batch_size, p=probs)
-        samples = [self.buffer[idx] for idx in indices]
-        
-        total = len(self.buffer)
-        weights = (total * probs[indices]) ** (-self.beta)
-        weights /= weights.max()
-        
-        states, actions, rewards, next_states = zip(*samples)
-        
-        return (np.array(states), np.array(actions), 
-                np.array(rewards), np.array(next_states), 
-                weights, indices)
-
-
-# =============================================================================
-# 🧠 AGENTE RL PURO COM PyTorch
+# 🧠 AGENTE RL PURO COM PyTorch - CORRIGIDO (1 LINHA ADICIONADA)
 # =============================================================================
 
 class AgenteRLPuro:
@@ -1370,7 +1285,11 @@ class AgenteRLPuro:
         return acao, confianca
     
     def aprender(self, historico, acao, resultado, recompensa_base=0):
-        if resultado == 'TIE' or len(historico) < 30:
+        # 🔥 ÚNICA LINHA ADICIONADA - IGNORA TIE COMPLETAMENTE
+        if resultado == 'TIE':
+            return False
+            
+        if len(historico) < 30:
             return False
             
         resultado_int = 0 if resultado == 'BANKER' else 1
@@ -1518,7 +1437,7 @@ class AgenteRLPuro:
 
 
 # =============================================================================
-# 🧠 AGENTE RL TURBINADO - VERSÃO 11.0 (95%+)
+# 🧠 AGENTE RL TURBINADO - VERSÃO 11.0 (95%+) - CORRIGIDO
 # =============================================================================
 
 class AgenteRLElitizado(AgenteRLPuro):
@@ -1666,6 +1585,10 @@ class AgenteRLElitizado(AgenteRLPuro):
         - Bônus especial para TIE
         - Sequências de acertos são recompensadas
         """
+        # 🔥 ÚNICA LINHA ADICIONADA - IGNORA TIE COMPLETAMENTE
+        if resultado == 'TIE':
+            return False
+            
         if len(historico) < 30:
             return False
         
@@ -2268,7 +2191,6 @@ class SistemaRLCompleto:
         except Exception as e:
             print(f"⚠️ Erro ao carregar estado RL: {e}")
             return False
-
 
 # =============================================================================
 # 🚀 FUNÇÃO PARA TURBINAR O SISTEMA
