@@ -1,5 +1,5 @@
 # =============================================================================
-# main.py - VERSÃO ULTRA PRECISÃO 7.0 (BUSCA POR 95%+)
+# main.py - VERSÃO ULTRA PRECISÃO 9.0 (CURTO PRAZO + ANTI-ERRO)
 # =============================================================================
 
 import os
@@ -45,7 +45,7 @@ def health_urgente():
         'status': 'ok',
         'mensagem': 'Sistema online',
         'timestamp': time.time(),
-        'versao': '7.0 - Ultra Precisão (95%+)'
+        'versao': '9.0 - Curto Prazo (90%+)'
     })
 
 @app.route('/', methods=['GET'])
@@ -53,7 +53,7 @@ def home_rapida():
     """Página inicial simples"""
     return jsonify({
         'nome': 'Bac Bo Predictor',
-        'versao': '7.0 - Ultra Precisão',
+        'versao': '9.0 - Curto Prazo',
         'status': 'online',
         'health': '/health',
         'stats': '/api/stats'
@@ -67,7 +67,7 @@ warnings.filterwarnings('ignore', message='Gym has been unmaintained')
 warnings.filterwarnings('ignore', module='gym')
 
 # =============================================================================
-# 🔧 PATCH CORRETIVO PARA O ERRO DO NUMPY (VERSÃO REFORÇADA)
+# 🔧 PATCH CORRETIVO PARA O ERRO DO NUMPY (VERSÃO ULTRA REFORÇADA)
 # =============================================================================
 import numpy as np
 import sys
@@ -87,17 +87,27 @@ try:
         'ERR_CALL', 
         'ERR_PRINT', 
         'ERR_LOG',
-        'ERR_DEFAULT'
+        'ERR_DEFAULT',
+        'UFUNC_BUFSIZE_DEFAULT'  # <-- ADICIONADO PARA CORRIGIR O ERRO
+    ]
+    
+    # PATCH ULTRA: Criar TODOS os atributos possíveis
+    atributos_adicionais = [
+        'ERR_DEFAULT',
+        'UFUNC_BUFSIZE_DEFAULT',
+        'BUFSIZE',
+        'PYPY',
+        'UFUNC_ALIGNMENT'
     ]
     
     # Patch 1: Criar atributos no módulo umath
     if hasattr(np, 'core') and hasattr(np.core, 'umath'):
         print("✅ Módulo np.core.umath encontrado")
         
-        for attr in atributos_necessarios:
+        for attr in atributos_necessarios + atributos_adicionais:
             if not hasattr(np.core.umath, attr):
                 try:
-                    setattr(np.core.umath, attr, 0)
+                    setattr(np.core.umath, attr, 8192 if 'BUFSIZE' in attr else 0)
                     print(f"   ✅ Atributo criado: np.core.umath.{attr}")
                 except Exception as e:
                     print(f"   ⚠️ Erro ao criar {attr}: {e}")
@@ -109,15 +119,15 @@ try:
             np.core = type('core', (), {})()
         if not hasattr(np.core, 'umath'):
             np.core.umath = type('umath', (), {})()
-            for attr in atributos_necessarios:
-                setattr(np.core.umath, attr, 0)
+            for attr in atributos_necessarios + atributos_adicionais:
+                setattr(np.core.umath, attr, 8192 if 'BUFSIZE' in attr else 0)
                 print(f"   ✅ Módulo criado com atributo: np.core.umath.{attr}")
     
     # Patch 2: Criar atributos diretamente no numpy
-    for attr in atributos_necessarios:
+    for attr in atributos_necessarios + atributos_adicionais:
         if not hasattr(np, attr):
             try:
-                setattr(np, attr, 0)
+                setattr(np, attr, 8192 if 'BUFSIZE' in attr else 0)
                 print(f"   ✅ Atributo criado: np.{attr}")
             except Exception as e:
                 print(f"   ⚠️ Erro ao criar np.{attr}: {e}")
@@ -148,10 +158,15 @@ try:
     else:
         from types import ModuleType
         fake_module = ModuleType('numpy.core.umath')
-        for attr in atributos_necessarios:
-            setattr(fake_module, attr, 0)
+        for attr in atributos_necessarios + atributos_adicionais:
+            setattr(fake_module, attr, 8192 if 'BUFSIZE' in attr else 0)
         sys.modules['numpy.core.umath'] = fake_module
         print("✅ Módulo fake numpy.core.umath criado em sys.modules")
+    
+    # Patch 6: Criar atributos globais no módulo numpy
+    if not hasattr(np, '_NoValue'):
+        np._NoValue = object()
+        print("✅ Atributo _NoValue criado")
     
     # Verificação final
     print("\n📊 VERIFICAÇÃO FINAL DO PATCH:")
@@ -159,13 +174,13 @@ try:
     if hasattr(np, 'core') and hasattr(np.core, 'umath'):
         if hasattr(np.core.umath, 'ERR_DEFAULT'):
             print(f"   ✅ np.core.umath.ERR_DEFAULT = {np.core.umath.ERR_DEFAULT}")
-        else:
-            print("   ⚠️ np.core.umath.ERR_DEFAULT ainda não disponível")
+        if hasattr(np.core.umath, 'UFUNC_BUFSIZE_DEFAULT'):
+            print(f"   ✅ np.core.umath.UFUNC_BUFSIZE_DEFAULT = {np.core.umath.UFUNC_BUFSIZE_DEFAULT}")
     
     if hasattr(np, 'ERR_DEFAULT'):
         print(f"   ✅ np.ERR_DEFAULT = {np.ERR_DEFAULT}")
-    else:
-        print("   ⚠️ np.ERR_DEFAULT ainda não disponível")
+    if hasattr(np, 'UFUNC_BUFSIZE_DEFAULT'):
+        print(f"   ✅ np.UFUNC_BUFSIZE_DEFAULT = {np.UFUNC_BUFSIZE_DEFAULT}")
     
     print("="*80)
     print("✅ PATCH CONCLUÍDO - NumPy preparado para uso com PyTorch\n")
@@ -357,6 +372,8 @@ cache = {
     'padroes_descobertos': [],
     'mp_system': None,
     'ultra_precisao': None,
+    'curto_prazo': None,
+    'estrategia_surto': None,
     'cacador_padroes': None,
     'num_agentes_paralelos': 50
 }
@@ -387,21 +404,278 @@ def calcular_precisao():
     return round((cache['estatisticas']['acertos'] / total) * 100)
 
 # =============================================================================
-# 🚀 SISTEMA ULTRA PRECISÃO - VERSÃO 7.0 (MIRANDO 95%+)
+# 🎯 SISTEMA HÍBRIDO CURTO PRAZO - VERSÃO 9.0
+# =============================================================================
+
+class SistemaCurtoPrazo:
+    """
+    Sistema especializado em ciclos de 20 rodadas
+    Reseta completamente após cada ciclo
+    """
+    
+    def __init__(self, sistema_rl):
+        self.sistema_rl = sistema_rl
+        self.modo = 'CURTO_PRAZO'
+        self.ciclo_atual = 0
+        self.rodadas_no_ciclo = 0
+        self.max_rodadas_por_ciclo = 20
+        self.acertos_ciclo = 0
+        self.erros_ciclo = 0
+        self.historico_ciclo = []
+        
+        # Estatísticas de ciclos
+        self.ciclos_completados = []
+        self.melhor_ciclo = {'acertos': 0, 'precisao': 0}
+        
+        # Agentes dedicados para curto prazo
+        self.agentes_curto_prazo = self._selecionar_agentes_curto_prazo()
+        
+        # Detector de fim de ciclo
+        self.em_ultimas_5 = False
+        
+        print("\n" + "="*80)
+        print("🎯 SISTEMA HÍBRIDO CURTO PRAZO INICIALIZADO")
+        print(f"📊 Ciclo: {self.max_rodadas_por_ciclo} rodadas")
+        print(f"🤖 Agentes dedicados: {len(self.agentes_curto_prazo)}")
+        print("="*80)
+    
+    def _selecionar_agentes_curto_prazo(self):
+        """
+        Seleciona agentes que performam bem em curto prazo
+        """
+        if not self.sistema_rl:
+            return []
+        
+        agentes_selecionados = []
+        for nome, agente in self.sistema_rl.agentes.items():
+            if agente.total_uso > 50:
+                if hasattr(agente, 'ultima_precisao') and agente.ultima_precisao > 0:
+                    if agente.ultima_precisao > 0.6:
+                        agentes_selecionados.append(agente)
+        
+        if len(agentes_selecionados) < 10:
+            todos_agentes = list(self.sistema_rl.agentes.values())
+            todos_agentes.sort(key=lambda x: x.acertos/max(x.total_uso,1), reverse=True)
+            agentes_selecionados = todos_agentes[:max(10, len(todos_agentes)//10)]
+        
+        print(f"✅ Selecionados {len(agentes_selecionados)} agentes para curto prazo")
+        return agentes_selecionados
+    
+    def processar_rodada(self, historico):
+        """
+        Processa uma rodada no modo curto prazo
+        """
+        self.rodadas_no_ciclo += 1
+        self.em_ultimas_5 = self.rodadas_no_ciclo >= (self.max_rodadas_por_ciclo - 5)
+        
+        if len(historico) < 30:
+            return None
+        
+        votos = {'BANKER': 0, 'PLAYER': 0}
+        votos_detalhados = []
+        
+        for agente in self.agentes_curto_prazo:
+            try:
+                acao, confianca = agente.agir(historico[:-1])
+                previsao = 'BANKER' if acao == 0 else 'PLAYER'
+                
+                peso = agente.peso
+                if self.em_ultimas_5:
+                    peso *= 1.5
+                
+                peso_voto = peso * confianca
+                votos[previsao] += peso_voto
+                
+                votos_detalhados.append({
+                    'agente': agente.nome,
+                    'previsao': previsao,
+                    'peso': round(peso, 2),
+                    'confianca': round(confianca * 100, 1),
+                    'peso_total': round(peso_voto, 2)
+                })
+            except Exception:
+                continue
+        
+        if not votos_detalhados:
+            return None
+        
+        previsao_final = max(votos, key=votos.get)
+        total_votos = sum(votos.values())
+        
+        if total_votos > 0:
+            vantagem = (votos[previsao_final] - min(votos.values())) / total_votos
+            confianca_final = min(50 + vantagem * 50, 95)
+        else:
+            confianca_final = 50
+        
+        if self.em_ultimas_5:
+            streak = self._calcular_streak_atual(historico[:5])
+            if streak >= 3:
+                confianca_final = min(confianca_final + 10, 95)
+        
+        return {
+            'previsao': previsao_final,
+            'simbolo': '🔴' if previsao_final == 'BANKER' else '🔵',
+            'confianca': round(confianca_final),
+            'votos': votos_detalhados[:5],
+            'ciclo': self.ciclo_atual,
+            'rodada_no_ciclo': self.rodadas_no_ciclo,
+            'ultimas_5': self.em_ultimas_5
+        }
+    
+    def _calcular_streak_atual(self, historico):
+        streak = 0
+        for rodada in historico:
+            if rodada['resultado'] != 'TIE':
+                streak += 1
+            else:
+                break
+        return streak
+    
+    def registrar_resultado(self, previsao, resultado_real, acertou):
+        if resultado_real == 'TIE':
+            return
+        
+        if acertou:
+            self.acertos_ciclo += 1
+        else:
+            self.erros_ciclo += 1
+        
+        self.historico_ciclo.append({
+            'rodada': self.rodadas_no_ciclo,
+            'previsao': previsao,
+            'real': resultado_real,
+            'acertou': acertou
+        })
+        
+        if self.rodadas_no_ciclo >= self.max_rodadas_por_ciclo:
+            self._finalizar_ciclo()
+    
+    def _finalizar_ciclo(self):
+        total = self.acertos_ciclo + self.erros_ciclo
+        precisao = (self.acertos_ciclo / total) * 100 if total > 0 else 0
+        
+        self.ciclos_completados.append({
+            'ciclo': self.ciclo_atual,
+            'acertos': self.acertos_ciclo,
+            'erros': self.erros_ciclo,
+            'precisao': precisao,
+            'historico': self.historico_ciclo.copy()
+        })
+        
+        if precisao > self.melhor_ciclo['precisao']:
+            self.melhor_ciclo = {
+                'ciclo': self.ciclo_atual,
+                'acertos': self.acertos_ciclo,
+                'precisao': precisao
+            }
+        
+        print(f"\n{'='*60}")
+        print(f"📊 CICLO {self.ciclo_atual} FINALIZADO")
+        print(f"   Acertos: {self.acertos_ciclo}/{total} ({precisao:.1f}%)")
+        print(f"   Melhor ciclo: {self.melhor_ciclo['precisao']:.1f}%")
+        print(f"{'='*60}")
+        
+        self.ciclo_atual += 1
+        self.rodadas_no_ciclo = 0
+        self.acertos_ciclo = 0
+        self.erros_ciclo = 0
+        self.historico_ciclo = []
+        self.em_ultimas_5 = False
+        
+        self.agentes_curto_prazo = self._selecionar_agentes_curto_prazo()
+    
+    def get_stats(self):
+        total_ciclos = len(self.ciclos_completados)
+        
+        if total_ciclos > 0:
+            media_precisao = sum(c['precisao'] for c in self.ciclos_completados) / total_ciclos
+        else:
+            media_precisao = 0
+        
+        ciclo_atual_total = self.acertos_ciclo + self.erros_ciclo
+        precisao_atual = (self.acertos_ciclo / ciclo_atual_total * 100) if ciclo_atual_total > 0 else 0
+        
+        return {
+            'modo': 'CURTO_PRAZO',
+            'ciclo_atual': self.ciclo_atual,
+            'rodada_no_ciclo': self.rodadas_no_ciclo,
+            'acertos_ciclo': self.acertos_ciclo,
+            'erros_ciclo': self.erros_ciclo,
+            'precisao_ciclo_atual': round(precisao_atual, 1),
+            'total_ciclos': total_ciclos,
+            'media_precisao_ciclos': round(media_precisao, 1),
+            'melhor_ciclo': self.melhor_ciclo,
+            'agentes_curto_prazo': len(self.agentes_curto_prazo),
+            'ultimas_5': self.em_ultimas_5
+        }
+
+
+# =============================================================================
+# 🚀 ESTRATÉGIA DE SURTO (PARA AS ÚLTIMAS 5 RODADAS)
+# =============================================================================
+
+class EstrategiaSurto:
+    """
+    Estratégia agressiva para as últimas 5 rodadas do ciclo
+    """
+    
+    def __init__(self):
+        self.ativo = False
+        self.confianca_minima = 70
+        self.padroes_surto = {}
+        
+    def analisar_ultimas_5(self, historico):
+        """
+        Analisa padrões nas últimas 5 rodadas
+        """
+        if len(historico) < 5:
+            return None
+        
+        ultimas_5 = historico[:5]
+        resultados = [r['resultado'] for r in ultimas_5 if r['resultado'] != 'TIE']
+        
+        if len(resultados) < 3:
+            return None
+        
+        banker = resultados.count('BANKER')
+        player = resultados.count('PLAYER')
+        
+        if banker >= 4:
+            return {'previsao': 'BANKER', 'confianca': 80, 'padrao': 'dominancia_banker'}
+        if player >= 4:
+            return {'previsao': 'PLAYER', 'confianca': 80, 'padrao': 'dominancia_player'}
+        
+        streak = 1
+        for i in range(1, len(resultados)):
+            if resultados[-i] == resultados[-(i+1)]:
+                streak += 1
+            else:
+                break
+        
+        if streak >= 3:
+            return {
+                'previsao': resultados[0],
+                'confianca': 70 + streak * 3,
+                'padrao': f'streak_{streak}'
+            }
+        
+        return None
+
+
+# =============================================================================
+# 🚀 SISTEMA ULTRA PRECISÃO - VERSÃO 7.0
 # =============================================================================
 
 class SistemaUltraPrecisao:
     """
-    Sistema avançado com 4 camadas de segurança para atingir 95%+ de acerto
+    Sistema avançado com 4 camadas de segurança
     """
     
     def __init__(self, sistema_rl):
         self.sistema_rl = sistema_rl
         self.limiar_base = 80
         
-        # =========================================================================
-        # PASSO 1: JANELA DE ANÁLISE DE 500 RODADAS
-        # =========================================================================
         self.janela_curta = deque(maxlen=30)
         self.janela_longa = deque(maxlen=200)
         self.janela_ultra = deque(maxlen=500)
@@ -412,27 +686,17 @@ class SistemaUltraPrecisao:
             'ultra': {'banker': 0, 'player': 0, 'ties': 0}
         }
         
-        # =========================================================================
-        # PASSO 2: REDE NEURAL DEDICADA PARA DECIDIR QUANDO APOSTAR
-        # =========================================================================
         self.rede_decisao = None
         self.otimizador_decisao = None
         self.historico_decisoes = deque(maxlen=1000)
         self._criar_rede_decisao()
         
-        # =========================================================================
-        # PASSO 3: COMITÊ DE CERTEZA (TOP 10% AGENTES)
-        # =========================================================================
         self.comite_certeza = []
         self.peso_comite = 2.5
         self.ultima_atualizacao_comite = 0
         
-        # =========================================================================
-        # PASSO 4: DETECTOR DE PADRÕES REVERSOS
-        # =========================================================================
         self.detector_reverso = DetectorPadroesReversos()
         
-        # Estatísticas finais
         self.total_apostas = 0
         self.acertos_apostas = 0
         self.confianca_media_apostas = 0
@@ -449,7 +713,6 @@ class SistemaUltraPrecisao:
         print("="*80)
     
     def _criar_rede_decisao(self):
-        """Rede neural especializada em decidir SE deve apostar"""
         class RedeDecisao(nn.Module):
             def __init__(self):
                 super(RedeDecisao, self).__init__()
@@ -486,7 +749,6 @@ class SistemaUltraPrecisao:
             self.rede_decisao = None
     
     def atualizar_janelas(self, historico):
-        """Mantém as 3 janelas sincronizadas com o histórico"""
         if not historico:
             return
         
@@ -552,10 +814,8 @@ class SistemaUltraPrecisao:
         return {'divergente': False, 'tendencia': tend_curta}
     
     def _extrair_features_decisao(self, historico, previsao_rl, confianca_rl):
-        """Extrai features para a rede de decisão"""
         features = []
         
-        # 1. Últimos 30 resultados (one-hot)
         for i, rodada in enumerate(historico[:30]):
             if rodada['resultado'] == 'BANKER':
                 features.extend([1, 0, 0])
@@ -567,14 +827,12 @@ class SistemaUltraPrecisao:
         while len(features) < 90:
             features.extend([0, 0, 0])
         
-        # 2. Tendências (9 valores)
         for escala in ['curta', 'longa', 'ultra']:
             tend = self.tendencias[escala]
             features.append(tend.get('banker_pct', 0) / 100)
             features.append(tend.get('player_pct', 0) / 100)
             features.append(tend.get('ties', 0) / max(tend.get('total', 1), 1))
         
-        # 3. Métricas de streak
         streak_atual = self._calcular_streak_atual(historico)
         features.append(streak_atual / 20)
         
@@ -584,7 +842,6 @@ class SistemaUltraPrecisao:
         alternancia = self._calcular_alternancia(historico[:20])
         features.append(alternancia)
         
-        # 4. Scores
         scores_player = [r.get('player_score', 0) for r in historico[:20]]
         scores_banker = [r.get('banker_score', 0) for r in historico[:20]]
         
@@ -593,7 +850,6 @@ class SistemaUltraPrecisao:
         features.append(np.mean(scores_banker) / 12 if scores_banker else 0)
         features.append(np.std(scores_banker) / 12 if scores_banker else 0)
         
-        # 5. Indicadores de manipulação
         features.append(cache.get('indice_manipulacao', 0) / 100)
         features.append(1 if self.detector_reverso.padrao_reverso_detectado else 0)
         features.append(confianca_rl / 100)
@@ -642,7 +898,6 @@ class SistemaUltraPrecisao:
         return alternancias / max(total, 1)
     
     def atualizar_comite_certeza(self):
-        """Atualiza o comitê com os top 10% agentes"""
         if not self.sistema_rl or time.time() - self.ultima_atualizacao_comite < 300:
             return
         
@@ -670,7 +925,6 @@ class SistemaUltraPrecisao:
         print(f"👥 Comitê de Certeza atualizado: {len(self.comite_certeza)} agentes")
     
     def consultar_comite_certeza(self, historico):
-        """Consulta o comitê sobre a previsão"""
         if not self.comite_certeza:
             return None, 0
         
@@ -701,9 +955,6 @@ class SistemaUltraPrecisao:
         return vencedor, confianca_comite
     
     def decidir_aposta_completa(self, historico, previsao_rl, confianca_rl):
-        """
-        Versão completa que usa todos os 4 componentes
-        """
         if len(historico) < 30:
             return {'apostar': False, 'motivo': 'historico_insuficiente'}
         
@@ -713,14 +964,11 @@ class SistemaUltraPrecisao:
         previsao_comite, confianca_comite = self.consultar_comite_certeza(historico)
         self.detector_reverso.analisar(historico, self.tendencias)
         
-        # Decisão final com todos os componentes
         if confianca_rl >= self.limiar_base:
-            # Verificar consistência com comitê
             if previsao_comite and previsao_comite != previsao_rl:
                 if confianca_comite > 80:
                     return {'apostar': False, 'motivo': 'comite_discorda'}
             
-            # Verificar padrão reverso
             if self.detector_reverso.padrao_reverso_detectado:
                 if previsao_comite and confianca_comite > 85:
                     return {
@@ -730,7 +978,6 @@ class SistemaUltraPrecisao:
                         'motivo': 'padrao_reverso_com_comite'
                     }
             
-            # Usar rede neural se disponível
             if self.rede_decisao is not None and len(self.historico_decisoes) > 100:
                 try:
                     features = self._extrair_features_decisao(historico, previsao_rl, confianca_rl)
@@ -749,7 +996,6 @@ class SistemaUltraPrecisao:
                 except Exception:
                     pass
             
-            # Fallback para decisão tradicional
             return {
                 'apostar': True,
                 'previsao': previsao_rl,
@@ -765,7 +1011,6 @@ class SistemaUltraPrecisao:
         }
     
     def registrar_resultado(self, apostou, previsao, resultado_real, confianca, motivo):
-        """Registra o resultado para aprendizado"""
         if apostou:
             acertou = (previsao == resultado_real)
             self.total_apostas += 1
@@ -804,10 +1049,6 @@ class SistemaUltraPrecisao:
 # =============================================================================
 
 class DetectorPadroesReversos:
-    """
-    Detecta quando a manipulação muda de direção
-    """
-    
     def __init__(self):
         self.indice_atual = 0
         self.padrao_reverso_detectado = False
@@ -820,7 +1061,6 @@ class DetectorPadroesReversos:
         print("🔄 Detector de Padrões Reversos inicializado")
     
     def analisar(self, historico, tendencias):
-        """Analisa o histórico em busca de padrões reversos"""
         if len(historico) < self.min_amostras:
             return
         
@@ -850,14 +1090,12 @@ class DetectorPadroesReversos:
         return ((banker - player) / total) * 100
     
     def _detectar_reversao(self, indices, tendencias):
-        """Detecta padrões de reversão"""
         if len(self.historico_indices) < 10:
             return
         
         idx_10 = indices['ultimos_10']
         idx_50 = indices['ultimos_50']
         
-        # Caso 1: Curto prazo invertendo longo prazo
         if abs(idx_10) > 30 and abs(idx_50) > 30:
             if (idx_10 > 0 and idx_50 < -30) or (idx_10 < 0 and idx_50 > 30):
                 self.padrao_reverso_detectado = True
@@ -865,7 +1103,6 @@ class DetectorPadroesReversos:
                 print(f"🔄 REVERSÃO DETECTADA! Curto:{idx_10:.0f}% vs Longo:{idx_50:.0f}%")
                 return
         
-        # Caso 2: Tendência enfraquecendo
         if len(self.historico_indices) >= 20:
             primeiros = list(self.historico_indices)[:10]
             ultimos = list(self.historico_indices)[-10:]
@@ -910,7 +1147,6 @@ class DetectorPadroesReversos:
 # =============================================================================
 
 class RedeDQN(nn.Module):
-    """Rede neural DQN em PyTorch"""
     def __init__(self, state_size, action_size):
         super(RedeDQN, self).__init__()
         
@@ -932,7 +1168,6 @@ class RedeDQN(nn.Module):
 
 
 class RedeMetaAgente(nn.Module):
-    """Rede neural para o meta-agente"""
     def __init__(self, input_size=23, hidden_size=64):
         super(RedeMetaAgente, self).__init__()
         
@@ -950,7 +1185,6 @@ class RedeMetaAgente(nn.Module):
 
 
 class PrioritizedReplayBuffer:
-    """Buffer de replay com priorização"""
     def __init__(self, capacity=10000, alpha=0.6, beta=0.4):
         self.capacity = capacity
         self.alpha = alpha
@@ -2236,6 +2470,33 @@ def integrar_ultra_precisao():
 
 
 # =============================================================================
+# 🎯 FUNÇÃO PARA INTEGRAR SISTEMA CURTO PRAZO
+# =============================================================================
+
+def integrar_sistema_curto_prazo():
+    """Ativa o sistema híbrido de curto prazo"""
+    print("\n" + "="*80)
+    print("🎯 ATIVANDO SISTEMA HÍBRIDO CURTO PRAZO")
+    print("="*80)
+    
+    if not cache.get('rl_system'):
+        print("❌ Sistema RL não encontrado")
+        return None
+    
+    curto_prazo = SistemaCurtoPrazo(cache['rl_system'])
+    cache['curto_prazo'] = curto_prazo
+    
+    surto = EstrategiaSurto()
+    cache['estrategia_surto'] = surto
+    
+    print("✅ Sistema curto prazo ativado!")
+    print(f"📊 Ciclo: 20 rodadas")
+    print(f"🎯 Meta: 90%+ no ciclo")
+    
+    return curto_prazo
+
+
+# =============================================================================
 # 📊 ROTA PARA MONITORAR ULTRA PRECISÃO
 # =============================================================================
 
@@ -2251,6 +2512,35 @@ def api_ultra_precisao():
         'status': 'ativo',
         'meta': '95%+ DE ACERTO',
         'stats': stats
+    })
+
+
+# =============================================================================
+# 📊 ROTA PARA MONITORAR CURTO PRAZO
+# =============================================================================
+
+@app.route('/api/curto-prazo')
+def api_curto_prazo():
+    if not cache.get('curto_prazo'):
+        return jsonify({'status': 'inativo'})
+    
+    cp = cache['curto_prazo']
+    stats = cp.get_stats()
+    
+    ultimos_ciclos = cp.ciclos_completados[-5:] if cp.ciclos_completados else []
+    
+    return jsonify({
+        'status': 'ativo',
+        'estatisticas': stats,
+        'ultimos_ciclos': [
+            {
+                'ciclo': c['ciclo'],
+                'acertos': c['acertos'],
+                'erros': c['erros'],
+                'precisao': round(c['precisao'], 1)
+            }
+            for c in ultimos_ciclos
+        ]
     })
 
 
@@ -2622,7 +2912,6 @@ def calcular_indice_manipulacao(dados):
     dados_ord = list(reversed(dados)) if dados else []
     indice = 0
 
-    # Streaks longos
     streaks = 0
     for i in range(len(dados_ord)-3):
         if (dados_ord[i]['resultado'] == dados_ord[i+1]['resultado'] ==
@@ -2631,7 +2920,6 @@ def calcular_indice_manipulacao(dados):
             streaks += 1
     indice += streaks * 10
 
-    # Streak atual
     streak_atual = 1
     for i in range(1, min(10, len(dados_ord))):
         if (dados_ord[i]['resultado'] == dados_ord[i-1]['resultado'] and
@@ -2643,14 +2931,12 @@ def calcular_indice_manipulacao(dados):
     if streak_atual >= 5:
         indice += streak_atual * 8
 
-    # Ties anormais
     ties = sum(1 for r in dados_ord[:20] if r['resultado'] == 'TIE')
     if ties > 3:
         indice += 20
     if ties > 5:
         indice += 15
 
-    # Ties seguidos
     ties_seguidos = 0
     for i in range(min(5, len(dados_ord))):
         if dados_ord[i]['resultado'] == 'TIE':
@@ -2661,7 +2947,6 @@ def calcular_indice_manipulacao(dados):
     if ties_seguidos >= 2:
         indice += 30
 
-    # Repetições de scores
     repeticoes = 0
     for i in range(len(dados_ord)-1):
         if dados_ord[i]['banker_score'] == dados_ord[i+1]['player_score']:
@@ -2670,7 +2955,6 @@ def calcular_indice_manipulacao(dados):
             repeticoes += 1
     indice += repeticoes * 5
 
-    # Padrão 3-2 (três iguais, dois diferentes)
     for i in range(len(dados_ord)-4):
         if (dados_ord[i]['resultado'] == dados_ord[i+1]['resultado'] == dados_ord[i+2]['resultado'] and
             dados_ord[i+2]['resultado'] != dados_ord[i+3]['resultado'] and
@@ -3932,11 +4216,11 @@ def loop_api_fallback():
 
 
 # =============================================================================
-# PROCESSADOR DA FILA (COM ULTRA PRECISÃO)
+# PROCESSADOR DA FILA (COM SISTEMA CURTO PRAZO)
 # =============================================================================
 
 def processar_fila():
-    print("🚀 Processador ULTRA PRECISÃO iniciado...")
+    print("🚀 Processador SISTEMA CURTO PRAZO iniciado...")
     
     historico_buffer = []
     ultima_previsao_feita = None
@@ -3989,14 +4273,12 @@ def processar_fila():
                                 else:
                                     cache['estatisticas']['erros'] += 1
                                 
-                                # Registrar no sistema ultra precisão
-                                if cache.get('ultra_precisao'):
-                                    cache['ultra_precisao'].registrar_resultado(
-                                        apostou=True,
-                                        previsao=ultima_previsao_feita['previsao'],
-                                        resultado_real=resultado_real,
-                                        confianca=ultima_previsao_feita['confianca'],
-                                        motivo=ultima_previsao_feita.get('estrategias', ['desconhecido'])[0]
+                                # Registrar no sistema curto prazo
+                                if cache.get('curto_prazo'):
+                                    cache['curto_prazo'].registrar_resultado(
+                                        ultima_previsao_feita['previsao'],
+                                        resultado_real,
+                                        acertou
                                     )
                                 
                                 previsao_historico = {
@@ -4034,9 +4316,37 @@ def processar_fila():
                 if len(historico_buffer) > 0:
                     atualizar_dados_leves()
                     
-                    if cache.get('ultra_precisao') and len(cache['leves']['ultimas_50']) >= 30:
+                    # PRIORIDADE 1: Sistema Curto Prazo
+                    if cache.get('curto_prazo') and len(cache['leves']['ultimas_50']) >= 30:
                         historico_completo = cache['leves']['ultimas_50']
                         
+                        previsao_cp = cache['curto_prazo'].processar_rodada(historico_completo)
+                        
+                        if previsao_cp:
+                            if previsao_cp['ultimas_5'] and cache.get('estrategia_surto'):
+                                surto = cache['estrategia_surto'].analisar_ultimas_5(historico_completo[:5])
+                                if surto and surto['confianca'] > 75:
+                                    previsao_cp['previsao'] = surto['previsao']
+                                    previsao_cp['confianca'] = surto['confianca']
+                                    previsao_cp['estrategias'] = [f"SURTO_{surto['padrao']}"]
+                                    print(f"⚡ SURTO ATIVADO! {surto['padrao']}")
+                            
+                            ultima_previsao_feita = {
+                                'modo': 'CURTO_PRAZO',
+                                'previsao': previsao_cp['previsao'],
+                                'simbolo': '🔴' if previsao_cp['previsao'] == 'BANKER' else '🔵',
+                                'confianca': previsao_cp['confianca'],
+                                'estrategias': [f"CICLO_{previsao_cp['ciclo']}", f"R{previsao_cp['rodada_no_ciclo']}"] + 
+                                              ([v['agente'] for v in previsao_cp['votos'][:2]] if previsao_cp.get('votos') else [])
+                            }
+                            cache['ultima_previsao'] = ultima_previsao_feita
+                            cache['leves']['previsao'] = ultima_previsao_feita
+                            
+                            print(f"\n🎯 CP CICLO {previsao_cp['ciclo']} R{previsao_cp['rodada_no_ciclo']}: {previsao_cp['previsao']} com {previsao_cp['confianca']}%")
+                    
+                    # PRIORIDADE 2: Ultra Precisão (fallback)
+                    elif cache.get('ultra_precisao') and len(cache['leves']['ultimas_50']) >= 30:
+                        historico_completo = cache['leves']['ultimas_50']
                         previsao_rl = cache['rl_system'].processar_rodada(historico_completo)
                         
                         if previsao_rl:
@@ -4052,18 +4362,14 @@ def processar_fila():
                                     'previsao': decisao['previsao'],
                                     'simbolo': '🔴' if decisao['previsao'] == 'BANKER' else '🔵',
                                     'confianca': decisao['confianca'],
-                                    'estrategias': [
-                                        f"COMITE_{len(cache['ultra_precisao'].comite_certeza)}",
-                                        decisao['motivo']
-                                    ] + [v['agente'] for v in previsao_rl['votos'][:2]]
+                                    'estrategias': [decisao['motivo']] + [v['agente'] for v in previsao_rl['votos'][:2]]
                                 }
                                 cache['ultima_previsao'] = ultima_previsao_feita
                                 cache['leves']['previsao'] = ultima_previsao_feita
                                 
-                                print(f"\n🎯 ULTRA APOSTA! {decisao['previsao']} com {decisao['confianca']}% ({decisao['motivo']})")
+                                print(f"\n🎯 ULTRA: {decisao['previsao']} com {decisao['confianca']}%")
                             else:
-                                print(f"\n⏸️ ULTRA AGUARDANDO... {decisao['motivo']} (conf: {previsao_rl['confianca']}%)")
-                                cache['ultra_precisao'].ultima_previsao_nao_apostada = previsao_rl['previsao']
+                                print(f"\n⏸️ ULTRA AGUARDANDO... {decisao['motivo']}")
                     
                     elif cache.get('mp_system') and len(cache['leves']['ultimas_50']) >= 30:
                         stats_mp = cache['mp_system'].get_stats()
@@ -4273,6 +4579,7 @@ def api_stats():
         },
         'aprendizado': aprendizado_stats,
         'ultra_precisao': cache['ultra_precisao'].get_stats() if cache.get('ultra_precisao') else None,
+        'curto_prazo': cache['curto_prazo'].get_stats() if cache.get('curto_prazo') else None,
         'mp_system': {
             'ativo': cache.get('mp_system') is not None,
             'agentes': cache['mp_system'].num_agentes if cache.get('mp_system') else 0,
@@ -4362,6 +4669,7 @@ def health():
         'mp_system': 'ativo' if cache.get('mp_system') else 'inativo',
         'analisador_erros': 'ativo' if cache.get('analisador_erros') else 'inativo',
         'ultra_precisao': 'ativo' if cache.get('ultra_precisao') else 'inativo',
+        'curto_prazo': 'ativo' if cache.get('curto_prazo') else 'inativo',
         'padroes_descobertos': len(cache.get('padroes_descobertos', [])),
         'manipulacao': cache.get('indice_manipulacao', 0)
     })
@@ -4464,7 +4772,7 @@ def treinar_rl_com_historico(limit=1000):
 # INICIALIZAÇÃO
 # =============================================================================
 def inicializar_sistema():
-    print("\n🧠 INICIALIZANDO SISTEMA ULTRA PRECISÃO 7.0...")
+    print("\n🧠 INICIALIZANDO SISTEMA ULTRA PRECISÃO 9.0...")
     
     cache['rl_system'] = SistemaRLCompleto()
     cache['rl_system'].carregar_estado('rl_estado.json')
@@ -4487,11 +4795,11 @@ def salvar_padroes():
 
 
 # =============================================================================
-# MAIN - VERSÃO ULTRA PRECISÃO
+# MAIN - VERSÃO ULTRA PRECISÃO 9.0
 # =============================================================================
 if __name__ == "__main__":
     print("="*80)
-    print("🚀 BOT BACBO - VERSÃO ULTRA PRECISÃO 7.0 (MIRANDO 95%+)")
+    print("🚀 BOT BACBO - VERSÃO ULTRA PRECISÃO 9.0 (CURTO PRAZO 90%+)")
     print("="*80)
     
     mp.set_start_method('spawn', force=True)
@@ -4556,10 +4864,15 @@ if __name__ == "__main__":
                     threading.Thread(target=loop_correcao_continua, daemon=True).start()
                     print("🔄 [BACKGROUND] Loop de correção contínua iniciado (1000 agentes)")
             
-            print("🎯 [BACKGROUND] Ativando sistema ULTRA PRECISÃO (95%+)...")
+            print("🎯 [BACKGROUND] Ativando sistema ULTRA PRECISÃO...")
             ultra = integrar_ultra_precisao()
             if ultra:
-                print(f"✅ Ultra Precisão ativo! Meta: 95%+")
+                print(f"✅ Ultra Precisão ativo!")
+            
+            print("🎯 [BACKGROUND] Ativando sistema CURTO PRAZO (90%+)...")
+            curto = integrar_sistema_curto_prazo()
+            if curto:
+                print(f"✅ Curto Prazo ativo!")
             
             print("🔍 [BACKGROUND] Analisando padrão 7x2...")
             analisar_padrao_7x2_no_historico()
@@ -4604,7 +4917,7 @@ if __name__ == "__main__":
     print("\n" + "="*80)
     print("🚀 FLASK INICIANDO AGORA...")
     print("✅ Healthcheck responderá IMEDIATAMENTE!")
-    print("🎯 MODO ULTRA PRECISÃO ATIVO (95%+)")
+    print("🎯 MODO CURTO PRAZO ATIVO (90%+ EM CICLOS DE 20)")
     print("="*80)
     
     app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
