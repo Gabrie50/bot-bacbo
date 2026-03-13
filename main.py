@@ -1144,7 +1144,92 @@ class DetectorPadroesReversos:
 
 
 # =============================================================================
-# 🧠 AGENTE RL PURO COM PyTorch - CORRIGIDO (1 LINHA ADICIONADA)
+# 🧠 REDES NEURAIS PyTorch PARA RL
+# =============================================================================
+
+class RedeDQN(nn.Module):
+    def __init__(self, state_size, action_size):
+        super(RedeDQN, self).__init__()
+        
+        self.fc1 = nn.Linear(state_size, 128)
+        self.fc2 = nn.Linear(128, 64)
+        self.fc3 = nn.Linear(64, 32)
+        self.fc4 = nn.Linear(32, action_size)
+        
+        self.dropout = nn.Dropout(0.2)
+        
+    def forward(self, x):
+        x = torch.relu(self.fc1(x))
+        x = self.dropout(x)
+        x = torch.relu(self.fc2(x))
+        x = self.dropout(x)
+        x = torch.relu(self.fc3(x))
+        x = self.fc4(x)
+        return x
+
+
+class RedeMetaAgente(nn.Module):
+    def __init__(self, input_size=23, hidden_size=64):
+        super(RedeMetaAgente, self).__init__()
+        
+        self.fc1 = nn.Linear(input_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, 32)
+        self.fc3 = nn.Linear(32, 2)
+        self.dropout = nn.Dropout(0.2)
+        
+    def forward(self, x):
+        x = torch.relu(self.fc1(x))
+        x = self.dropout(x)
+        x = torch.relu(self.fc2(x))
+        x = self.fc3(x)
+        return F.softmax(x, dim=1)
+
+
+class PrioritizedReplayBuffer:
+    def __init__(self, capacity=10000, alpha=0.6, beta=0.4):
+        self.capacity = capacity
+        self.alpha = alpha
+        self.beta = beta
+        self.buffer = []
+        self.priorities = np.zeros(capacity, dtype=np.float32)
+        self.position = 0
+        
+    def push(self, state, action, reward, next_state, error):
+        priority = (abs(error) + 1e-6) ** self.alpha
+        
+        if len(self.buffer) < self.capacity:
+            self.buffer.append((state, action, reward, next_state))
+        else:
+            self.buffer[self.position] = (state, action, reward, next_state)
+        
+        self.priorities[self.position] = priority
+        self.position = (self.position + 1) % self.capacity
+        
+    def sample(self, batch_size):
+        if len(self.buffer) == self.capacity:
+            priorities = self.priorities
+        else:
+            priorities = self.priorities[:len(self.buffer)]
+        
+        probs = priorities ** self.alpha
+        probs /= probs.sum()
+        
+        indices = np.random.choice(len(self.buffer), batch_size, p=probs)
+        samples = [self.buffer[idx] for idx in indices]
+        
+        total = len(self.buffer)
+        weights = (total * probs[indices]) ** (-self.beta)
+        weights /= weights.max()
+        
+        states, actions, rewards, next_states = zip(*samples)
+        
+        return (np.array(states), np.array(actions), 
+                np.array(rewards), np.array(next_states), 
+                weights, indices)
+
+
+# =============================================================================
+# 🧠 AGENTE RL PURO COM PyTorch
 # =============================================================================
 
 class AgenteRLPuro:
@@ -1285,11 +1370,7 @@ class AgenteRLPuro:
         return acao, confianca
     
     def aprender(self, historico, acao, resultado, recompensa_base=0):
-        # 🔥 ÚNICA LINHA ADICIONADA - IGNORA TIE COMPLETAMENTE
-        if resultado == 'TIE':
-            return False
-            
-        if len(historico) < 30:
+        if resultado == 'TIE' or len(historico) < 30:
             return False
             
         resultado_int = 0 if resultado == 'BANKER' else 1
@@ -1437,7 +1518,7 @@ class AgenteRLPuro:
 
 
 # =============================================================================
-# 🧠 AGENTE RL TURBINADO - VERSÃO 11.0 (95%+) - CORRIGIDO
+# 🧠 AGENTE RL TURBINADO - VERSÃO 11.0 (95%+)
 # =============================================================================
 
 class AgenteRLElitizado(AgenteRLPuro):
@@ -1585,10 +1666,6 @@ class AgenteRLElitizado(AgenteRLPuro):
         - Bônus especial para TIE
         - Sequências de acertos são recompensadas
         """
-        # 🔥 ÚNICA LINHA ADICIONADA - IGNORA TIE COMPLETAMENTE
-        if resultado == 'TIE':
-            return False
-            
         if len(historico) < 30:
             return False
         
@@ -2191,6 +2268,7 @@ class SistemaRLCompleto:
         except Exception as e:
             print(f"⚠️ Erro ao carregar estado RL: {e}")
             return False
+
 
 # =============================================================================
 # 🚀 FUNÇÃO PARA TURBINAR O SISTEMA
@@ -4719,7 +4797,7 @@ def loop_api_fallback():
 
 
 # =============================================================================
-# PROCESSADOR DA FILA - VERSÃO CORRIGIDA (IGNORA TIE)
+# PROCESSADOR DA FILA (COM SISTEMA CURTO PRAZO + TURBINADO)
 # =============================================================================
 
 def processar_fila():
@@ -4728,7 +4806,6 @@ def processar_fila():
     historico_buffer = []
     ultima_previsao_feita = None
     contador_avaliacao = 0
-    ultimo_resultado_ignorado = None  # NOVO: rastrear último TIE ignorado
 
     while True:
         try:
@@ -4747,141 +4824,92 @@ def processar_fila():
                         cache['ultimo_resultado_real'] = rodada['resultado']
                         print(f"✅ SALVO: {rodada['player_score']} vs {rodada['banker_score']} - {rodada['resultado']}")
                         
-                        # =================================================================
-                        # 🔥 CORREÇÃO CRÍTICA: Se for TIE, IGNORAR COMPLETAMENTE
-                        # =================================================================
-                        if rodada['resultado'] == 'TIE':
-                            print(f"⚠️ TIE detectado - IGNORANDO para aprendizado (foco no próximo resultado)")
-                            ultimo_resultado_ignorado = {
-                                'previsao_anterior': ultima_previsao_feita,
-                                'momento': datetime.now()
-                            }
-                            # IMPORTANTE: Não processamos a previsão anterior
-                            # Apenas registramos que houve um TIE e seguimos
-                            ultima_previsao_feita = None
-                            continue
-                        
-                        # =================================================================
-                        # SÓ CHEGA AQUI SE NÃO FOR TIE
-                        # =================================================================
-                        
-                        # Se tínhamos um TIE ignorado anteriormente, logamos
-                        if ultimo_resultado_ignorado:
-                            print(f"📊 Resultado após TIE: {rodada['resultado']}")
-                            ultimo_resultado_ignorado = None
-                        
-                        # Agora processamos a previsão anterior (se houver)
                         if ultima_previsao_feita:
                             resultado_real = rodada['resultado']
                             
-                            # Já garantimos que não é TIE aqui
-                            acertou = (ultima_previsao_feita['previsao'] == resultado_real)
-                            
-                            print(f"\n📊 VERIFICANDO PREVISÃO ANTERIOR:")
-                            print(f"   Previsão: {ultima_previsao_feita['previsao']} | Real: {resultado_real} | Acertou: {acertou}")
-                            
-                            contexto = cache['leves']['ultimas_50'] if cache['leves']['ultimas_50'] else []
-                            indice_manipulacao = calcular_indice_manipulacao(contexto)
-                            cache['indice_manipulacao'] = indice_manipulacao
-                            
-                            causa_erro = None
-                            if cache.get('analisador_erros') and not acertou:
-                                causa_erro = cache['analisador_erros'].analisar_erro_em_tempo_real(
-                                    ultima_previsao_feita, resultado_real, contexto, indice_manipulacao
+                            if resultado_real != 'TIE':
+                                acertou = (ultima_previsao_feita['previsao'] == resultado_real)
+                                
+                                print(f"\n📊 VERIFICANDO PREVISÃO ANTERIOR:")
+                                print(f"   Previsão: {ultima_previsao_feita['previsao']} | Real: {resultado_real} | Acertou: {acertou}")
+                                
+                                contexto = cache['leves']['ultimas_50'] if cache['leves']['ultimas_50'] else []
+                                indice_manipulacao = calcular_indice_manipulacao(contexto)
+                                cache['indice_manipulacao'] = indice_manipulacao
+                                
+                                causa_erro = None
+                                if cache.get('analisador_erros') and not acertou:
+                                    causa_erro = cache['analisador_erros'].analisar_erro_em_tempo_real(
+                                        ultima_previsao_feita, resultado_real, contexto, indice_manipulacao
+                                    )
+                                
+                                salvar_previsao_completa_segura(
+                                    ultima_previsao_feita, 
+                                    resultado_real, 
+                                    acertou, 
+                                    contexto,
+                                    None, 
+                                    indice_manipulacao, 
+                                    indice_manipulacao > 50, 
+                                    causa_erro
                                 )
+                                
+                                cache['estatisticas']['total_previsoes'] += 1
+                                if acertou:
+                                    cache['estatisticas']['acertos'] += 1
+                                else:
+                                    cache['estatisticas']['erros'] += 1
+                                
+                                # Registrar no sistema curto prazo
+                                if cache.get('curto_prazo'):
+                                    cache['curto_prazo'].registrar_resultado(
+                                        ultima_previsao_feita['previsao'],
+                                        resultado_real,
+                                        acertou
+                                    )
+                                
+                                previsao_historico = {
+                                    'data': datetime.now().strftime('%d/%m %H:%M:%S'),
+                                    'previsao': ultima_previsao_feita['previsao'],
+                                    'simbolo': ultima_previsao_feita['simbolo'],
+                                    'confianca': ultima_previsao_feita['confianca'],
+                                    'resultado_real': resultado_real,
+                                    'acertou': acertou,
+                                    'estrategias': ultima_previsao_feita.get('estrategias', []),
+                                    'manipulado': indice_manipulacao > 50
+                                }
+                                
+                                cache['estatisticas']['ultimas_20_previsoes'].insert(0, previsao_historico)
+                                if len(cache['estatisticas']['ultimas_20_previsoes']) > 20:
+                                    cache['estatisticas']['ultimas_20_previsoes'].pop()
+                                
+                                if cache.get('rl_system') and len(cache['leves']['ultimas_50']) >= 30:
+                                    cache['rl_system'].aprender_com_resultado(
+                                        cache['leves']['ultimas_50'], resultado_real
+                                    )
+                                
+                                if cache.get('rl_system'):
+                                    for nome, agente in cache['rl_system'].agentes.items():
+                                        if nome in cache['estatisticas']['estrategias']:
+                                            cache['estatisticas']['estrategias'][nome]['acertos'] = agente.acertos
+                                            cache['estatisticas']['estrategias'][nome]['erros'] = agente.erros
+                                            cache['estatisticas']['estrategias'][nome]['total'] = agente.total_uso
+                                
+                                precisao = calcular_precisao()
+                                print(f"📈 Precisão geral: {cache['estatisticas']['acertos']}/{cache['estatisticas']['total_previsoes']} ({precisao}%)")
                             
-                            # Salvar previsão (agora sempre BANKER/PLAYER, nunca TIE)
-                            salvar_previsao_completa_segura(
-                                ultima_previsao_feita, 
-                                resultado_real, 
-                                acertou, 
-                                contexto,
-                                None, 
-                                indice_manipulacao, 
-                                indice_manipulacao > 50, 
-                                causa_erro
-                            )
-                            
-                            cache['estatisticas']['total_previsoes'] += 1
-                            if acertou:
-                                cache['estatisticas']['acertos'] += 1
-                            else:
-                                cache['estatisticas']['erros'] += 1
-                            
-                            # Registrar no sistema curto prazo
-                            if cache.get('curto_prazo'):
-                                cache['curto_prazo'].registrar_resultado(
-                                    ultima_previsao_feita['previsao'],
-                                    resultado_real,
-                                    acertou
-                                )
-                            
-                            previsao_historico = {
-                                'data': datetime.now().strftime('%d/%m %H:%M:%S'),
-                                'previsao': ultima_previsao_feita['previsao'],
-                                'simbolo': ultima_previsao_feita['simbolo'],
-                                'confianca': ultima_previsao_feita['confianca'],
-                                'resultado_real': resultado_real,
-                                'acertou': acertou,
-                                'estrategias': ultima_previsao_feita.get('estrategias', []),
-                                'manipulado': indice_manipulacao > 50
-                            }
-                            
-                            cache['estatisticas']['ultimas_20_previsoes'].insert(0, previsao_historico)
-                            if len(cache['estatisticas']['ultimas_20_previsoes']) > 20:
-                                cache['estatisticas']['ultimas_20_previsoes'].pop()
-                            
-                            # Aprendizado RL (só para BANKER/PLAYER)
-                            if cache.get('rl_system') and len(cache['leves']['ultimas_50']) >= 30:
-                                cache['rl_system'].aprender_com_resultado(
-                                    cache['leves']['ultimas_50'], resultado_real
-                                )
-                            
-                            # Atualizar estatísticas
-                            if cache.get('rl_system'):
-                                for nome, agente in cache['rl_system'].agentes.items():
-                                    if nome in cache['estatisticas']['estrategias']:
-                                        cache['estatisticas']['estrategias'][nome]['acertos'] = agente.acertos
-                                        cache['estatisticas']['estrategias'][nome]['erros'] = agente.erros
-                                        cache['estatisticas']['estrategias'][nome]['total'] = agente.total_uso
-                            
-                            precisao = calcular_precisao()
-                            print(f"📈 Precisão geral: {cache['estatisticas']['acertos']}/{cache['estatisticas']['total_previsoes']} ({precisao}%)")
-                            
-                            # Limpar previsão anterior
                             ultima_previsao_feita = None
                 
-                # =================================================================
-                # NOVA PREVISÃO (sempre para BANKER/PLAYER, nunca TIE)
-                # =================================================================
                 if len(historico_buffer) > 0:
                     atualizar_dados_leves()
-                    
-                    # Verificar se a última rodada foi TIE
-                    ultima_rodada = historico_buffer[-1] if historico_buffer else None
-                    if ultima_rodada and ultima_rodada['resultado'] == 'TIE':
-                        print("⏸️ Última rodada foi TIE - aguardando próximo resultado para fazer previsão")
-                        # Não fazemos previsão agora - esperamos a próxima rodada
-                        continue
                     
                     # PRIORIDADE 1: Sistema Curto Prazo
                     if cache.get('curto_prazo') and len(cache['leves']['ultimas_50']) >= 30:
                         historico_completo = cache['leves']['ultimas_50']
                         
-                        # Garantir que o histórico tem BANKER/PLAYER suficiente
-                        ultimas_nao_tie = [r for r in historico_completo[:10] if r['resultado'] != 'TIE']
-                        if len(ultimas_nao_tie) < 3:
-                            print("⏸️ Poucos resultados não-TIE - aguardando...")
-                            continue
-                        
                         previsao_cp = cache['curto_prazo'].processar_rodada(historico_completo)
                         
                         if previsao_cp:
-                            # Verificar se a previsão é BANKER/PLAYER (nunca TIE)
-                            if previsao_cp['previsao'] not in ['BANKER', 'PLAYER']:
-                                print(f"⚠️ Previsão inválida: {previsao_cp['previsao']} - corrigindo para aleatório")
-                                previsao_cp['previsao'] = random.choice(['BANKER', 'PLAYER'])
-                            
                             if previsao_cp['ultimas_5'] and cache.get('estrategia_surto'):
                                 surto = cache['estrategia_surto'].analisar_ultimas_5(historico_completo[:5])
                                 if surto and surto['confianca'] > 75:
@@ -4906,12 +4934,6 @@ def processar_fila():
                     # PRIORIDADE 2: Ultra Precisão (fallback)
                     elif cache.get('ultra_precisao') and len(cache['leves']['ultimas_50']) >= 30:
                         historico_completo = cache['leves']['ultimas_50']
-                        
-                        # Garantir histórico válido
-                        ultimas_nao_tie = [r for r in historico_completo[:10] if r['resultado'] != 'TIE']
-                        if len(ultimas_nao_tie) < 3:
-                            continue
-                        
                         previsao_rl = cache['rl_system'].processar_rodada(historico_completo)
                         
                         if previsao_rl:
@@ -4921,7 +4943,7 @@ def processar_fila():
                                 previsao_rl['confianca']
                             )
                             
-                            if decisao['apostar'] and decisao['previsao'] in ['BANKER', 'PLAYER']:
+                            if decisao['apostar']:
                                 ultima_previsao_feita = {
                                     'modo': 'ULTRA_PRECISAO',
                                     'previsao': decisao['previsao'],
@@ -4936,14 +4958,12 @@ def processar_fila():
                             else:
                                 print(f"\n⏸️ ULTRA AGUARDANDO... {decisao['motivo']}")
                     
-                    # Fallbacks...
                     elif cache.get('mp_system') and len(cache['leves']['ultimas_50']) >= 30:
                         stats_mp = cache['mp_system'].get_stats()
-                        previsao = random.choice(['BANKER', 'PLAYER'])
                         ultima_previsao_feita = {
                             'modo': 'MULTIPROCESSING',
-                            'previsao': previsao,
-                            'simbolo': '🔴' if previsao == 'BANKER' else '🔵',
+                            'previsao': random.choice(['BANKER', 'PLAYER']),
+                            'simbolo': '🔴' if random.choice([True, False]) else '🔵',
                             'confianca': 75,
                             'estrategias': [f"MP_Agente_{random.randint(1,50)}"]
                         }
@@ -4954,16 +4974,9 @@ def processar_fila():
                     
                     elif cache.get('rl_system') and len(cache['leves']['ultimas_50']) >= 30:
                         historico_completo = cache['leves']['ultimas_50']
-                        
-                        # Garantir que a previsão não será TIE
                         previsao_rl = cache['rl_system'].processar_rodada(historico_completo)
                         
                         if previsao_rl:
-                            # Forçar BANKER/PLAYER se vier TIE
-                            if previsao_rl['previsao'] not in ['BANKER', 'PLAYER']:
-                                previsao_rl['previsao'] = random.choice(['BANKER', 'PLAYER'])
-                                previsao_rl['confianca'] = 60
-                            
                             ultima_previsao_feita = {
                                 'modo': 'RL_PURO',
                                 'previsao': previsao_rl['previsao'],
