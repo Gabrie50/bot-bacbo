@@ -2404,12 +2404,14 @@ class SistemaRLCompleto:
 
 
 # =============================================================================
-# 🚀 FUNÇÃO PARA TURBINAR O SISTEMA
+# 🚀 FUNÇÃO PARA TURBINAR O SISTEMA (VERSÃO CORRIGIDA)
 # =============================================================================
 
 def turbinar_sistema():
     """
     Converte todos os agentes para versão turbinada
+    VERSÃO CORRIGIDA - Não tenta transferir pesos incompatíveis
+    Os agentes turbinados começarão do zero e serão treinados depois
     """
     print("\n" + "="*80)
     print("🚀 TURBINANDO SISTEMA PARA 95%+")
@@ -2424,57 +2426,72 @@ def turbinar_sistema():
     # Backup dos agentes antigos
     agentes_antigos = dict(sistema.agentes)
     
-    # Converter agentes existentes
+    print(f"📊 Total de agentes antes da conversão: {len(agentes_antigos)}")
     print("🔄 Convertendo agentes para versão TURBINADA...")
+    
     convertidos = 0
+    erros = 0
     
     for nome, agente in list(agentes_antigos.items()):
-        if 'Turbinado' not in nome and not isinstance(agente, AgenteRLElitizado):
-            try:
-                novo_agente = AgenteRLElitizado(nome, agente.id)
-                
-                # Transferir estatísticas básicas com segurança
-                novo_agente.acertos = agente.acertos
-                novo_agente.erros = agente.erros
-                novo_agente.total_uso = agente.total_uso
-                novo_agente.peso = agente.peso
-                
-                # Transferir pesos se possível
-                if hasattr(agente, 'model') and agente.model is not None:
-                    try:
-                        # Tentar carregar pesos (pode falhar se a arquitetura for diferente)
-                        novo_agente.model.load_state_dict(agente.model.state_dict(), strict=False)
-                        novo_agente.target_model.load_state_dict(agente.target_model.state_dict(), strict=False)
-                    except:
-                        print(f"   ⚠️ Não foi possível transferir pesos de {nome}")
-                
-                sistema.agentes[nome] = novo_agente
-                convertidos += 1
-                
-                if convertidos % 50 == 0:
-                    print(f"   ... {convertidos} agentes convertidos")
+        # Verificar se já é turbinado
+        if 'Turbinado' in nome or isinstance(agente, AgenteRLElitizado):
+            print(f"   ⏩ {nome} já é turbinado, pulando...")
+            continue
+            
+        try:
+            print(f"\n   🔄 Convertendo {nome}...")
+            
+            # CORREÇÃO: Criar novo agente turbinado
+            novo_agente = AgenteRLElitizado(nome, agente.id)
+            
+            # CORREÇÃO: Transferir APENAS estatísticas, NÃO os pesos
+            # As arquiteturas são diferentes, não podemos transferir pesos
+            novo_agente.acertos = agente.acertos
+            novo_agente.erros = agente.erros
+            novo_agente.total_uso = agente.total_uso
+            novo_agente.peso = agente.peso
+            novo_agente.fitness = agente.fitness
+            novo_agente.ultima_precisao = agente.ultima_precisao
+            
+            # CORREÇÃO: NÃO transferir pesos - começar do zero
+            # A rede turbinada vai aprender do zero (mais estável)
+            
+            # Substituir no sistema
+            sistema.agentes[nome] = novo_agente
+            convertidos += 1
+            
+            print(f"      ✅ {nome} convertido para turbinado (pesos zerados)")
+            
+            if convertidos % 50 == 0:
+                print(f"   ... {convertidos} agentes convertidos até agora")
                     
-            except Exception as e:
-                print(f"⚠️ Erro ao converter {nome}: {e}")
+        except Exception as e:
+            print(f"      ❌ Erro ao converter {nome}: {e}")
+            erros += 1
+            # Manter o agente original em caso de erro
+            continue
     
-    print(f"✅ {convertidos} agentes turbinados de {len(agentes_antigos)}!")
+    print(f"\n📊 RESULTADO DA CONVERSÃO:")
+    print(f"   ✅ Convertidos: {convertidos} agentes")
+    print(f"   ❌ Erros: {erros} agentes")
+    print(f"   📈 Total agora: {len(sistema.agentes)} agentes")
     
     # Criar sistema de evolução
     evolucao = SistemaEvolucaoTurbinado(sistema)
     cache['evolucao'] = evolucao
     
-    print("\n📊 NOVAS CONFIGURAÇÕES:")
+    print("\n📊 NOVAS CONFIGURAÇÕES DOS AGENTES TURBINADOS:")
     print("   • Learning Rate: 0.005 (balanceado)")
     print("   • Recompensa acerto: 8.0 (4x maior)")
     print("   • Penalidade erro: -0.3 (5x menor)")
     print("   • Bônus TIE: 15.0")
     print("   • BatchNorm: Ativado")
-    print("   • Crossover genético: Ativado")
     print("   • Memória: 200.000 (20x maior)")
     print("   • Epsilon mínimo: 0.05 (nunca para de explorar)")
+    print("\n   ⚠️ IMPORTANTE: Os agentes turbinados precisam ser treinados!")
+    print("      Use treinar_rl_com_historico() para treiná-los com dados reais.")
     
     return evolucao
-
 
 # =============================================================================
 # 📊 NOVA ROTA PARA MONITORAR EVOLUÇÃO
