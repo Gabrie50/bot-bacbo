@@ -45,7 +45,7 @@ def health_urgente():
         'status': 'ok',
         'mensagem': 'Sistema online',
         'timestamp': time.time(),
-        'versao': '9.0 - Turbo 95%+'
+        'versao': '9.1 - Turbo 95%+'
     })
 
 @app.route('/', methods=['GET'])
