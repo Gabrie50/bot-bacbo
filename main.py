@@ -4556,50 +4556,55 @@ def buscar_api_normal():
 
 
 # =============================================================================
-# 🚀 FUNÇÃO PARA CARREGAR HISTÓRICO COMPLETO DA API NORMAL (VERSÃO OTIMIZADA)
+# 🚀 FUNÇÃO PARA CARREGAR HISTÓRICO COMPLETO DA API NORMAL (VERSÃO ULTRA RÁPIDA)
 # =============================================================================
 
 def carregar_historico_completo_para_aprendizado(limite_paginas=100):
+    """
+    Versão ULTRA RÁPIDA - Apenas carrega dados, sem simulação pesada
+    """
     print("\n" + "="*80)
-    print("📚 CARREGANDO HISTÓRICO COMPLETO PARA APRENDIZADO RL")
+    print("📚 CARREGANDO HISTÓRICO COMPLETO PARA APRENDIZADO RL (MODO RÁPIDO)")
     print("="*80)
     
     total_carregadas = 0
     pagina = 0
     paginas_sem_novidades = 0
-    paginas_processadas = 0
     
     sistema_rl = cache.get('rl_system')
     if not sistema_rl:
         print("❌ Sistema RL não inicializado")
         return None
     
+    # Criar analisador de erros (mas não vamos usar agora)
     analisador = AnalisadorDeErros(sistema_rl)
     cache['analisador_erros'] = analisador
+    
+    print("\n⏳ Carregando páginas da API... (pode levar alguns minutos)")
     
     while paginas_sem_novidades < 3 and pagina < limite_paginas:
         conn = None
         cur = None
         
         try:
-            print(f"\n📥 Buscando página {pagina}...")
+            print(f"\n📥 Buscando página {pagina}... ", end='', flush=True)
             
             params = API_PARAMS.copy()
             params['page'] = pagina
             params['size'] = 100
             params['_t'] = int(time.time() * 1000)
             
-            response = session.get(API_URL, params=params, timeout=15)  # Timeout maior
+            response = session.get(API_URL, params=params, timeout=15)
             response.raise_for_status()
             dados = response.json()
             
             if not dados or len(dados) == 0:
-                print(f"✅ Fim das páginas na página {pagina}")
+                print(f"✅ Fim das páginas")
                 break
             
             conn = get_db_connection()
             if not conn:
-                print(f"⚠️ Sem conexão na página {pagina}")
+                print(f"⚠️ Sem conexão")
                 pagina += 1
                 continue
             
@@ -4628,28 +4633,19 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
                     
                     data_hora = datetime.fromisoformat(data.get('settledAt', '').replace('Z', '+00:00'))
                     
-                    rodada = {
-                        'id': data.get('id'),
-                        'data_hora': data_hora,
-                        'player_score': player_score,
-                        'banker_score': banker_score,
-                        'resultado': resultado,
-                        'fonte': 'historico_api'
-                    }
-                    
                     cur.execute('''
                         INSERT INTO rodadas 
                         (id, data_hora, player_score, banker_score, soma, resultado, fonte, dados_json)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (id) DO NOTHING
                     ''', (
-                        rodada['id'],
-                        rodada['data_hora'],
-                        rodada['player_score'],
-                        rodada['banker_score'],
-                        rodada['player_score'] + rodada['banker_score'],
-                        rodada['resultado'],
-                        rodada['fonte'],
+                        data.get('id'),
+                        data_hora,
+                        player_score,
+                        banker_score,
+                        player_score + banker_score,
+                        resultado,
+                        'historico_api',
                         json.dumps(item, default=str)
                     ))
                     
@@ -4658,67 +4654,21 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
                         total_carregadas += 1
                         
                 except Exception as e:
-                    print(f"   ⚠️ Erro ao processar item: {e}")
+                    print(f"⚠️ Erro ao processar item: {e}")
                     erros_na_pagina = True
                     conn.rollback()
                     break
             
             if not erros_na_pagina:
                 conn.commit()
+                print(f"✅ +{rodadas_novas} rodadas (total: {total_carregadas})")
+            else:
+                print(f"⚠️ Erros na página")
             
             if cur:
                 cur.close()
             if conn:
                 conn.close()
-            
-            print(f"   ✅ {rodadas_novas} novas rodadas salvas no banco")
-            
-            # ATENÇÃO: SÓ SIMULA APRENDIZADO A CADA 10 PÁGINAS
-            paginas_processadas += 1
-            if paginas_processadas % 10 == 0 and rodadas_novas > 0:
-                print(f"\n   🧠 Simulando aprendizado com banco de dados (página {pagina})...")
-                
-                # Buscar últimas 500 rodadas do banco para simular
-                conn_sim = get_db_connection()
-                if conn_sim:
-                    try:
-                        cur_sim = conn_sim.cursor()
-                        cur_sim.execute('''
-                            SELECT player_score, banker_score, resultado 
-                            FROM rodadas 
-                            ORDER BY data_hora ASC 
-                            LIMIT 500
-                        ''')
-                        
-                        rows_sim = cur_sim.fetchall()
-                        cur_sim.close()
-                        conn_sim.close()
-                        
-                        if rows_sim and len(rows_sim) > 100:
-                            historico_simulado = []
-                            for row in rows_sim:
-                                historico_simulado.append({
-                                    'player_score': row[0],
-                                    'banker_score': row[1],
-                                    'resultado': row[2]
-                                })
-                            
-                            print(f"      Simulando com {len(historico_simulado)} rodadas...")
-                            
-                            # Simular apenas as últimas 100 rodadas para não demorar
-                            inicio_sim = max(100, len(historico_simulado) - 200)
-                            for i in range(inicio_sim, len(historico_simulado)):
-                                if i % 50 == 0:
-                                    print(f"      Progresso: {i-inicio_sim}/{len(historico_simulado)-inicio_sim}")
-                                
-                                resultado_real = historico_simulado[i]['resultado']
-                                if resultado_real != 'TIE':
-                                    # Passar rapidamente sem processar cada previsão
-                                    pass
-                            
-                            print(f"      ✅ Simulação concluída")
-                    except Exception as e_sim:
-                        print(f"      ⚠️ Erro na simulação: {e_sim}")
             
             if rodadas_novas > 0:
                 paginas_sem_novidades = 0
@@ -4726,16 +4676,16 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
                 paginas_sem_novidades += 1
             
             pagina += 1
-            time.sleep(0.5)  # Pequena pausa para não sobrecarregar a API
+            time.sleep(0.5)
             
         except requests.exceptions.Timeout:
-            print(f"⚠️ Timeout na página {pagina} - aumentando timeout...")
+            print(f"⚠️ Timeout")
             paginas_sem_novidades += 1
             pagina += 1
             time.sleep(2)
             
         except Exception as e:
-            print(f"⚠️ Erro na página {pagina}: {e}")
+            print(f"⚠️ Erro: {e}")
             
             if conn:
                 try:
@@ -4758,25 +4708,9 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
     atualizar_dados_leves()
     carregar_estatisticas_do_banco()
     
-    # Análise rápida do padrão 7:2
-    try:
-        print("\n🔍 Analisando padrão 7:2 rapidamente...")
-        conn_analise = get_db_connection()
-        if conn_analise:
-            cur_analise = conn_analise.cursor()
-            cur_analise.execute('''
-                SELECT COUNT(*) FROM rodadas 
-                WHERE resultado = 'TIE'
-            ''')
-            ties = cur_analise.fetchone()[0]
-            cur_analise.close()
-            conn_analise.close()
-            print(f"   Total de TIES no banco: {ties}")
-    except:
-        pass
-    
     return analisador
-    
+
+
 # =============================================================================
 # FUNÇÃO PARA ANALISAR PADRÃO 7x2 ESPECÍFICO (ATUALIZADA)
 # =============================================================================
@@ -5479,12 +5413,13 @@ def salvar_padroes():
 
 
 # =============================================================================
-# 🚀 NOVO SISTEMA DE TREINAMENTO EM MASSA COM 3000 RODADAS
+# 🚀 NOVO SISTEMA DE TREINAMENTO EM MASSA COM 3000 RODADAS (VERSÃO CORRIGIDA)
 # =============================================================================
 
 class TreinadorMassa3000:
     """
     Treinador em massa que usa 3000 rodadas do banco para treinar todos os agentes
+    VERSÃO CORRIGIDA - com estado de 150 features
     """
     
     def __init__(self, sistema_rl):
@@ -5493,8 +5428,12 @@ class TreinadorMassa3000:
         self.estado_expandido = None
         self.resultados_treinamento = {}
         
+        # Estado size padrão (igual ao dos agentes)
+        self.state_size = 150
+        
         print("\n" + "="*80)
         print("🚀 TREINADOR EM MASSA 3000 RODADAS INICIALIZADO")
+        print(f"📊 State size: {self.state_size} (compatível com agentes)")
         print("="*80)
     
     def carregar_3000_rodadas_do_banco(self):
@@ -5607,7 +5546,7 @@ class TreinadorMassa3000:
     def preparar_dataset_treinamento(self):
         """
         Prepara dataset de treinamento com TODAS as rodadas
-        Retorna: X (estados), y (ações corretas)
+        Usa o MESMO formato de estado dos agentes (150 features)
         """
         print("\n🔄 PREPARANDO DATASET DE TREINAMENTO...")
         
@@ -5628,8 +5567,8 @@ class TreinadorMassa3000:
             if resultado == 'TIE':
                 continue
             
-            # Criar estado usando as últimas 300 rodadas (não só 30)
-            estado = self._criar_estado_expandido(historico_ate_i)
+            # Criar estado usando o MESMO método que os agentes usam
+            estado = self._criar_estado_padrao(historico_ate_i)
             if estado is not None:
                 X_list.append(estado)
                 
@@ -5648,102 +5587,42 @@ class TreinadorMassa3000:
         
         print(f"✅ Dataset pronto: {len(X)} exemplos")
         print(f"   BANKER: {(y == 0).sum().item()} | PLAYER: {(y == 1).sum().item()}")
+        print(f"   Forma do tensor X: {X.shape} (deve ser [n_exemplos, 150])")
         
         return X, y
     
-    def _criar_estado_expandido(self, historico):
+    def _criar_estado_padrao(self, historico):
         """
-        Cria estado usando múltiplas janelas temporais
+        CRIA ESTADO NO MESMO FORMATO QUE OS AGENTES USAM (150 features)
+        Isso garante compatibilidade total com as redes neurais
         """
         if len(historico) < 30:
             return None
         
         features = []
         
-        # 1. JANELA CURTA (últimas 30 rodadas) - one-hot encoding
+        # Usar exatamente as últimas 30 rodadas (como os agentes fazem)
         for rodada in historico[-30:]:
+            # One-hot encoding do resultado (3 features)
             if rodada['resultado'] == 'BANKER':
                 features.extend([1, 0, 0])
             elif rodada['resultado'] == 'PLAYER':
                 features.extend([0, 1, 0])
-            else:
+            else:  # TIE
                 features.extend([0, 0, 1])
-        
-        # 2. JANELA MÉDIA (últimas 300 rodadas) - estatísticas agregadas
-        if len(historico) >= 300:
-            janela_media = historico[-300:]
-        else:
-            janela_media = historico
-        
-        banker_media = sum(1 for r in janela_media if r['resultado'] == 'BANKER') / len(janela_media)
-        player_media = sum(1 for r in janela_media if r['resultado'] == 'PLAYER') / len(janela_media)
-        tie_media = sum(1 for r in janela_media if r['resultado'] == 'TIE') / len(janela_media)
-        
-        features.extend([banker_media, player_media, tie_media])
-        
-        # 3. JANELA LONGA (últimas 1000 rodadas) - tendência
-        if len(historico) >= 1000:
-            janela_longa = historico[-1000:]
             
-            # Dividir em 4 quartis para ver tendência
-            quartil1 = janela_longa[:250]
-            quartil2 = janela_longa[250:500]
-            quartil3 = janela_longa[500:750]
-            quartil4 = janela_longa[750:1000]
-            
-            for quartil in [quartil1, quartil2, quartil3, quartil4]:
-                b = sum(1 for r in quartil if r['resultado'] == 'BANKER') / 250
-                p = sum(1 for r in quartil if r['resultado'] == 'PLAYER') / 250
-                features.extend([b, p])
-        else:
-            # Preencher com valores neutros
-            for _ in range(4):
-                features.extend([0.5, 0.5])
+            # Scores normalizados (2 features)
+            features.append(rodada.get('player_score', 0) / 12)
+            features.append(rodada.get('banker_score', 0) / 12)
         
-        # 4. DETECTOR DE PADRÃO 7:2
-        duplo_tie_detectado = 0
-        for j in range(1, min(50, len(historico)-1)):
-            if historico[-j]['resultado'] == 'TIE' and historico[-(j+1)]['resultado'] == 'TIE':
-                duplo_tie_detectado = 1
-                
-                # Verificar o padrão após este duplo TIE
-                pos_duplo = []
-                for k in range(len(historico)-j-2, max(0, len(historico)-j-50), -1):
-                    if historico[k]['resultado'] != 'TIE':
-                        pos_duplo.append(historico[k]['resultado'])
-                        if len(pos_duplo) >= 9:
-                            break
-                
-                if len(pos_duplo) >= 9:
-                    banker_pos = pos_duplo.count('BANKER') / 9
-                    player_pos = pos_duplo.count('PLAYER') / 9
-                    features.extend([banker_pos, player_pos])
-                else:
-                    features.extend([0.5, 0.5])
-                break
+        # Garantir que tenha exatamente 150 features (30 * 5 = 150)
+        # Se por algum motivo tiver menos, preencher com zeros
+        while len(features) < 150:
+            features.append(0)
         
-        if not duplo_tie_detectado:
-            features.extend([0.5, 0.5])
+        # Se tiver mais, cortar (não deve acontecer)
+        features = features[:150]
         
-        # 5. SCORES MÉDIOS
-        scores_player = [r['player_score'] for r in historico[-100:]]
-        scores_banker = [r['banker_score'] for r in historico[-100:]]
-        
-        features.append(np.mean(scores_player) / 12 if scores_player else 0)
-        features.append(np.std(scores_player) / 12 if scores_player else 0)
-        features.append(np.mean(scores_banker) / 12 if scores_banker else 0)
-        features.append(np.std(scores_banker) / 12 if scores_banker else 0)
-        
-        # 6. STREAK ATUAL
-        streak = 0
-        for r in reversed(historico[-20:]):
-            if r['resultado'] != 'TIE':
-                streak += 1
-            else:
-                break
-        features.append(streak / 20)
-        
-        # Converter para tensor
         return torch.FloatTensor(features).unsqueeze(0)
     
     def treinar_agente_em_batch(self, agente, X, y, epochs=30):
@@ -5752,6 +5631,11 @@ class TreinadorMassa3000:
         """
         if agente.model is None:
             print(f"   ⚠️ Agente {agente.nome} sem modelo - pulando")
+            return None
+        
+        # Verificar dimensões
+        if X.shape[1] != agente.state_size:
+            print(f"   ❌ ERRO: X tem {X.shape[1]} features, mas agente espera {agente.state_size}")
             return None
         
         # Mover para device
@@ -5801,6 +5685,10 @@ class TreinadorMassa3000:
             
             losses.append(loss_media)
             acuracias.append(acuracia)
+            
+            # Mostrar progresso a cada 5 épocas
+            if (epoch + 1) % 5 == 0:
+                print(f"      Época {epoch+1}/{epochs} - Loss: {loss_media:.4f} - Acurácia: {acuracia:.2f}%")
         
         # Atualizar estatísticas do agente
         agente.ultima_precisao = acuracias[-1] / 100
@@ -5828,11 +5716,15 @@ class TreinadorMassa3000:
             print("❌ Falha ao carregar dados do banco")
             return False
         
-        # 2. Preparar dataset
+        # 2. Preparar dataset (agora com estado de 150 features)
         X, y = self.preparar_dataset_treinamento()
         if X is None:
             print("❌ Falha ao preparar dataset")
             return False
+        
+        print(f"\n✅ Dataset preparado com sucesso!")
+        print(f"   Forma: {X.shape}")
+        print(f"   Features por exemplo: {X.shape[1]}")
         
         # 3. Treinar cada agente
         print(f"\n🎯 Treinando {len(self.sistema_rl.agentes)} agentes...")
@@ -5840,15 +5732,25 @@ class TreinadorMassa3000:
         resultados = {}
         agentes_lista = list(self.sistema_rl.agentes.items())
         
+        # Filtrar apenas agentes com modelo
+        agentes_validos = []
         for idx, (nome, agente) in enumerate(agentes_lista):
-            print(f"\n🤖 [{idx+1}/{len(agentes_lista)}] Treinando {nome}...")
+            if agente.model is not None:
+                agentes_validos.append((nome, agente))
+            else:
+                print(f"\n🤖 [{idx+1}/{len(agentes_lista)}] {nome} - ⚠️ SEM MODELO, pulando")
+        
+        print(f"\n📊 Total de agentes válidos: {len(agentes_validos)}/{len(agentes_lista)}")
+        
+        for idx, (nome, agente) in enumerate(agentes_validos):
+            print(f"\n🤖 [{idx+1}/{len(agentes_validos)}] Treinando {nome}...")
             
             try:
                 resultado = self.treinar_agente_em_batch(agente, X, y, epochs=20)
                 
                 if resultado:
                     resultados[nome] = resultado
-                    print(f"   ✅ Acurácia: {resultado['acuracia_final']:.2f}%")
+                    print(f"   ✅ Acurácia final: {resultado['acuracia_final']:.2f}%")
                     
                     # Salvar checkpoint a cada 100 agentes
                     if (idx + 1) % 100 == 0:
@@ -5857,6 +5759,8 @@ class TreinadorMassa3000:
                         
             except Exception as e:
                 print(f"   ❌ Erro: {e}")
+                import traceback
+                traceback.print_exc()
                 resultados[nome] = {'erro': str(e)}
         
         # 4. Resultados finais
@@ -5873,6 +5777,7 @@ class TreinadorMassa3000:
             print(f"   Máxima: {max(acuracias):.2f}%")
             print(f"   Mínima: {min(acuracias):.2f}%")
             print(f"   Desvio padrão: {np.std(acuracias):.2f}%")
+            print(f"   Total de agentes treinados: {len(acuracias)}")
         
         # Top 10 agentes
         melhores = sorted(
