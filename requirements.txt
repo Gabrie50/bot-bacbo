@@ -45,6 +45,7 @@ packaging==24.0  # Versão mais recente
 # Gymnasium (ambiente de RL) - NOVO!
 # =============================================================================
 gymnasium==0.29.1
+brotli==1.1.0
 
 # =============================================================================
 # Utilitários e Monitoramento
