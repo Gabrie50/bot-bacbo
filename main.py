@@ -4707,17 +4707,38 @@ def buscar_api_normal():
 
 
 # =============================================================================
-# 🚀 FUNÇÃO PARA CARREGAR MÁXIMO DE RODADAS DA API NORMAL (VERSÃO COM SUPORTE A BROTLI)
+# 🚀 FUNÇÃO PARA CARREGAR MÁXIMO DE RODADAS DA API NORMAL (VERSÃO COM AUTO-INSTALAÇÃO)
 # =============================================================================
 
 def carregar_todas_rodadas_possiveis(limite_paginas=200):
     """
     Carrega o MÁXIMO possível de rodadas da API Normal
-    VERSÃO COM SUPORTE A BROTLI (br), GZIP E ZLIB
+    VERSÃO COM TENTATIVA DE INSTALAÇÃO AUTOMÁTICA DO BROTLI
     """
     print("\n" + "="*80)
     print("📚 CARREGANDO MÁXIMO DE RODADAS DA API NORMAL")
     print("="*80)
+    
+    # =====================================================================
+    # TENTAR INSTALAR/IMPORTAR BROTLI AUTOMATICAMENTE
+    # =====================================================================
+    try:
+        import brotli
+        tem_brotli = True
+        print("✅ Suporte a Brotli disponível")
+    except ImportError:
+        print("⚠️ Brotli não encontrado. Tentando instalar automaticamente...")
+        try:
+            import subprocess
+            import sys
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "brotli"])
+            print("✅ Brotli instalado com sucesso!")
+            import brotli
+            tem_brotli = True
+        except:
+            print("❌ Falha ao instalar Brotli. As rodadas NÃO serão carregadas.")
+            print("   Para instalar manualmente: pip install brotli")
+            tem_brotli = False
     
     total_carregadas = 0
     total_duplicadas = 0
@@ -4731,7 +4752,7 @@ def carregar_todas_rodadas_possiveis(limite_paginas=200):
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'application/json, text/plain, */*',
         'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Accept-Encoding': 'gzip, deflate, br',  # Importante: aceitar Brotli também
+        'Accept-Encoding': 'gzip, deflate, br',
         'Origin': 'https://www.casino.org',
         'Referer': 'https://www.casino.org/',
         'Connection': 'keep-alive',
@@ -4740,17 +4761,7 @@ def carregar_todas_rodadas_possiveis(limite_paginas=200):
     }
     
     print("\n⏳ Carregando páginas até não haver mais dados...")
-    print("   (usando headers de navegador real com suporte a gzip, deflate e brotli)")
-    
-    # Tentar importar brotli (se não tiver, instalar)
-    try:
-        import brotli
-        tem_brotli = True
-        print("   ✅ Suporte a Brotli disponível")
-    except ImportError:
-        tem_brotli = False
-        print("   ⚠️ Brotli não disponível - rodadas podem não carregar")
-        print("   💡 Para instalar: pip install brotli")
+    print("   (usando headers de navegador real)")
     
     while (paginas_consecutivas_sem_novas < 3 and pagina < limite_paginas 
            and erros_consecutivos < 5):
@@ -4792,20 +4803,19 @@ def carregar_todas_rodadas_possiveis(limite_paginas=200):
             
             response.raise_for_status()
             
-            # 🔴 CORREÇÃO: Descomprimir baseado no Content-Encoding
+            # DESCOMPRESSÃO BASEADA NO ENCODING
             dados = None
             conteudo = response.content
             
-            # Tentar descomprimir baseado no encoding
             try:
                 if content_encoding == 'br':
                     if tem_brotli:
                         # Descomprimir Brotli
                         conteudo_decomp = brotli.decompress(conteudo)
                         dados = json.loads(conteudo_decomp.decode('utf-8'))
-                        print(f" ✅ Brotli descomprimido", end='')
+                        print(f" ✅ Brotli OK", end='')
                     else:
-                        print(f" ❌ Brotli não suportado (instale brotli)", end='')
+                        print(f" ❌ Brotli não disponível", end='')
                         erros_consecutivos += 1
                         pagina += 1
                         continue
@@ -4818,45 +4828,42 @@ def carregar_todas_rodadas_possiveis(limite_paginas=200):
                     with gzip.GzipFile(fileobj=compressed_data) as gz:
                         conteudo_decomp = gz.read()
                     dados = json.loads(conteudo_decomp.decode('utf-8'))
-                    print(f" ✅ Gzip descomprimido", end='')
+                    print(f" ✅ Gzip OK", end='')
                     
                 elif content_encoding == 'deflate':
                     # Descomprimir DEFLATE
                     import zlib
                     conteudo_decomp = zlib.decompress(conteudo, -zlib.MAX_WBITS)
                     dados = json.loads(conteudo_decomp.decode('utf-8'))
-                    print(f" ✅ Deflate descomprimido", end='')
+                    print(f" ✅ Deflate OK", end='')
                     
                 else:
-                    # Sem compressão, tentar JSON direto
+                    # Sem compressão
                     dados = response.json()
                     print(f" ✅ JSON direto", end='')
                     
             except Exception as e:
-                print(f" ❌ Falha na descompressão: {str(e)[:50]}")
-                print(f"   Primeiros bytes: {conteudo[:50]}")
+                print(f" ❌ Erro: {str(e)[:30]}")
                 erros_consecutivos += 1
                 pagina += 1
                 continue
             
-            if dados is None:
-                print(f" ❌ Não foi possível obter dados")
+            if dados is None or len(dados) == 0:
+                print(f" ⚠️ Sem dados")
+                if len(dados) == 0:
+                    print(f" ✅ Fim das páginas")
+                    break
                 erros_consecutivos += 1
                 pagina += 1
                 continue
             
             # Reset contador de erros
             erros_consecutivos = 0
-            
-            if not dados or len(dados) == 0:
-                print(f" ✅ API não retornou dados (fim das páginas)")
-                break
-            
             print(f" 📦 {len(dados)} itens", end='')
             
             conn = get_db_connection()
             if not conn:
-                print(f" ⚠️ Sem conexão com banco")
+                print(f" ⚠️ Sem banco")
                 pagina += 1
                 continue
             
@@ -4886,7 +4893,6 @@ def carregar_todas_rodadas_possiveis(limite_paginas=200):
                     else:
                         resultado = 'TIE'
                     
-                    # Tratamento robusto da data
                     settled_at = data.get('settledAt', '')
                     if settled_at:
                         try:
@@ -4900,7 +4906,6 @@ def carregar_todas_rodadas_possiveis(limite_paginas=200):
                     if not rodada_id:
                         continue
                     
-                    # INSERT com ON CONFLICT
                     cur.execute('''
                         INSERT INTO rodadas 
                         (id, data_hora, player_score, banker_score, soma, resultado, fonte, dados_json)
@@ -4923,7 +4928,6 @@ def carregar_todas_rodadas_possiveis(limite_paginas=200):
                         rodadas_duplicadas += 1
                         
                 except Exception as e:
-                    print(f"\n      ⚠️ Erro no item {idx}: {str(e)[:50]}...")
                     continue
             
             conn.commit()
@@ -4935,7 +4939,7 @@ def carregar_todas_rodadas_possiveis(limite_paginas=200):
             # Mostrar progresso
             print(f" → +{rodadas_novas:3d} novas", end='')
             if rodadas_duplicadas > 0:
-                print(f" (🔄 {rodadas_duplicadas} duplicadas)", end='')
+                print(f" (🔄 {rodadas_duplicadas} dup)", end='')
             print(f" em {tempo_pagina:.1f}s", end='')
             
             if rodadas_novas > 0:
@@ -4946,27 +4950,14 @@ def carregar_todas_rodadas_possiveis(limite_paginas=200):
             
             if rodadas_novas == 0:
                 paginas_consecutivas_sem_novas += 1
-                print(f"   ⚠️ Página sem rodadas novas ({paginas_consecutivas_sem_novas}/3)")
             else:
                 paginas_consecutivas_sem_novas = 0
             
             pagina += 1
             time.sleep(0.5)
             
-        except requests.exceptions.Timeout:
-            print(f"⚠️ Timeout - tentando novamente...")
-            erros_consecutivos += 1
-            time.sleep(3)
-            continue
-            
-        except requests.exceptions.ConnectionError as e:
-            print(f"⚠️ Erro de conexão: {e}")
-            erros_consecutivos += 1
-            pagina += 1
-            time.sleep(3)
-            
         except Exception as e:
-            print(f"⚠️ Erro: {str(e)[:100]}")
+            print(f" ⚠️ Erro: {str(e)[:50]}")
             erros_consecutivos += 1
             pagina += 1
             time.sleep(2)
@@ -4982,45 +4973,15 @@ def carregar_todas_rodadas_possiveis(limite_paginas=200):
     print("\n" + "="*80)
     print("✅ CARGA HISTÓRICA CONCLUÍDA!")
     print(f"📊 Total de rodadas carregadas: {total_carregadas}")
-    print(f"🔄 Total de duplicadas ignoradas: {total_duplicadas}")
-    print(f"📊 Páginas processadas: {pagina}")
-    print(f"⏱️ Tempo total: {tempo_total:.1f} segundos")
+    print(f"🔄 Duplicadas ignoradas: {total_duplicadas}")
+    print(f"📊 Páginas: {pagina}")
+    print(f"⏱️ Tempo: {tempo_total:.1f}s")
     
-    if tempo_total > 0:
-        print(f"🚀 Velocidade média: {total_carregadas/tempo_total:.1f} rodadas/s")
-    
-    # Buscar informações das datas
-    conn = get_db_connection()
-    if conn:
-        try:
-            cur = conn.cursor()
-            cur.execute('''
-                SELECT 
-                    COUNT(*) as total,
-                    MIN(data_hora) as data_mais_antiga,
-                    MAX(data_hora) as data_mais_recente
-                FROM rodadas 
-                WHERE fonte = 'historico_api'
-            ''')
-            row = cur.fetchone()
-            if row and row[0] > 0:
-                print(f"\n📅 Período coberto:")
-                print(f"   • Rodada mais antiga: {row[1]}")
-                print(f"   • Rodada mais recente: {row[2]}")
-                print(f"   • Total no banco: {row[0]}")
-            cur.close()
-            conn.close()
-        except:
-            pass
-    
-    print("="*80)
-    
-    # Atualizar cache
     if total_carregadas > 0:
         atualizar_dados_leves()
+        print(f"\n📊 Total no banco agora: {cache['leves']['total_rodadas']}")
     
     return total_carregadas
-
     
 # =============================================================================
 # FONTE 3: API NORMAL (CARGA HISTÓRICA COMPLETA) - CORRIGIDA
