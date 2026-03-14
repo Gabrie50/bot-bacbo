@@ -4707,13 +4707,13 @@ def buscar_api_normal():
 
 
 # =============================================================================
-# 🚀 FUNÇÃO PARA CARREGAR MÁXIMO DE RODADAS DA API NORMAL (VERSÃO COM HEADERS REAIS)
+# 🚀 FUNÇÃO PARA CARREGAR MÁXIMO DE RODADAS DA API NORMAL (VERSÃO COM SUPORTE A GZIP)
 # =============================================================================
 
 def carregar_todas_rodadas_possiveis(limite_paginas=200):
     """
     Carrega o MÁXIMO possível de rodadas da API Normal
-    VERSÃO COM HEADERS DE NAVEGADOR REAL
+    VERSÃO COM SUPORTE A RESPOSTAS COMPRIMIDAS (gzip)
     """
     print("\n" + "="*80)
     print("📚 CARREGANDO MÁXIMO DE RODADAS DA API NORMAL")
@@ -4731,22 +4731,16 @@ def carregar_todas_rodadas_possiveis(limite_paginas=200):
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'application/json, text/plain, */*',
         'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Accept-Encoding': 'gzip, deflate, br',
+        'Accept-Encoding': 'gzip, deflate, br',  # Importante: aceitar compressão
         'Origin': 'https://www.casino.org',
         'Referer': 'https://www.casino.org/',
-        'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-        'Sec-Ch-Ua-Mobile': '?0',
-        'Sec-Ch-Ua-Platform': '"Windows"',
-        'Sec-Fetch-Dest': 'empty',
-        'Sec-Fetch-Mode': 'cors',
-        'Sec-Fetch-Site': 'same-site',
         'Connection': 'keep-alive',
         'Cache-Control': 'no-cache',
         'Pragma': 'no-cache'
     }
     
     print("\n⏳ Carregando páginas até não haver mais dados...")
-    print("   (usando headers de navegador real)")
+    print("   (usando headers de navegador real com suporte a gzip)")
     
     while (paginas_consecutivas_sem_novas < 3 and pagina < limite_paginas 
            and erros_consecutivos < 5):
@@ -4774,26 +4768,66 @@ def carregar_todas_rodadas_possiveis(limite_paginas=200):
             
             # Verificar se a resposta é JSON ou HTML
             content_type = response.headers.get('Content-Type', '')
+            content_encoding = response.headers.get('Content-Encoding', '')
+            
+            print(f" [Status: {response.status_code}]", end='')
+            print(f" [Encoding: {content_encoding}]", end='')
+            
             if 'text/html' in content_type:
-                print(f"⚠️ API retornou HTML (possível bloqueio)")
-                print(f"   Status: {response.status_code}")
-                print(f"   Content-Type: {content_type}")
+                print(f" ⚠️ HTML recebido (possível bloqueio)")
                 erros_consecutivos += 1
                 pagina += 1
-                time.sleep(5)  # Esperar mais tempo
+                time.sleep(5)
                 continue
             
             response.raise_for_status()
-            dados = response.json()
+            
+            # 🔴 CORREÇÃO: Tentar diferentes formas de obter os dados
+            dados = None
+            
+            # Tentativa 1: response.json() (se já estiver descomprimido)
+            try:
+                dados = response.json()
+                print(f" ✅ JSON direto", end='')
+            except:
+                # Tentativa 2: Se falhou, pode ser gzip que não foi descomprimido
+                try:
+                    import gzip
+                    from io import BytesIO
+                    
+                    # Descomprimir manualmente
+                    compressed_data = BytesIO(response.content)
+                    decompressed_data = gzip.decompress(compressed_data.read())
+                    dados = json.loads(decompressed_data.decode('utf-8'))
+                    print(f" ✅ Gzip descomprimido", end='')
+                except:
+                    # Tentativa 3: Se ainda falhou, tentar com zlib
+                    try:
+                        import zlib
+                        decompressed_data = zlib.decompress(response.content, 16+zlib.MAX_WBITS)
+                        dados = json.loads(decompressed_data.decode('utf-8'))
+                        print(f" ✅ Zlib descomprimido", end='')
+                    except Exception as e2:
+                        print(f" ❌ Falha na descompressão: {str(e2)[:50]}")
+                        print(f"\n   Primeiros bytes: {response.content[:50]}")
+                        erros_consecutivos += 1
+                        pagina += 1
+                        continue
+            
+            if dados is None:
+                print(f" ❌ Não foi possível obter dados")
+                erros_consecutivos += 1
+                pagina += 1
+                continue
             
             # Reset contador de erros
             erros_consecutivos = 0
             
             if not dados or len(dados) == 0:
-                print(f"✅ API não retornou dados (fim das páginas)")
+                print(f" ✅ API não retornou dados (fim das páginas)")
                 break
             
-            print(f"📦 {len(dados)} itens recebidos", end='')
+            print(f" 📦 {len(dados)} itens", end='')
             
             conn = get_db_connection()
             if not conn:
@@ -4892,7 +4926,7 @@ def carregar_todas_rodadas_possiveis(limite_paginas=200):
                 paginas_consecutivas_sem_novas = 0
             
             pagina += 1
-            time.sleep(1)  # Pausa de 1 segundo entre páginas
+            time.sleep(0.5)
             
         except requests.exceptions.Timeout:
             print(f"⚠️ Timeout - tentando novamente...")
