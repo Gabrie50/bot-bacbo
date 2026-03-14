@@ -4707,13 +4707,13 @@ def buscar_api_normal():
 
 
 # =============================================================================
-# 🚀 FUNÇÃO PARA CARREGAR MÁXIMO DE RODADAS DA API NORMAL (VERSÃO COM SUPORTE A GZIP)
+# 🚀 FUNÇÃO PARA CARREGAR MÁXIMO DE RODADAS DA API NORMAL (VERSÃO COM SUPORTE A BROTLI)
 # =============================================================================
 
 def carregar_todas_rodadas_possiveis(limite_paginas=200):
     """
     Carrega o MÁXIMO possível de rodadas da API Normal
-    VERSÃO COM SUPORTE A RESPOSTAS COMPRIMIDAS (gzip)
+    VERSÃO COM SUPORTE A BROTLI (br), GZIP E ZLIB
     """
     print("\n" + "="*80)
     print("📚 CARREGANDO MÁXIMO DE RODADAS DA API NORMAL")
@@ -4731,7 +4731,7 @@ def carregar_todas_rodadas_possiveis(limite_paginas=200):
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'application/json, text/plain, */*',
         'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Accept-Encoding': 'gzip, deflate, br',  # Importante: aceitar compressão
+        'Accept-Encoding': 'gzip, deflate, br',  # Importante: aceitar Brotli também
         'Origin': 'https://www.casino.org',
         'Referer': 'https://www.casino.org/',
         'Connection': 'keep-alive',
@@ -4740,7 +4740,17 @@ def carregar_todas_rodadas_possiveis(limite_paginas=200):
     }
     
     print("\n⏳ Carregando páginas até não haver mais dados...")
-    print("   (usando headers de navegador real com suporte a gzip)")
+    print("   (usando headers de navegador real com suporte a gzip, deflate e brotli)")
+    
+    # Tentar importar brotli (se não tiver, instalar)
+    try:
+        import brotli
+        tem_brotli = True
+        print("   ✅ Suporte a Brotli disponível")
+    except ImportError:
+        tem_brotli = False
+        print("   ⚠️ Brotli não disponível - rodadas podem não carregar")
+        print("   💡 Para instalar: pip install brotli")
     
     while (paginas_consecutivas_sem_novas < 3 and pagina < limite_paginas 
            and erros_consecutivos < 5):
@@ -4766,9 +4776,9 @@ def carregar_todas_rodadas_possiveis(limite_paginas=200):
                 timeout=30
             )
             
-            # Verificar se a resposta é JSON ou HTML
+            # Verificar encoding e content type
             content_type = response.headers.get('Content-Type', '')
-            content_encoding = response.headers.get('Content-Encoding', '')
+            content_encoding = response.headers.get('Content-Encoding', '').lower()
             
             print(f" [Status: {response.status_code}]", end='')
             print(f" [Encoding: {content_encoding}]", end='')
@@ -4782,37 +4792,52 @@ def carregar_todas_rodadas_possiveis(limite_paginas=200):
             
             response.raise_for_status()
             
-            # 🔴 CORREÇÃO: Tentar diferentes formas de obter os dados
+            # 🔴 CORREÇÃO: Descomprimir baseado no Content-Encoding
             dados = None
+            conteudo = response.content
             
-            # Tentativa 1: response.json() (se já estiver descomprimido)
+            # Tentar descomprimir baseado no encoding
             try:
-                dados = response.json()
-                print(f" ✅ JSON direto", end='')
-            except:
-                # Tentativa 2: Se falhou, pode ser gzip que não foi descomprimido
-                try:
-                    import gzip
-                    from io import BytesIO
-                    
-                    # Descomprimir manualmente
-                    compressed_data = BytesIO(response.content)
-                    decompressed_data = gzip.decompress(compressed_data.read())
-                    dados = json.loads(decompressed_data.decode('utf-8'))
-                    print(f" ✅ Gzip descomprimido", end='')
-                except:
-                    # Tentativa 3: Se ainda falhou, tentar com zlib
-                    try:
-                        import zlib
-                        decompressed_data = zlib.decompress(response.content, 16+zlib.MAX_WBITS)
-                        dados = json.loads(decompressed_data.decode('utf-8'))
-                        print(f" ✅ Zlib descomprimido", end='')
-                    except Exception as e2:
-                        print(f" ❌ Falha na descompressão: {str(e2)[:50]}")
-                        print(f"\n   Primeiros bytes: {response.content[:50]}")
+                if content_encoding == 'br':
+                    if tem_brotli:
+                        # Descomprimir Brotli
+                        conteudo_decomp = brotli.decompress(conteudo)
+                        dados = json.loads(conteudo_decomp.decode('utf-8'))
+                        print(f" ✅ Brotli descomprimido", end='')
+                    else:
+                        print(f" ❌ Brotli não suportado (instale brotli)", end='')
                         erros_consecutivos += 1
                         pagina += 1
                         continue
+                        
+                elif content_encoding == 'gzip':
+                    # Descomprimir GZIP
+                    import gzip
+                    from io import BytesIO
+                    compressed_data = BytesIO(conteudo)
+                    with gzip.GzipFile(fileobj=compressed_data) as gz:
+                        conteudo_decomp = gz.read()
+                    dados = json.loads(conteudo_decomp.decode('utf-8'))
+                    print(f" ✅ Gzip descomprimido", end='')
+                    
+                elif content_encoding == 'deflate':
+                    # Descomprimir DEFLATE
+                    import zlib
+                    conteudo_decomp = zlib.decompress(conteudo, -zlib.MAX_WBITS)
+                    dados = json.loads(conteudo_decomp.decode('utf-8'))
+                    print(f" ✅ Deflate descomprimido", end='')
+                    
+                else:
+                    # Sem compressão, tentar JSON direto
+                    dados = response.json()
+                    print(f" ✅ JSON direto", end='')
+                    
+            except Exception as e:
+                print(f" ❌ Falha na descompressão: {str(e)[:50]}")
+                print(f"   Primeiros bytes: {conteudo[:50]}")
+                erros_consecutivos += 1
+                pagina += 1
+                continue
             
             if dados is None:
                 print(f" ❌ Não foi possível obter dados")
@@ -4995,7 +5020,6 @@ def carregar_todas_rodadas_possiveis(limite_paginas=200):
         atualizar_dados_leves()
     
     return total_carregadas
-
 
     
 # =============================================================================
