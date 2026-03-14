@@ -5851,10 +5851,22 @@ if __name__ == "__main__":
             except:
                 pass
             
+            # =====================================================================
+            # 🚀 CARREGAR MÁXIMO DE RODADAS DA API NORMAL (USANDO A FUNÇÃO CORRETA)
+            # =====================================================================
             if cache.get('rl_system'):
-                print("📚 [BACKGROUND] Carregando histórico completo para aprendizado...")
-                analisador = carregar_historico_completo_para_aprendizado(limite_paginas=50)
-                if analisador:
+                print("\n" + "🌟"*40)
+                print("🌟 CARREGANDO MÁXIMO DE RODADAS DA API NORMAL")
+                print("🌟"*40)
+                
+                # 🔴 CORREÇÃO: Chamar a função correta (carregar_todas_rodadas_possiveis)
+                total_rodadas_carregadas = carregar_todas_rodadas_possiveis(limite_paginas=200)
+                
+                if total_rodadas_carregadas > 0:
+                    print(f"\n✅ {total_rodadas_carregadas} rodadas carregadas com sucesso!")
+                    
+                    # Criar analisador de erros após ter dados
+                    analisador = AnalisadorDeErros(cache['rl_system'])
                     cache['analisador_erros'] = analisador
                     print("✅ [BACKGROUND] Sistema de análise de erros ativo!")
                     
@@ -5865,6 +5877,12 @@ if __name__ == "__main__":
                     
                     threading.Thread(target=loop_correcao_continua, daemon=True).start()
                     print("🔄 [BACKGROUND] Loop de correção contínua iniciado (1000 agentes)")
+                    
+                    # Mostrar estatísticas atualizadas
+                    carregar_estatisticas_do_banco()
+                else:
+                    print("\n⚠️ Nenhuma rodada carregada da API Normal")
+            # =====================================================================
             
             print("🎯 [BACKGROUND] Ativando sistema ULTRA PRECISÃO...")
             ultra = integrar_ultra_precisao()
