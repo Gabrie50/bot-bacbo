@@ -5417,6 +5417,37 @@ def loop_pesado():
 
 
 # =============================================================================
+# INICIALIZAÇÃO DO SISTEMA (DEFINIDA ANTES DE SER USADA)
+# =============================================================================
+
+def inicializar_sistema():
+    """Inicializa o sistema RL com 1000 agentes"""
+    print("\n🧠 INICIALIZANDO SISTEMA ULTRA PRECISÃO 9.0...")
+    
+    cache['rl_system'] = SistemaRLCompleto()
+    cache['rl_system'].carregar_estado('rl_estado.json')
+    
+    try:
+        with open('padroes.json', 'r') as f:
+            cache['padroes_descobertos'] = json.load(f)
+        print(f"📚 {len(cache['padroes_descobertos'])} padrões carregados")
+    except:
+        cache['padroes_descobertos'] = []
+    
+    print("✅ Sistema RL inicializado com 1000 agentes (800 normais + 200 turbinados)")
+    return cache['rl_system']
+
+
+def salvar_padroes():
+    """Salva padrões descobertos em arquivo"""
+    try:
+        with open('padroes.json', 'w') as f:
+            json.dump(cache['padroes_descobertos'], f, indent=2)
+    except Exception as e:
+        print(f"⚠️ Erro ao salvar padrões: {e}")
+
+
+# =============================================================================
 # 🚀 NOVO SISTEMA DE TREINAMENTO EM MASSA COM 3000 RODADAS
 # =============================================================================
 
@@ -5453,6 +5484,12 @@ class TreinadorMassa3000:
             cur.execute('SELECT COUNT(*) FROM rodadas')
             total = cur.fetchone()[0]
             print(f"📊 Total de rodadas no banco: {total}")
+            
+            if total == 0:
+                print("⚠️ Nenhuma rodada encontrada no banco")
+                cur.close()
+                conn.close()
+                return False
             
             # Carregar as últimas 3000 (ou todas se tiver menos)
             limite = min(3000, total)
@@ -5936,7 +5973,7 @@ def treinar_rl_com_historico(limit=3000):
         print("\n❌ FALHA NO TREINAMENTO EM MASSA")
         print("⚠️ Usando aprendizado online como fallback...")
         
-        # Fallback para o método antigo (mas melhorado)
+        # Fallback para o método antigo
         return _treinar_rl_online_fallback(limit=1000)
     
     return False
@@ -5996,8 +6033,9 @@ def _treinar_rl_online_fallback(limit=1000):
         print(f"❌ Erro no treinamento fallback: {e}")
         return False
 
+
 # =============================================================================
-# MAIN - VERSÃO ULTRA PRECISÃO 9.0 (TURBINADA 95%+) COM MELHORIAS
+# MAIN - VERSÃO ULTRA PRECISÃO 9.0 (TURBINADA 95%+)
 # =============================================================================
 if __name__ == "__main__":
     print("="*80)
@@ -6051,20 +6089,37 @@ if __name__ == "__main__":
             except:
                 pass
             
+            # =====================================================================
+            # 🚀 NOVO: TREINAMENTO EM MASSA COM 3000 RODADAS (PRIORIDADE MÁXIMA)
+            # =====================================================================
             if cache.get('rl_system'):
-                print("📚 [BACKGROUND] Carregando histórico completo para aprendizado...")
-                analisador = carregar_historico_completo_para_aprendizado(limite_paginas=50)
-                if analisador:
-                    cache['analisador_erros'] = analisador
-                    print("✅ [BACKGROUND] Sistema de análise de erros ativo!")
+                print("\n" + "🌟"*40)
+                print("🌟 INICIANDO TREINAMENTO EM MASSA COM 3000 RODADAS DO BANCO")
+                print("🌟"*40)
+                
+                # Executar treinamento completo
+                sucesso = treinar_rl_com_historico(limit=3000)
+                
+                if sucesso:
+                    print("\n✅ SISTEMA TREINADO COM SUCESSO! AGORA VAI FUNCIONAR AO VIVO!")
+                else:
+                    print("\n⚠️ Treinamento em massa falhou - usando aprendizado online como fallback")
                     
-                    print("🧬 [BACKGROUND] Iniciando neuroevolução corretiva com 1000 AGENTES...")
-                    neuro = NeuroEvolucaoCorretiva(cache['rl_system'], num_agentes=1000)
-                    analisador.neuro_treinador = neuro
-                    print("✅ [BACKGROUND] Neuroevolução corretiva ativada com 1000 agentes especialistas!")
-                    
-                    threading.Thread(target=loop_correcao_continua, daemon=True).start()
-                    print("🔄 [BACKGROUND] Loop de correção contínua iniciado (1000 agentes)")
+                    # Fallback para o método antigo
+                    print("📚 [BACKGROUND] Carregando histórico completo para aprendizado (fallback)...")
+                    analisador = carregar_historico_completo_para_aprendizado(limite_paginas=50)
+                    if analisador:
+                        cache['analisador_erros'] = analisador
+                        print("✅ [BACKGROUND] Sistema de análise de erros ativo!")
+                        
+                        print("🧬 [BACKGROUND] Iniciando neuroevolução corretiva com 1000 AGENTES...")
+                        neuro = NeuroEvolucaoCorretiva(cache['rl_system'], num_agentes=1000)
+                        analisador.neuro_treinador = neuro
+                        print("✅ [BACKGROUND] Neuroevolução corretiva ativada com 1000 agentes especialistas!")
+                        
+                        threading.Thread(target=loop_correcao_continua, daemon=True).start()
+                        print("🔄 [BACKGROUND] Loop de correção contínua iniciado (1000 agentes)")
+            # =====================================================================
             
             print("🎯 [BACKGROUND] Ativando sistema ULTRA PRECISÃO...")
             ultra = integrar_ultra_precisao()
