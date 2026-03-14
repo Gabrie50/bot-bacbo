@@ -3989,9 +3989,13 @@ def salvar_previsao_completa_segura(previsao, resultado_real, acertou, contexto,
         return False
 
 # =============================================================================
-# 📊 FUNÇÃO PARA CARREGAR ESTATÍSTICAS DO BANCO DE DADOS (ATUALIZADA)
+# 📊 FUNÇÃO PARA CARREGAR ESTATÍSTICAS DO BANCO DE DADOS (VERSÃO CORRIGIDA)
 # =============================================================================
 def carregar_estatisticas_do_banco():
+    """
+    Carrega estatísticas completas do banco de dados
+    VERSÃO CORRIGIDA - Com mais informações e melhor tratamento
+    """
     print("\n" + "="*80)
     print("📊 CARREGANDO ESTATÍSTICAS DO BANCO DE DADOS")
     print("="*80)
@@ -4004,16 +4008,36 @@ def carregar_estatisticas_do_banco():
     try:
         cur = conn.cursor()
         
+        # =====================================================================
+        # 0. TOTAL DE RODADAS
+        # =====================================================================
         print("\n📊 0. CARREGANDO TOTAL DE RODADAS...")
         cur.execute('SELECT COUNT(*) FROM rodadas')
         row = cur.fetchone()
         if row and row[0] > 0:
             cache['leves']['total_rodadas'] = row[0]
             print(f"   ✅ Total de rodadas no banco: {row[0]}")
+            
+            # Informações adicionais sobre as rodadas
+            cur.execute('''
+                SELECT 
+                    MIN(data_hora) as primeira,
+                    MAX(data_hora) as ultima,
+                    COUNT(DISTINCT DATE(data_hora)) as dias_com_dados
+                FROM rodadas
+            ''')
+            data_row = cur.fetchone()
+            if data_row and data_row[0] and data_row[1]:
+                print(f"   📅 Primeira rodada: {data_row[0]}")
+                print(f"   📅 Última rodada: {data_row[1]}")
+                print(f"   📆 Dias com dados: {data_row[2]}")
         else:
             print("   ⚠️ Nenhuma rodada encontrada no banco")
             cache['leves']['total_rodadas'] = 0
         
+        # =====================================================================
+        # 1. TOTAIS DE PREVISÕES
+        # =====================================================================
         print("\n📊 1. CARREGANDO TOTAIS DE PREVISÕES...")
         cur.execute('''
             SELECT 
@@ -4039,6 +4063,9 @@ def carregar_estatisticas_do_banco():
             cache['estatisticas']['acertos'] = 0
             cache['estatisticas']['erros'] = 0
         
+        # =====================================================================
+        # 2. ÚLTIMAS 20 PREVISÕES
+        # =====================================================================
         print("\n📊 2. CARREGANDO ÚLTIMAS 20 PREVISÕES...")
         cur.execute('''
             SELECT 
@@ -4097,6 +4124,9 @@ def carregar_estatisticas_do_banco():
             print("   ⚠️ Nenhuma previsão recente encontrada")
             cache['estatisticas']['ultimas_20_previsoes'] = []
         
+        # =====================================================================
+        # 3. MANIPULAÇÕES DETECTADAS
+        # =====================================================================
         print("\n📊 3. CARREGANDO MANIPULAÇÕES DETECTADAS...")
         
         cur.execute('''
@@ -4116,6 +4146,9 @@ def carregar_estatisticas_do_banco():
             if cache.get('rl_system'):
                 cache['rl_system'].manipulacoes_detectadas = 0
         
+        # =====================================================================
+        # 4. GERAÇÃO ATUAL
+        # =====================================================================
         print("\n📊 4. CALCULANDO GERAÇÃO ATUAL...")
         
         if cache.get('rl_system'):
@@ -4128,6 +4161,9 @@ def carregar_estatisticas_do_banco():
             else:
                 print(f"   ℹ️ Geração mantida em {cache['rl_system'].geracao} (menos de 100 previsões)")
         
+        # =====================================================================
+        # 5. GERAÇÃO NO BANCO
+        # =====================================================================
         print("\n📊 5. VERIFICANDO GERAÇÃO NO BANCO...")
         
         if cache.get('rl_system'):
@@ -4142,6 +4178,9 @@ def carregar_estatisticas_do_banco():
             else:
                 print(f"   ℹ️ Geração mantida: {cache['rl_system'].geracao}")
         
+        # =====================================================================
+        # 6. ESTATÍSTICAS DOS AGENTES
+        # =====================================================================
         print("\n📊 6. CARREGANDO ESTATÍSTICAS DOS AGENTES...")
         
         if cache.get('rl_system'):
@@ -4168,14 +4207,74 @@ def carregar_estatisticas_do_banco():
                         if row[2] and len(row[2]) > 0:
                             cache['rl_system'].agentes[nome].especialidade = row[2][0]
         
+        # =====================================================================
+        # 7. ESTATÍSTICAS ADICIONAIS DAS RODADAS
+        # =====================================================================
+        print("\n📊 7. CARREGANDO ESTATÍSTICAS DAS RODADAS...")
+        
+        # Distribuição de resultados
+        cur.execute('''
+            SELECT 
+                resultado,
+                COUNT(*) as total,
+                COUNT(*) * 100.0 / (SELECT COUNT(*) FROM rodadas) as percentual
+            FROM rodadas
+            GROUP BY resultado
+            ORDER BY total DESC
+        ''')
+        resultados = cur.fetchall()
+        if resultados:
+            print(f"   📊 Distribuição de resultados:")
+            for res, total, perc in resultados:
+                cor = '🔴' if res == 'BANKER' else '🔵' if res == 'PLAYER' else '🟡'
+                print(f"      {cor} {res}: {total} ({perc:.1f}%)")
+        
+        # Rodadas por fonte
+        cur.execute('''
+            SELECT 
+                fonte,
+                COUNT(*) as total
+            FROM rodadas
+            GROUP BY fonte
+            ORDER BY total DESC
+        ''')
+        fontes = cur.fetchall()
+        if fontes:
+            print(f"   📊 Rodadas por fonte:")
+            for fonte, total in fontes:
+                print(f"      • {fonte}: {total}")
+        
+        # Média de scores
+        cur.execute('''
+            SELECT 
+                AVG(player_score) as media_player,
+                AVG(banker_score) as media_banker,
+                MAX(player_score) as max_player,
+                MAX(banker_score) as max_banker
+            FROM rodadas
+        ''')
+        scores = cur.fetchone()
+        if scores:
+            print(f"   📊 Estatísticas de scores:")
+            print(f"      • Média PLAYER: {scores[0]:.2f}")
+            print(f"      • Média BANKER: {scores[1]:.2f}")
+            print(f"      • Máx PLAYER: {scores[2]}")
+            print(f"      • Máx BANKER: {scores[3]}")
+        
         cur.close()
         conn.close()
         
-        print("\n📊 7. ATUALIZANDO CACHE LEVE...")
+        # =====================================================================
+        # 8. ATUALIZANDO CACHE LEVE
+        # =====================================================================
+        print("\n📊 8. ATUALIZANDO CACHE LEVE...")
         atualizar_dados_leves()
         print(f"   ✅ Cache atualizado: {cache['leves']['total_rodadas']} rodadas")
         
-        print("\n📊 8. ATUALIZANDO ESTRATÉGIAS DOS AGENTES...")
+        # =====================================================================
+        # 9. ATUALIZANDO ESTRATÉGIAS DOS AGENTES
+        # =====================================================================
+        print("\n📊 9. ATUALIZANDO ESTRATÉGIAS DOS AGENTES...")
         
         if cache.get('rl_system'):
             for nome, agente in cache['rl_system'].agentes.items():
@@ -4185,6 +4284,9 @@ def carregar_estatisticas_do_banco():
                     cache['estatisticas']['estrategias'][nome]['total'] = agente.total_uso
             print(f"   ✅ Estratégias atualizadas para {len(cache['rl_system'].agentes)} agentes")
         
+        # =====================================================================
+        # 10. RESUMO FINAL
+        # =====================================================================
         print("\n" + "="*80)
         print("📊 RESUMO DO CARREGAMENTO:")
         print(f"   ✅ Rodadas totais: {cache['leves']['total_rodadas']}")
@@ -4208,7 +4310,7 @@ def carregar_estatisticas_do_banco():
         import traceback
         traceback.print_exc()
         return False
-
+        
 # =============================================================================
 # 🔍 FUNÇÕES DO BANCO (LEVES)
 # =============================================================================
@@ -4605,71 +4707,80 @@ def buscar_api_normal():
 
 
 # =============================================================================
-# 🚀 FUNÇÃO PARA CARREGAR 3000 RODADAS DA API NORMAL (VERSÃO ULTRA RÁPIDA)
+# 🚀 FUNÇÃO PARA CARREGAR MÁXIMO DE RODADAS DA API NORMAL (VERSÃO FINAL)
 # =============================================================================
 
-def carregar_historico_completo_para_aprendizado(limite_paginas=100):
+def carregar_todas_rodadas_possiveis(limite_paginas=200):
     """
-    Versão ULTRA RÁPIDA - Carrega até 100 rodadas por SEGUNDO
-    SEM simulação, SEM análise de erros, SEM aprendizado online
+    Carrega o MÁXIMO possível de rodadas da API Normal
+    - Sem limite de 3000 - carrega até a API parar de retornar dados
+    - SEM simulação, SEM análise de erros
+    - Apenas INSERT direto no banco
+    - Mostra estatísticas completas
     """
     print("\n" + "="*80)
-    print("📚 CARREGANDO 3000 RODADAS DA API NORMAL (MODO RÁPIDO)")
+    print("📚 CARREGANDO MÁXIMO DE RODADAS DA API NORMAL")
     print("="*80)
     
-    META_RODADAS = 3000
     total_carregadas = 0
+    total_duplicadas = 0
     pagina = 0
-    paginas_sem_novidades = 0
+    paginas_consecutivas_sem_novas = 0
     inicio_total = time.time()
     
-    # Headers completos (como navegador)
+    # Headers completos (como navegador real)
     headers_completos = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'application/json, text/plain, */*',
         'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
         'Origin': 'https://www.casino.org',
         'Referer': 'https://www.casino.org/',
-        'Connection': 'keep-alive'
+        'Connection': 'keep-alive',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
     }
     
-    print("\n⏳ Carregando páginas até atingir 3000 rodadas...")
-    print("   (deve levar 30-60 segundos)")
+    print("\n⏳ Carregando páginas até não haver mais dados...")
+    print("   (pode levar alguns minutos dependendo da API)")
     
-    while total_carregadas < META_RODADAS and pagina < limite_paginas:
+    while paginas_consecutivas_sem_novas < 3 and pagina < limite_paginas:
         conn = None
         cur = None
         inicio_pagina = time.time()
         
         try:
-            print(f"\n📥 Página {pagina:2d}... ", end='', flush=True)
+            print(f"\n📥 Página {pagina:3d}... ", end='', flush=True)
             
             params = {
                 'page': pagina,
-                'size': 100,
+                'size': 100,  # Máximo permitido pela API
                 'sort': 'data.settledAt,desc',
                 '_t': int(time.time() * 1000)
             }
             
-            response = session.get(API_URL, params=params, headers=headers_completos, timeout=15)
+            response = session.get(API_URL, params=params, headers=headers_completos, timeout=30)
             response.raise_for_status()
             dados = response.json()
             
             if not dados or len(dados) == 0:
-                print(f"✅ Fim das páginas")
+                print(f"✅ API não retornou dados (fim das páginas)")
                 break
+            
+            print(f"📦 {len(dados)} itens recebidos", end='')
             
             conn = get_db_connection()
             if not conn:
-                print(f"⚠️ Sem conexão")
+                print(f" ⚠️ Sem conexão com banco")
                 pagina += 1
                 continue
             
             cur = conn.cursor()
             rodadas_novas = 0
+            rodadas_duplicadas = 0
             
-            # Processar cada item da página (SOMENTE INSERT)
-            for item in dados:
+            # Processar cada item da página
+            for idx, item in enumerate(dados):
                 try:
                     data = item.get('data', {})
                     if not data:
@@ -4690,11 +4801,14 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
                     else:
                         resultado = 'TIE'
                     
+                    # Tratamento robusto da data
                     settled_at = data.get('settledAt', '')
                     if settled_at:
                         try:
+                            # Remove 'Z' e converte
                             data_hora = datetime.fromisoformat(settled_at.replace('Z', '+00:00'))
                         except:
+                            # Se falhar, usa data atual
                             data_hora = datetime.now(timezone.utc)
                     else:
                         data_hora = datetime.now(timezone.utc)
@@ -4703,7 +4817,7 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
                     if not rodada_id:
                         continue
                     
-                    # INSERT direto, sem frescura
+                    # INSERT com ON CONFLICT para evitar duplicatas
                     cur.execute('''
                         INSERT INTO rodadas 
                         (id, data_hora, player_score, banker_score, soma, resultado, fonte, dados_json)
@@ -4722,34 +4836,57 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
                     
                     if cur.rowcount > 0:
                         rodadas_novas += 1
-                        total_carregadas += 1
+                    else:
+                        rodadas_duplicadas += 1
                         
                 except Exception as e:
-                    # Ignora erros individuais
+                    print(f"\n      ⚠️ Erro no item {idx}: {str(e)[:50]}...")
                     continue
             
             conn.commit()
             
             tempo_pagina = time.time() - inicio_pagina
-            velocidade = rodadas_novas / tempo_pagina if tempo_pagina > 0 else 0
+            total_carregadas += rodadas_novas
+            total_duplicadas += rodadas_duplicadas
             
-            # Mostrar progresso
-            print(f"✅ +{rodadas_novas:3d} rodadas em {tempo_pagina:.1f}s ", end='')
-            print(f"({velocidade:.0f} rodadas/s) - Total: {total_carregadas:4d}/{META_RODADAS}")
+            # Mostrar progresso detalhado
+            print(f" → +{rodadas_novas:3d} novas", end='')
+            if rodadas_duplicadas > 0:
+                print(f" (🔄 {rodadas_duplicadas} duplicadas)", end='')
+            print(f" em {tempo_pagina:.1f}s", end='')
             
+            if rodadas_novas > 0:
+                velocidade = rodadas_novas / tempo_pagina
+                print(f" ({velocidade:.1f}/s)", end='')
+            
+            print(f" | Total: {total_carregadas:5d}")
+            
+            # Se não houve rodadas novas, incrementa contador
             if rodadas_novas == 0:
-                paginas_sem_novidades += 1
+                paginas_consecutivas_sem_novas += 1
+                print(f"   ⚠️ Página sem rodadas novas ({paginas_consecutivas_sem_novas}/3)")
             else:
-                paginas_sem_novidades = 0
+                paginas_consecutivas_sem_novas = 0
             
             pagina += 1
-            time.sleep(0.3)  # Pausa pequena entre páginas
+            time.sleep(0.5)  # Pausa para não sobrecarregar a API
+            
+        except requests.exceptions.Timeout:
+            print(f"⚠️ Timeout - tentando novamente...")
+            time.sleep(2)
+            continue
+            
+        except requests.exceptions.ConnectionError as e:
+            print(f"⚠️ Erro de conexão: {e}")
+            paginas_consecutivas_sem_novas += 1
+            pagina += 1
+            time.sleep(3)
             
         except Exception as e:
-            print(f"⚠️ Erro: {e}")
-            paginas_sem_novidades += 1
+            print(f"⚠️ Erro: {str(e)[:100]}")
+            paginas_consecutivas_sem_novas += 1
             pagina += 1
-            time.sleep(1)
+            time.sleep(2)
         
         finally:
             if cur:
@@ -4762,18 +4899,45 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
     print("\n" + "="*80)
     print("✅ CARGA HISTÓRICA CONCLUÍDA!")
     print(f"📊 Total de rodadas carregadas: {total_carregadas}")
+    print(f"🔄 Total de duplicadas ignoradas: {total_duplicadas}")
     print(f"📊 Páginas processadas: {pagina}")
     print(f"⏱️ Tempo total: {tempo_total:.1f} segundos")
-    print(f"🚀 Velocidade média: {total_carregadas/tempo_total:.0f} rodadas/s")
+    
+    if tempo_total > 0:
+        print(f"🚀 Velocidade média: {total_carregadas/tempo_total:.1f} rodadas/s")
+    
+    # Buscar informações das datas para saber o período coberto
+    conn = get_db_connection()
+    if conn:
+        try:
+            cur = conn.cursor()
+            cur.execute('''
+                SELECT 
+                    COUNT(*) as total,
+                    MIN(data_hora) as data_mais_antiga,
+                    MAX(data_hora) as data_mais_recente
+                FROM rodadas 
+                WHERE fonte = 'historico_api'
+            ''')
+            row = cur.fetchone()
+            if row and row[0] > 0:
+                print(f"\n📅 Período coberto:")
+                print(f"   • Rodada mais antiga: {row[1]}")
+                print(f"   • Rodada mais recente: {row[2]}")
+                print(f"   • Total no banco: {row[0]}")
+            cur.close()
+            conn.close()
+        except:
+            pass
+    
     print("="*80)
     
-    # Atualizar estatísticas (rápido)
+    # Atualizar cache
     if total_carregadas > 0:
         atualizar_dados_leves()
-        print(f"\n📊 Total no banco agora: {cache['leves']['total_rodadas']}")
     
-    return None  # Não precisa do analisador agora
-
+    return total_carregadas
+    
 # =============================================================================
 # FONTE 3: API NORMAL (CARGA HISTÓRICA COMPLETA) - CORRIGIDA
 # =============================================================================
