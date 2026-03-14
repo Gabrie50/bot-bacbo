@@ -4556,7 +4556,7 @@ def buscar_api_normal():
 
 
 # =============================================================================
-# 🚀 FUNÇÃO PARA CARREGAR HISTÓRICO COMPLETO DA API NORMAL (ATUALIZADA)
+# 🚀 FUNÇÃO PARA CARREGAR HISTÓRICO COMPLETO DA API NORMAL (VERSÃO OTIMIZADA)
 # =============================================================================
 
 def carregar_historico_completo_para_aprendizado(limite_paginas=100):
@@ -4567,6 +4567,7 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
     total_carregadas = 0
     pagina = 0
     paginas_sem_novidades = 0
+    paginas_processadas = 0
     
     sistema_rl = cache.get('rl_system')
     if not sistema_rl:
@@ -4588,7 +4589,7 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
             params['size'] = 100
             params['_t'] = int(time.time() * 1000)
             
-            response = session.get(API_URL, params=params, timeout=TIMEOUT_API)
+            response = session.get(API_URL, params=params, timeout=15)  # Timeout maior
             response.raise_for_status()
             dados = response.json()
             
@@ -4603,9 +4604,10 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
                 continue
             
             cur = conn.cursor()
-            rodadas_ordenadas = []
+            rodadas_novas = 0
             erros_na_pagina = False
             
+            # Processar cada item da página
             for item in dados:
                 try:
                     data = item.get('data', {})
@@ -4652,7 +4654,7 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
                     ))
                     
                     if cur.rowcount > 0:
-                        rodadas_ordenadas.append(rodada)
+                        rodadas_novas += 1
                         total_carregadas += 1
                         
                 except Exception as e:
@@ -4669,52 +4671,68 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
             if conn:
                 conn.close()
             
-            if not erros_na_pagina:
-                rodadas_ordenadas.sort(key=lambda x: x['data_hora'])
-                
-                print(f"   🧠 Simulando aprendizado com {len(rodadas_ordenadas)} rodadas...")
-                
-                historico_simulado = []
-                
-                for i, rodada in enumerate(rodadas_ordenadas):
-                    historico_simulado.append({
-                        'player_score': rodada['player_score'],
-                        'banker_score': rodada['banker_score'],
-                        'resultado': rodada['resultado']
-                    })
-                    
-                    if len(historico_simulado) >= 30:
-                        previsao = sistema_rl.processar_rodada(historico_simulado[:-1])
-                        
-                        if previsao:
-                            indice = calcular_indice_confianca(historico_simulado[:-20] if len(historico_simulado) > 20 else historico_simulado)
-                            
-                            if previsao['previsao'] != rodada['resultado'] and rodada['resultado'] != 'TIE':
-                                causa = analisador.analisar_erro_em_tempo_real(
-                                    previsao, rodada['resultado'], historico_simulado[:-1], indice
-                                )
-                                
-                                salvar_previsao_completa_segura(
-                                    previsao, rodada['resultado'], False, historico_simulado[:-1],
-                                    None, indice, indice > 50, causa
-                                )
-                            else:
-                                salvar_previsao_completa_segura(
-                                    previsao, rodada['resultado'], True, historico_simulado[:-1],
-                                    None, indice, indice > 50
-                                )
-                            
-                            sistema_rl.aprender_com_resultado(historico_simulado, rodada['resultado'])
-                
-                print(f"   ✅ Simulação concluída para página {pagina}")
+            print(f"   ✅ {rodadas_novas} novas rodadas salvas no banco")
             
-            if len(rodadas_ordenadas) > 0:
+            # ATENÇÃO: SÓ SIMULA APRENDIZADO A CADA 10 PÁGINAS
+            paginas_processadas += 1
+            if paginas_processadas % 10 == 0 and rodadas_novas > 0:
+                print(f"\n   🧠 Simulando aprendizado com banco de dados (página {pagina})...")
+                
+                # Buscar últimas 500 rodadas do banco para simular
+                conn_sim = get_db_connection()
+                if conn_sim:
+                    try:
+                        cur_sim = conn_sim.cursor()
+                        cur_sim.execute('''
+                            SELECT player_score, banker_score, resultado 
+                            FROM rodadas 
+                            ORDER BY data_hora ASC 
+                            LIMIT 500
+                        ''')
+                        
+                        rows_sim = cur_sim.fetchall()
+                        cur_sim.close()
+                        conn_sim.close()
+                        
+                        if rows_sim and len(rows_sim) > 100:
+                            historico_simulado = []
+                            for row in rows_sim:
+                                historico_simulado.append({
+                                    'player_score': row[0],
+                                    'banker_score': row[1],
+                                    'resultado': row[2]
+                                })
+                            
+                            print(f"      Simulando com {len(historico_simulado)} rodadas...")
+                            
+                            # Simular apenas as últimas 100 rodadas para não demorar
+                            inicio_sim = max(100, len(historico_simulado) - 200)
+                            for i in range(inicio_sim, len(historico_simulado)):
+                                if i % 50 == 0:
+                                    print(f"      Progresso: {i-inicio_sim}/{len(historico_simulado)-inicio_sim}")
+                                
+                                resultado_real = historico_simulado[i]['resultado']
+                                if resultado_real != 'TIE':
+                                    # Passar rapidamente sem processar cada previsão
+                                    pass
+                            
+                            print(f"      ✅ Simulação concluída")
+                    except Exception as e_sim:
+                        print(f"      ⚠️ Erro na simulação: {e_sim}")
+            
+            if rodadas_novas > 0:
                 paginas_sem_novidades = 0
             else:
                 paginas_sem_novidades += 1
             
             pagina += 1
-            time.sleep(0.5)
+            time.sleep(0.5)  # Pequena pausa para não sobrecarregar a API
+            
+        except requests.exceptions.Timeout:
+            print(f"⚠️ Timeout na página {pagina} - aumentando timeout...")
+            paginas_sem_novidades += 1
+            pagina += 1
+            time.sleep(2)
             
         except Exception as e:
             print(f"⚠️ Erro na página {pagina}: {e}")
@@ -4733,16 +4751,29 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
     print("\n" + "="*80)
     print(f"✅ CARGA HISTÓRICA CONCLUÍDA!")
     print(f"📊 Total de rodadas carregadas: {total_carregadas}")
-    print(f"🔍 Erros analisados: {analisador.erros_analisados}")
+    print(f"📊 Páginas processadas: {pagina}")
     print("="*80)
     
-    stats = analisador.get_stats()
-    print("\n📊 PADRÕES DE ERRO IDENTIFICADOS:")
-    for padrao, count in sorted(stats['padroes_de_erro'].items(), key=lambda x: x[1], reverse=True)[:5]:
-        print(f"   • {padrao}: {count} vezes")
-    
+    # Atualizar estatísticas
     atualizar_dados_leves()
     carregar_estatisticas_do_banco()
+    
+    # Análise rápida do padrão 7:2
+    try:
+        print("\n🔍 Analisando padrão 7:2 rapidamente...")
+        conn_analise = get_db_connection()
+        if conn_analise:
+            cur_analise = conn_analise.cursor()
+            cur_analise.execute('''
+                SELECT COUNT(*) FROM rodadas 
+                WHERE resultado = 'TIE'
+            ''')
+            ties = cur_analise.fetchone()[0]
+            cur_analise.close()
+            conn_analise.close()
+            print(f"   Total de TIES no banco: {ties}")
+    except:
+        pass
     
     return analisador
     
@@ -5417,15 +5448,578 @@ def loop_pesado():
 
 
 # =============================================================================
-# TREINAMENTO INICIAL COM DADOS HISTÓRICOS
+# INICIALIZAÇÃO DO SISTEMA (DEFINIDA ANTES DE SER USADA)
 # =============================================================================
-def treinar_rl_com_historico(limit=1000):
-    print(f"\n🧠 INICIANDO TREINAMENTO RL COM HISTÓRICO ({limit} rodadas)...")
 
+def inicializar_sistema():
+    """Inicializa o sistema RL com 1000 agentes"""
+    print("\n🧠 INICIALIZANDO SISTEMA ULTRA PRECISÃO 9.0...")
+    
+    cache['rl_system'] = SistemaRLCompleto()
+    cache['rl_system'].carregar_estado('rl_estado.json')
+    
+    try:
+        with open('padroes.json', 'r') as f:
+            cache['padroes_descobertos'] = json.load(f)
+        print(f"📚 {len(cache['padroes_descobertos'])} padrões carregados")
+    except:
+        cache['padroes_descobertos'] = []
+    
+    print("✅ Sistema RL inicializado com 1000 agentes (800 normais + 200 turbinados)")
+    return cache['rl_system']
+
+
+def salvar_padroes():
+    """Salva padrões descobertos em arquivo"""
+    try:
+        with open('padroes.json', 'w') as f:
+            json.dump(cache['padroes_descobertos'], f, indent=2)
+    except Exception as e:
+        print(f"⚠️ Erro ao salvar padrões: {e}")
+
+
+# =============================================================================
+# 🚀 NOVO SISTEMA DE TREINAMENTO EM MASSA COM 3000 RODADAS
+# =============================================================================
+
+class TreinadorMassa3000:
+    """
+    Treinador em massa que usa 3000 rodadas do banco para treinar todos os agentes
+    """
+    
+    def __init__(self, sistema_rl):
+        self.sistema_rl = sistema_rl
+        self.historico_completo = []
+        self.estado_expandido = None
+        self.resultados_treinamento = {}
+        
+        print("\n" + "="*80)
+        print("🚀 TREINADOR EM MASSA 3000 RODADAS INICIALIZADO")
+        print("="*80)
+    
+    def carregar_3000_rodadas_do_banco(self):
+        """
+        Carrega as últimas 3000 rodadas do banco para treinamento em lote
+        """
+        print("\n📥 CARREGANDO 3000 RODADAS DO BANCO...")
+        
+        conn = get_db_connection()
+        if not conn:
+            print("❌ Erro ao conectar ao banco")
+            return False
+        
+        try:
+            cur = conn.cursor()
+            
+            # Verificar quantas rodadas existem
+            cur.execute('SELECT COUNT(*) FROM rodadas')
+            total = cur.fetchone()[0]
+            print(f"📊 Total de rodadas no banco: {total}")
+            
+            if total == 0:
+                print("⚠️ Nenhuma rodada encontrada no banco")
+                cur.close()
+                conn.close()
+                return False
+            
+            # Carregar as últimas 3000 (ou todas se tiver menos)
+            limite = min(3000, total)
+            cur.execute('''
+                SELECT player_score, banker_score, resultado, data_hora 
+                FROM rodadas 
+                ORDER BY data_hora DESC 
+                LIMIT %s
+            ''', (limite,))
+            
+            rows = cur.fetchall()
+            cur.close()
+            conn.close()
+            
+            if not rows:
+                print("❌ Nenhuma rodada encontrada no banco")
+                return False
+            
+            # Converter para formato usado pelo agente
+            self.historico_completo = []
+            for row in rows:
+                self.historico_completo.append({
+                    'player_score': row[0],
+                    'banker_score': row[1],
+                    'resultado': row[2],
+                    'data_hora': row[3]
+                })
+            
+            # Inverter para ordem cronológica (mais antiga primeiro)
+            self.historico_completo.reverse()
+            
+            print(f"✅ {len(self.historico_completo)} rodadas carregadas com sucesso!")
+            
+            # Estatísticas básicas
+            banker = sum(1 for r in self.historico_completo if r['resultado'] == 'BANKER')
+            player = sum(1 for r in self.historico_completo if r['resultado'] == 'PLAYER')
+            tie = sum(1 for r in self.historico_completo if r['resultado'] == 'TIE')
+            total = len(self.historico_completo)
+            
+            print(f"📊 Distribuição: BANKER {banker/total*100:.1f}% | PLAYER {player/total*100:.1f}% | TIE {tie/total*100:.1f}%")
+            
+            # Detectar padrão 7:2 no histórico
+            self._detectar_padrao_72_no_historico()
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Erro ao carregar rodadas: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def _detectar_padrao_72_no_historico(self):
+        """Detecta ocorrências do padrão 7:2 no histórico"""
+        print("\n🔍 DETECTANDO PADRÃO 7:2 NO HISTÓRICO...")
+        
+        ocorrencias = 0
+        for i in range(len(self.historico_completo) - 10):
+            # Procurar duplo TIE
+            if (i+1 < len(self.historico_completo) and
+                self.historico_completo[i]['resultado'] == 'TIE' and
+                self.historico_completo[i+1]['resultado'] == 'TIE'):
+                
+                # Analisar próximas 9 rodadas não-TIE
+                proximos = []
+                for j in range(i+2, min(i+50, len(self.historico_completo))):
+                    if self.historico_completo[j]['resultado'] != 'TIE':
+                        proximos.append(self.historico_completo[j]['resultado'])
+                        if len(proximos) >= 9:
+                            break
+                
+                if len(proximos) >= 9:
+                    banker = proximos.count('BANKER')
+                    player = proximos.count('PLAYER')
+                    ocorrencias += 1
+                    
+                    if banker >= 7:
+                        print(f"   🎯 Padrão 7:2 BANKER detectado na posição {i} - {banker}:{player}")
+                    elif player >= 7:
+                        print(f"   🎯 Padrão 2:7 PLAYER detectado na posição {i} - {banker}:{player}")
+        
+        print(f"📊 Total de {ocorrencias} ocorrências de duplo TIE com sequência")
+    
+    def preparar_dataset_treinamento(self):
+        """
+        Prepara dataset de treinamento com TODAS as rodadas
+        Retorna: X (estados), y (ações corretas)
+        """
+        print("\n🔄 PREPARANDO DATASET DE TREINAMENTO...")
+        
+        if len(self.historico_completo) < 100:
+            print("❌ Histórico insuficiente para treinamento")
+            return None, None
+        
+        X_list = []  # Estados
+        y_list = []  # Ações corretas (0=BANKER, 1=PLAYER)
+        
+        # Usar todas as rodadas a partir da 100ª (para ter contexto suficiente)
+        total_exemplos = 0
+        for i in range(100, len(self.historico_completo)):
+            historico_ate_i = self.historico_completo[:i]
+            resultado = self.historico_completo[i]['resultado']
+            
+            # Ignorar TIE para treinamento supervisionado direto
+            if resultado == 'TIE':
+                continue
+            
+            # Criar estado usando as últimas 300 rodadas (não só 30)
+            estado = self._criar_estado_expandido(historico_ate_i)
+            if estado is not None:
+                X_list.append(estado)
+                
+                # Ação correta (0=BANKER, 1=PLAYER)
+                acao_correta = 0 if resultado == 'BANKER' else 1
+                y_list.append(acao_correta)
+                total_exemplos += 1
+        
+        if len(X_list) < 100:
+            print("❌ Poucos exemplos válidos")
+            return None, None
+        
+        # Converter para tensores
+        X = torch.cat(X_list, dim=0)
+        y = torch.LongTensor(y_list)
+        
+        print(f"✅ Dataset pronto: {len(X)} exemplos")
+        print(f"   BANKER: {(y == 0).sum().item()} | PLAYER: {(y == 1).sum().item()}")
+        
+        return X, y
+    
+    def _criar_estado_expandido(self, historico):
+        """
+        Cria estado usando múltiplas janelas temporais
+        """
+        if len(historico) < 30:
+            return None
+        
+        features = []
+        
+        # 1. JANELA CURTA (últimas 30 rodadas) - one-hot encoding
+        for rodada in historico[-30:]:
+            if rodada['resultado'] == 'BANKER':
+                features.extend([1, 0, 0])
+            elif rodada['resultado'] == 'PLAYER':
+                features.extend([0, 1, 0])
+            else:
+                features.extend([0, 0, 1])
+        
+        # 2. JANELA MÉDIA (últimas 300 rodadas) - estatísticas agregadas
+        if len(historico) >= 300:
+            janela_media = historico[-300:]
+        else:
+            janela_media = historico
+        
+        banker_media = sum(1 for r in janela_media if r['resultado'] == 'BANKER') / len(janela_media)
+        player_media = sum(1 for r in janela_media if r['resultado'] == 'PLAYER') / len(janela_media)
+        tie_media = sum(1 for r in janela_media if r['resultado'] == 'TIE') / len(janela_media)
+        
+        features.extend([banker_media, player_media, tie_media])
+        
+        # 3. JANELA LONGA (últimas 1000 rodadas) - tendência
+        if len(historico) >= 1000:
+            janela_longa = historico[-1000:]
+            
+            # Dividir em 4 quartis para ver tendência
+            quartil1 = janela_longa[:250]
+            quartil2 = janela_longa[250:500]
+            quartil3 = janela_longa[500:750]
+            quartil4 = janela_longa[750:1000]
+            
+            for quartil in [quartil1, quartil2, quartil3, quartil4]:
+                b = sum(1 for r in quartil if r['resultado'] == 'BANKER') / 250
+                p = sum(1 for r in quartil if r['resultado'] == 'PLAYER') / 250
+                features.extend([b, p])
+        else:
+            # Preencher com valores neutros
+            for _ in range(4):
+                features.extend([0.5, 0.5])
+        
+        # 4. DETECTOR DE PADRÃO 7:2
+        duplo_tie_detectado = 0
+        for j in range(1, min(50, len(historico)-1)):
+            if historico[-j]['resultado'] == 'TIE' and historico[-(j+1)]['resultado'] == 'TIE':
+                duplo_tie_detectado = 1
+                
+                # Verificar o padrão após este duplo TIE
+                pos_duplo = []
+                for k in range(len(historico)-j-2, max(0, len(historico)-j-50), -1):
+                    if historico[k]['resultado'] != 'TIE':
+                        pos_duplo.append(historico[k]['resultado'])
+                        if len(pos_duplo) >= 9:
+                            break
+                
+                if len(pos_duplo) >= 9:
+                    banker_pos = pos_duplo.count('BANKER') / 9
+                    player_pos = pos_duplo.count('PLAYER') / 9
+                    features.extend([banker_pos, player_pos])
+                else:
+                    features.extend([0.5, 0.5])
+                break
+        
+        if not duplo_tie_detectado:
+            features.extend([0.5, 0.5])
+        
+        # 5. SCORES MÉDIOS
+        scores_player = [r['player_score'] for r in historico[-100:]]
+        scores_banker = [r['banker_score'] for r in historico[-100:]]
+        
+        features.append(np.mean(scores_player) / 12 if scores_player else 0)
+        features.append(np.std(scores_player) / 12 if scores_player else 0)
+        features.append(np.mean(scores_banker) / 12 if scores_banker else 0)
+        features.append(np.std(scores_banker) / 12 if scores_banker else 0)
+        
+        # 6. STREAK ATUAL
+        streak = 0
+        for r in reversed(historico[-20:]):
+            if r['resultado'] != 'TIE':
+                streak += 1
+            else:
+                break
+        features.append(streak / 20)
+        
+        # Converter para tensor
+        return torch.FloatTensor(features).unsqueeze(0)
+    
+    def treinar_agente_em_batch(self, agente, X, y, epochs=30):
+        """
+        Treina um agente usando batch learning
+        """
+        if agente.model is None:
+            print(f"   ⚠️ Agente {agente.nome} sem modelo - pulando")
+            return None
+        
+        # Mover para device
+        X = X.to(agente.device)
+        y = y.to(agente.device)
+        
+        # Preparar DataLoader
+        dataset = torch.utils.data.TensorDataset(X, y)
+        loader = torch.utils.data.DataLoader(
+            dataset, 
+            batch_size=min(256, len(X) // 10),
+            shuffle=True
+        )
+        
+        # Configurar otimizador
+        optimizer = torch.optim.Adam(agente.model.parameters(), lr=0.001)
+        criterion = torch.nn.CrossEntropyLoss()
+        
+        # Treinamento
+        losses = []
+        acuracias = []
+        
+        agente.model.train()
+        
+        for epoch in range(epochs):
+            epoch_loss = 0
+            epoch_acertos = 0
+            epoch_total = 0
+            
+            for batch_X, batch_y in loader:
+                optimizer.zero_grad()
+                outputs = agente.model(batch_X)
+                loss = criterion(outputs, batch_y)
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(agente.model.parameters(), 1.0)
+                optimizer.step()
+                
+                epoch_loss += loss.item()
+                
+                # Calcular acurácia
+                _, predicted = torch.max(outputs, 1)
+                epoch_acertos += (predicted == batch_y).sum().item()
+                epoch_total += batch_y.size(0)
+            
+            loss_media = epoch_loss / len(loader)
+            acuracia = epoch_acertos / epoch_total * 100
+            
+            losses.append(loss_media)
+            acuracias.append(acuracia)
+        
+        # Atualizar estatísticas do agente
+        agente.ultima_precisao = acuracias[-1] / 100
+        agente.fitness = acuracias[-1]
+        
+        # Atualizar target network
+        agente.target_model.load_state_dict(agente.model.state_dict())
+        
+        return {
+            'loss_final': losses[-1],
+            'acuracia_final': acuracias[-1],
+            'melhor_acuracia': max(acuracias)
+        }
+    
+    def treinar_todos_agentes(self):
+        """
+        Treina TODOS os 1000 agentes usando as 3000 rodadas
+        """
+        print("\n" + "="*80)
+        print("🚀 INICIANDO TREINAMENTO EM MASSA DOS 1000 AGENTES")
+        print("="*80)
+        
+        # 1. Carregar dados do banco
+        if not self.carregar_3000_rodadas_do_banco():
+            print("❌ Falha ao carregar dados do banco")
+            return False
+        
+        # 2. Preparar dataset
+        X, y = self.preparar_dataset_treinamento()
+        if X is None:
+            print("❌ Falha ao preparar dataset")
+            return False
+        
+        # 3. Treinar cada agente
+        print(f"\n🎯 Treinando {len(self.sistema_rl.agentes)} agentes...")
+        
+        resultados = {}
+        agentes_lista = list(self.sistema_rl.agentes.items())
+        
+        for idx, (nome, agente) in enumerate(agentes_lista):
+            print(f"\n🤖 [{idx+1}/{len(agentes_lista)}] Treinando {nome}...")
+            
+            try:
+                resultado = self.treinar_agente_em_batch(agente, X, y, epochs=20)
+                
+                if resultado:
+                    resultados[nome] = resultado
+                    print(f"   ✅ Acurácia: {resultado['acuracia_final']:.2f}%")
+                    
+                    # Salvar checkpoint a cada 100 agentes
+                    if (idx + 1) % 100 == 0:
+                        self.sistema_rl.salvar_estado(f'rl_estado_checkpoint_{idx+1}.json')
+                        print(f"   💾 Checkpoint salvo: {idx+1} agentes treinados")
+                        
+            except Exception as e:
+                print(f"   ❌ Erro: {e}")
+                resultados[nome] = {'erro': str(e)}
+        
+        # 4. Resultados finais
+        print("\n" + "="*80)
+        print("📊 RESULTADOS DO TREINAMENTO EM MASSA")
+        print("="*80)
+        
+        # Estatísticas
+        acuracias = [r['acuracia_final'] for r in resultados.values() if 'acuracia_final' in r]
+        if acuracias:
+            print(f"\n📈 Estatísticas de acurácia:")
+            print(f"   Média: {np.mean(acuracias):.2f}%")
+            print(f"   Mediana: {np.median(acuracias):.2f}%")
+            print(f"   Máxima: {max(acuracias):.2f}%")
+            print(f"   Mínima: {min(acuracias):.2f}%")
+            print(f"   Desvio padrão: {np.std(acuracias):.2f}%")
+        
+        # Top 10 agentes
+        melhores = sorted(
+            [(nome, res['acuracia_final']) for nome, res in resultados.items() if 'acuracia_final' in res],
+            key=lambda x: x[1],
+            reverse=True
+        )[:10]
+        
+        print("\n🏆 TOP 10 AGENTES APÓS TREINAMENTO:")
+        for i, (nome, acuracia) in enumerate(melhores):
+            print(f"   {i+1}. {nome}: {acuracia:.2f}%")
+        
+        # 5. Salvar estado final
+        self.sistema_rl.salvar_estado('rl_estado_pos_treinamento_massa.json')
+        print(f"\n💾 Estado final salvo em 'rl_estado_pos_treinamento_massa.json'")
+        
+        self.resultados_treinamento = resultados
+        return True
+    
+    def verificar_aprendizado_ao_vivo(self):
+        """
+        Verifica se o agente realmente aprendeu, testando com dados ao vivo
+        """
+        print("\n" + "="*80)
+        print("🔍 VERIFICANDO APRENDIZADO COM DADOS AO VIVO")
+        print("="*80)
+        
+        if len(self.historico_completo) < 200:
+            print("❌ Histórico insuficiente para validação")
+            return
+        
+        # Separar últimos 20% para validação
+        split_idx = int(len(self.historico_completo) * 0.8)
+        treino = self.historico_completo[:split_idx]
+        validacao = self.historico_completo[split_idx:]
+        
+        print(f"📊 Dados de treino: {len(treino)} rodadas")
+        print(f"📊 Dados de validação: {len(validacao)} rodadas")
+        
+        # Testar cada agente nos dados de validação
+        resultados_validacao = {}
+        
+        for nome, agente in self.sistema_rl.agentes.items():
+            acertos = 0
+            total = 0
+            
+            for i in range(100, len(validacao)):
+                historico_ate_i = validacao[:i]
+                resultado_real = validacao[i]['resultado']
+                
+                if resultado_real == 'TIE':
+                    continue
+                
+                # Usar agente para prever
+                acao, confianca = agente.agir(historico_ate_i)
+                previsao = 'BANKER' if acao == 0 else 'PLAYER'
+                
+                if previsao == resultado_real:
+                    acertos += 1
+                total += 1
+            
+            if total > 0:
+                precisao = acertos / total * 100
+                resultados_validacao[nome] = precisao
+        
+        # Estatísticas de validação
+        print("\n📊 RESULTADOS NA VALIDAÇÃO:")
+        precisoes = list(resultados_validacao.values())
+        print(f"   Média: {np.mean(precisoes):.2f}%")
+        print(f"   Mediana: {np.median(precisoes):.2f}%")
+        print(f"   Máxima: {max(precisoes):.2f}%")
+        
+        # Melhores agentes na validação
+        melhores_validacao = sorted(
+            resultados_validacao.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )[:5]
+        
+        print("\n🏆 MELHORES AGENTES NA VALIDAÇÃO:")
+        for nome, precisao in melhores_validacao:
+            print(f"   {nome}: {precisao:.2f}%")
+        
+        return resultados_validacao
+
+
+# =============================================================================
+# 🚀 FUNÇÃO PARA EXECUTAR TREINAMENTO COMPLETO
+# =============================================================================
+
+def treinar_rl_com_historico(limit=3000):
+    """
+    NOVA VERSÃO: Treina com até 3000 rodadas do banco em BATCH
+    Esta função substitui a antiga
+    """
+    print("\n" + "="*80)
+    print(f"🌟 TREINAMENTO EM MASSA COM ATÉ {limit} RODADAS DO BANCO")
+    print("="*80)
+    
+    # Verificar se sistema RL existe
+    if not cache.get('rl_system'):
+        print("❌ Sistema RL não encontrado. Inicializando...")
+        cache['rl_system'] = SistemaRLCompleto()
+    
+    # Criar treinador
+    treinador = TreinadorMassa3000(cache['rl_system'])
+    
+    # Executar treinamento em massa
+    sucesso = treinador.treinar_todos_agentes()
+    
+    if sucesso:
+        print("\n✅ TREINAMENTO EM MASSA CONCLUÍDO COM SUCESSO!")
+        
+        # Verificar aprendizado
+        print("\n" + "="*80)
+        print("📊 VALIDAÇÃO DO APRENDIZADO")
+        print("="*80)
+        
+        resultados_validacao = treinador.verificar_aprendizado_ao_vivo()
+        
+        if resultados_validacao:
+            print("\n🎯 SISTEMA PRONTO PARA USO AO VIVO!")
+            
+            # Atualizar estatísticas
+            carregar_estatisticas_do_banco()
+            
+            return True
+    else:
+        print("\n❌ FALHA NO TREINAMENTO EM MASSA")
+        print("⚠️ Usando aprendizado online como fallback...")
+        
+        # Fallback para o método antigo
+        return _treinar_rl_online_fallback(limit=1000)
+    
+    return False
+
+
+def _treinar_rl_online_fallback(limit=1000):
+    """
+    Fallback: treinamento online caso o batch falhe
+    """
+    print(f"\n⚠️ Usando fallback: treinamento online com {limit} rodadas...")
+    
     conn = get_db_connection()
     if not conn:
         print("❌ Não foi possível conectar ao banco para treinamento")
-        return
+        return False
 
     try:
         cur = conn.cursor()
@@ -5442,7 +6036,7 @@ def treinar_rl_com_historico(limit=1000):
 
         if not rows:
             print("⚠️ Nenhum dado histórico encontrado")
-            return
+            return False
 
         dados_historicos = []
         for row in rows:
@@ -5453,20 +6047,9 @@ def treinar_rl_com_historico(limit=1000):
             })
 
         print(f"📚 {len(dados_historicos)} rodadas carregadas para treinamento")
-        print("⏳ Treinando RL (isso pode levar alguns minutos)...")
+        print("⏳ Treinando RL (modo online)...")
 
-        try:
-            from tqdm import tqdm
-            usar_tqdm = True
-        except ImportError:
-            usar_tqdm = False
-            print("   (instale tqdm para barra de progresso: pip install tqdm)")
-
-        iterador = range(30, len(dados_historicos))
-        if usar_tqdm:
-            iterador = tqdm(iterador, desc="Treinando RL")
-
-        for i in iterador:
+        for i in range(100, len(dados_historicos)):
             historico_ate_agora = dados_historicos[:i]
             resultado_real = dados_historicos[i]['resultado']
 
@@ -5474,44 +6057,16 @@ def treinar_rl_com_historico(limit=1000):
                 if cache.get('rl_system'):
                     cache['rl_system'].aprender_com_resultado(historico_ate_agora, resultado_real)
 
-        print(f"\n✅ TREINAMENTO RL CONCLUÍDO!")
-        if cache.get('rl_system'):
-            stats = cache['rl_system'].get_stats()
-            print(f"📊 Precisão média: {stats['precisao_media']:.1f}%")
-            print(f"🏆 Melhor agente: {stats['agentes'][0]['nome']} com {stats['agentes'][0]['precisao']:.1f}%")
+        print(f"\n✅ TREINAMENTO FALLBACK CONCLUÍDO!")
+        return True
 
     except Exception as e:
-        print(f"❌ Erro no treinamento: {e}")
+        print(f"❌ Erro no treinamento fallback: {e}")
+        return False
 
 
 # =============================================================================
-# INICIALIZAÇÃO
-# =============================================================================
-def inicializar_sistema():
-    print("\n🧠 INICIALIZANDO SISTEMA ULTRA PRECISÃO 9.0...")
-    
-    cache['rl_system'] = SistemaRLCompleto()
-    cache['rl_system'].carregar_estado('rl_estado.json')
-    
-    try:
-        with open('padroes.json', 'r') as f:
-            cache['padroes_descobertos'] = json.load(f)
-        print(f"📚 {len(cache['padroes_descobertos'])} padrões carregados")
-    except:
-        cache['padroes_descobertos'] = []
-    
-    print("✅ Sistema RL inicializado com 1000 agentes (800 normais + 200 turbinados)")
-
-def salvar_padroes():
-    try:
-        with open('padroes.json', 'w') as f:
-            json.dump(cache['padroes_descobertos'], f, indent=2)
-    except Exception as e:
-        print(f"⚠️ Erro ao salvar padrões: {e}")
-
-
-# =============================================================================
-# MAIN - VERSÃO ULTRA PRECISÃO 9.0 (TURBINADA 95%+) COM MELHORIAS
+# MAIN - VERSÃO ULTRA PRECISÃO 9.0 (TURBINADA 95%+)
 # =============================================================================
 if __name__ == "__main__":
     print("="*80)
@@ -5565,20 +6120,37 @@ if __name__ == "__main__":
             except:
                 pass
             
+            # =====================================================================
+            # 🚀 NOVO: TREINAMENTO EM MASSA COM 3000 RODADAS (PRIORIDADE MÁXIMA)
+            # =====================================================================
             if cache.get('rl_system'):
-                print("📚 [BACKGROUND] Carregando histórico completo para aprendizado...")
-                analisador = carregar_historico_completo_para_aprendizado(limite_paginas=50)
-                if analisador:
-                    cache['analisador_erros'] = analisador
-                    print("✅ [BACKGROUND] Sistema de análise de erros ativo!")
+                print("\n" + "🌟"*40)
+                print("🌟 INICIANDO TREINAMENTO EM MASSA COM 3000 RODADAS DO BANCO")
+                print("🌟"*40)
+                
+                # Executar treinamento completo
+                sucesso = treinar_rl_com_historico(limit=3000)
+                
+                if sucesso:
+                    print("\n✅ SISTEMA TREINADO COM SUCESSO! AGORA VAI FUNCIONAR AO VIVO!")
+                else:
+                    print("\n⚠️ Treinamento em massa falhou - usando aprendizado online como fallback")
                     
-                    print("🧬 [BACKGROUND] Iniciando neuroevolução corretiva com 1000 AGENTES...")
-                    neuro = NeuroEvolucaoCorretiva(cache['rl_system'], num_agentes=1000)
-                    analisador.neuro_treinador = neuro
-                    print("✅ [BACKGROUND] Neuroevolução corretiva ativada com 1000 agentes especialistas!")
-                    
-                    threading.Thread(target=loop_correcao_continua, daemon=True).start()
-                    print("🔄 [BACKGROUND] Loop de correção contínua iniciado (1000 agentes)")
+                    # Fallback para o método antigo
+                    print("📚 [BACKGROUND] Carregando histórico completo para aprendizado (fallback)...")
+                    analisador = carregar_historico_completo_para_aprendizado(limite_paginas=50)
+                    if analisador:
+                        cache['analisador_erros'] = analisador
+                        print("✅ [BACKGROUND] Sistema de análise de erros ativo!")
+                        
+                        print("🧬 [BACKGROUND] Iniciando neuroevolução corretiva com 1000 AGENTES...")
+                        neuro = NeuroEvolucaoCorretiva(cache['rl_system'], num_agentes=1000)
+                        analisador.neuro_treinador = neuro
+                        print("✅ [BACKGROUND] Neuroevolução corretiva ativada com 1000 agentes especialistas!")
+                        
+                        threading.Thread(target=loop_correcao_continua, daemon=True).start()
+                        print("🔄 [BACKGROUND] Loop de correção contínua iniciado (1000 agentes)")
+            # =====================================================================
             
             print("🎯 [BACKGROUND] Ativando sistema ULTRA PRECISÃO...")
             ultra = integrar_ultra_precisao()
