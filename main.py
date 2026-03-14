@@ -4556,69 +4556,70 @@ def buscar_api_normal():
 
 
 # =============================================================================
-# 🚀 FUNÇÃO PARA CARREGAR HISTÓRICO COMPLETO DA API NORMAL (VERSÃO CORRIGIDA)
+# 🚀 FUNÇÃO PARA CARREGAR 3000 RODADAS DA API NORMAL (VERSÃO ULTRA RÁPIDA)
 # =============================================================================
 
 def carregar_historico_completo_para_aprendizado(limite_paginas=100):
+    """
+    Versão ULTRA RÁPIDA - Carrega até 100 rodadas por SEGUNDO
+    SEM simulação, SEM análise de erros, SEM aprendizado online
+    """
     print("\n" + "="*80)
-    print("📚 CARREGANDO HISTÓRICO COMPLETO PARA APRENDIZADO RL")
+    print("📚 CARREGANDO 3000 RODADAS DA API NORMAL (MODO RÁPIDO)")
     print("="*80)
     
+    META_RODADAS = 3000
     total_carregadas = 0
     pagina = 0
     paginas_sem_novidades = 0
+    inicio_total = time.time()
     
-    sistema_rl = cache.get('rl_system')
-    if not sistema_rl:
-        print("❌ Sistema RL não inicializado")
-        return None
-    
-    analisador = AnalisadorDeErros(sistema_rl)
-    cache['analisador_erros'] = analisador
-    
-    # CORREÇÃO 1: Headers mais completos
-    headers_completos = HEADERS.copy()
-    headers_completos.update({
+    # Headers completos (como navegador)
+    headers_completos = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Accept': 'application/json, text/plain, */*',
         'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
         'Origin': 'https://www.casino.org',
         'Referer': 'https://www.casino.org/',
         'Connection': 'keep-alive'
-    })
+    }
     
-    # CORREÇÃO 2: Timeout maior
-    TIMEOUT_API_LONGO = 30
+    print("\n⏳ Carregando páginas até atingir 3000 rodadas...")
+    print("   (deve levar 30-60 segundos)")
     
-    while paginas_sem_novidades < 3 and pagina < limite_paginas:
+    while total_carregadas < META_RODADAS and pagina < limite_paginas:
         conn = None
         cur = None
+        inicio_pagina = time.time()
         
         try:
-            print(f"\n📥 Buscando página {pagina}...")
+            print(f"\n📥 Página {pagina:2d}... ", end='', flush=True)
             
-            params = API_PARAMS.copy()
-            params['page'] = pagina
-            params['size'] = 100
-            params['_t'] = int(time.time() * 1000)
+            params = {
+                'page': pagina,
+                'size': 100,
+                'sort': 'data.settledAt,desc',
+                '_t': int(time.time() * 1000)
+            }
             
-            response = session.get(API_URL, params=params, headers=headers_completos, timeout=TIMEOUT_API_LONGO)
+            response = session.get(API_URL, params=params, headers=headers_completos, timeout=15)
             response.raise_for_status()
             dados = response.json()
             
             if not dados or len(dados) == 0:
-                print(f"✅ Fim das páginas na página {pagina}")
+                print(f"✅ Fim das páginas")
                 break
             
             conn = get_db_connection()
             if not conn:
-                print(f"⚠️ Sem conexão na página {pagina}")
+                print(f"⚠️ Sem conexão")
                 pagina += 1
                 continue
             
             cur = conn.cursor()
-            rodadas_ordenadas = []
-            erros_na_pagina = False
+            rodadas_novas = 0
             
+            # Processar cada item da página (SOMENTE INSERT)
             for item in dados:
                 try:
                     data = item.get('data', {})
@@ -4640,7 +4641,6 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
                     else:
                         resultado = 'TIE'
                     
-                    # CORREÇÃO 3: Tratamento seguro da data
                     settled_at = data.get('settledAt', '')
                     if settled_at:
                         try:
@@ -4654,125 +4654,76 @@ def carregar_historico_completo_para_aprendizado(limite_paginas=100):
                     if not rodada_id:
                         continue
                     
-                    rodada = {
-                        'id': rodada_id,
-                        'data_hora': data_hora,
-                        'player_score': player_score,
-                        'banker_score': banker_score,
-                        'resultado': resultado,
-                        'fonte': 'historico_api'
-                    }
-                    
+                    # INSERT direto, sem frescura
                     cur.execute('''
                         INSERT INTO rodadas 
                         (id, data_hora, player_score, banker_score, soma, resultado, fonte, dados_json)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (id) DO NOTHING
                     ''', (
-                        rodada['id'],
-                        rodada['data_hora'],
-                        rodada['player_score'],
-                        rodada['banker_score'],
-                        rodada['player_score'] + rodada['banker_score'],
-                        rodada['resultado'],
-                        rodada['fonte'],
+                        rodada_id,
+                        data_hora,
+                        player_score,
+                        banker_score,
+                        player_score + banker_score,
+                        resultado,
+                        'historico_api',
                         json.dumps(item, default=str)
                     ))
                     
                     if cur.rowcount > 0:
-                        rodadas_ordenadas.append(rodada)
+                        rodadas_novas += 1
                         total_carregadas += 1
                         
                 except Exception as e:
-                    print(f"   ⚠️ Erro ao processar item: {e}")
-                    # Não marcar erro na página para não interromper
+                    # Ignora erros individuais
                     continue
             
-            if not erros_na_pagina:
-                conn.commit()
+            conn.commit()
             
+            tempo_pagina = time.time() - inicio_pagina
+            velocidade = rodadas_novas / tempo_pagina if tempo_pagina > 0 else 0
+            
+            # Mostrar progresso
+            print(f"✅ +{rodadas_novas:3d} rodadas em {tempo_pagina:.1f}s ", end='')
+            print(f"({velocidade:.0f} rodadas/s) - Total: {total_carregadas:4d}/{META_RODADAS}")
+            
+            if rodadas_novas == 0:
+                paginas_sem_novidades += 1
+            else:
+                paginas_sem_novidades = 0
+            
+            pagina += 1
+            time.sleep(0.3)  # Pausa pequena entre páginas
+            
+        except Exception as e:
+            print(f"⚠️ Erro: {e}")
+            paginas_sem_novidades += 1
+            pagina += 1
+            time.sleep(1)
+        
+        finally:
             if cur:
                 cur.close()
             if conn:
                 conn.close()
-            
-            if not erros_na_pagina:
-                rodadas_ordenadas.sort(key=lambda x: x['data_hora'])
-                
-                print(f"   🧠 Simulando aprendizado com {len(rodadas_ordenadas)} rodadas...")
-                
-                historico_simulado = []
-                
-                for i, rodada in enumerate(rodadas_ordenadas):
-                    historico_simulado.append({
-                        'player_score': rodada['player_score'],
-                        'banker_score': rodada['banker_score'],
-                        'resultado': rodada['resultado']
-                    })
-                    
-                    if len(historico_simulado) >= 30:
-                        previsao = sistema_rl.processar_rodada(historico_simulado[:-1])
-                        
-                        if previsao:
-                            indice = calcular_indice_confianca(historico_simulado[:-20] if len(historico_simulado) > 20 else historico_simulado)
-                            
-                            if previsao['previsao'] != rodada['resultado'] and rodada['resultado'] != 'TIE':
-                                causa = analisador.analisar_erro_em_tempo_real(
-                                    previsao, rodada['resultado'], historico_simulado[:-1], indice
-                                )
-                                
-                                salvar_previsao_completa_segura(
-                                    previsao, rodada['resultado'], False, historico_simulado[:-1],
-                                    None, indice, indice > 50, causa
-                                )
-                            else:
-                                salvar_previsao_completa_segura(
-                                    previsao, rodada['resultado'], True, historico_simulado[:-1],
-                                    None, indice, indice > 50
-                                )
-                            
-                            sistema_rl.aprender_com_resultado(historico_simulado, rodada['resultado'])
-                
-                print(f"   ✅ Simulação concluída para página {pagina}")
-            
-            if len(rodadas_ordenadas) > 0:
-                paginas_sem_novidades = 0
-            else:
-                paginas_sem_novidades += 1
-            
-            pagina += 1
-            time.sleep(0.5)
-            
-        except Exception as e:
-            print(f"⚠️ Erro na página {pagina}: {e}")
-            
-            if conn:
-                try:
-                    conn.rollback()
-                    conn.close()
-                except:
-                    pass
-            
-            paginas_sem_novidades += 1
-            pagina += 1
-            time.sleep(2)
+    
+    tempo_total = time.time() - inicio_total
     
     print("\n" + "="*80)
-    print(f"✅ CARGA HISTÓRICA CONCLUÍDA!")
+    print("✅ CARGA HISTÓRICA CONCLUÍDA!")
     print(f"📊 Total de rodadas carregadas: {total_carregadas}")
-    print(f"🔍 Erros analisados: {analisador.erros_analisados}")
+    print(f"📊 Páginas processadas: {pagina}")
+    print(f"⏱️ Tempo total: {tempo_total:.1f} segundos")
+    print(f"🚀 Velocidade média: {total_carregadas/tempo_total:.0f} rodadas/s")
     print("="*80)
     
-    stats = analisador.get_stats()
-    print("\n📊 PADRÕES DE ERRO IDENTIFICADOS:")
-    for padrao, count in sorted(stats['padroes_de_erro'].items(), key=lambda x: x[1], reverse=True)[:5]:
-        print(f"   • {padrao}: {count} vezes")
+    # Atualizar estatísticas (rápido)
+    if total_carregadas > 0:
+        atualizar_dados_leves()
+        print(f"\n📊 Total no banco agora: {cache['leves']['total_rodadas']}")
     
-    atualizar_dados_leves()
-    carregar_estatisticas_do_banco()
-    
-    return analisador
-
+    return None  # Não precisa do analisador agora
 
 # =============================================================================
 # FONTE 3: API NORMAL (CARGA HISTÓRICA COMPLETA) - CORRIGIDA
