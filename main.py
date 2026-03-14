@@ -4707,16 +4707,13 @@ def buscar_api_normal():
 
 
 # =============================================================================
-# 🚀 FUNÇÃO PARA CARREGAR MÁXIMO DE RODADAS DA API NORMAL (VERSÃO FINAL)
+# 🚀 FUNÇÃO PARA CARREGAR MÁXIMO DE RODADAS DA API NORMAL (VERSÃO COM HEADERS REAIS)
 # =============================================================================
 
 def carregar_todas_rodadas_possiveis(limite_paginas=200):
     """
     Carrega o MÁXIMO possível de rodadas da API Normal
-    - Sem limite de 3000 - carrega até a API parar de retornar dados
-    - SEM simulação, SEM análise de erros
-    - Apenas INSERT direto no banco
-    - Mostra estatísticas completas
+    VERSÃO COM HEADERS DE NAVEGADOR REAL
     """
     print("\n" + "="*80)
     print("📚 CARREGANDO MÁXIMO DE RODADAS DA API NORMAL")
@@ -4727,24 +4724,32 @@ def carregar_todas_rodadas_possiveis(limite_paginas=200):
     pagina = 0
     paginas_consecutivas_sem_novas = 0
     inicio_total = time.time()
+    erros_consecutivos = 0
     
-    # Headers completos (como navegador real)
-    headers_completos = {
+    # Headers IGUAIS ao de um navegador Chrome real
+    headers_reais = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
+        'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
         'Accept-Encoding': 'gzip, deflate, br',
         'Origin': 'https://www.casino.org',
         'Referer': 'https://www.casino.org/',
+        'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-site',
         'Connection': 'keep-alive',
         'Cache-Control': 'no-cache',
         'Pragma': 'no-cache'
     }
     
     print("\n⏳ Carregando páginas até não haver mais dados...")
-    print("   (pode levar alguns minutos dependendo da API)")
+    print("   (usando headers de navegador real)")
     
-    while paginas_consecutivas_sem_novas < 3 and pagina < limite_paginas:
+    while (paginas_consecutivas_sem_novas < 3 and pagina < limite_paginas 
+           and erros_consecutivos < 5):
         conn = None
         cur = None
         inicio_pagina = time.time()
@@ -4754,14 +4759,35 @@ def carregar_todas_rodadas_possiveis(limite_paginas=200):
             
             params = {
                 'page': pagina,
-                'size': 100,  # Máximo permitido pela API
+                'size': 100,
                 'sort': 'data.settledAt,desc',
                 '_t': int(time.time() * 1000)
             }
             
-            response = session.get(API_URL, params=params, headers=headers_completos, timeout=30)
+            # Fazer requisição com headers reais
+            response = session.get(
+                API_URL, 
+                params=params, 
+                headers=headers_reais, 
+                timeout=30
+            )
+            
+            # Verificar se a resposta é JSON ou HTML
+            content_type = response.headers.get('Content-Type', '')
+            if 'text/html' in content_type:
+                print(f"⚠️ API retornou HTML (possível bloqueio)")
+                print(f"   Status: {response.status_code}")
+                print(f"   Content-Type: {content_type}")
+                erros_consecutivos += 1
+                pagina += 1
+                time.sleep(5)  # Esperar mais tempo
+                continue
+            
             response.raise_for_status()
             dados = response.json()
+            
+            # Reset contador de erros
+            erros_consecutivos = 0
             
             if not dados or len(dados) == 0:
                 print(f"✅ API não retornou dados (fim das páginas)")
@@ -4805,10 +4831,8 @@ def carregar_todas_rodadas_possiveis(limite_paginas=200):
                     settled_at = data.get('settledAt', '')
                     if settled_at:
                         try:
-                            # Remove 'Z' e converte
                             data_hora = datetime.fromisoformat(settled_at.replace('Z', '+00:00'))
                         except:
-                            # Se falhar, usa data atual
                             data_hora = datetime.now(timezone.utc)
                     else:
                         data_hora = datetime.now(timezone.utc)
@@ -4817,7 +4841,7 @@ def carregar_todas_rodadas_possiveis(limite_paginas=200):
                     if not rodada_id:
                         continue
                     
-                    # INSERT com ON CONFLICT para evitar duplicatas
+                    # INSERT com ON CONFLICT
                     cur.execute('''
                         INSERT INTO rodadas 
                         (id, data_hora, player_score, banker_score, soma, resultado, fonte, dados_json)
@@ -4849,7 +4873,7 @@ def carregar_todas_rodadas_possiveis(limite_paginas=200):
             total_carregadas += rodadas_novas
             total_duplicadas += rodadas_duplicadas
             
-            # Mostrar progresso detalhado
+            # Mostrar progresso
             print(f" → +{rodadas_novas:3d} novas", end='')
             if rodadas_duplicadas > 0:
                 print(f" (🔄 {rodadas_duplicadas} duplicadas)", end='')
@@ -4861,7 +4885,6 @@ def carregar_todas_rodadas_possiveis(limite_paginas=200):
             
             print(f" | Total: {total_carregadas:5d}")
             
-            # Se não houve rodadas novas, incrementa contador
             if rodadas_novas == 0:
                 paginas_consecutivas_sem_novas += 1
                 print(f"   ⚠️ Página sem rodadas novas ({paginas_consecutivas_sem_novas}/3)")
@@ -4869,22 +4892,23 @@ def carregar_todas_rodadas_possiveis(limite_paginas=200):
                 paginas_consecutivas_sem_novas = 0
             
             pagina += 1
-            time.sleep(0.5)  # Pausa para não sobrecarregar a API
+            time.sleep(1)  # Pausa de 1 segundo entre páginas
             
         except requests.exceptions.Timeout:
             print(f"⚠️ Timeout - tentando novamente...")
-            time.sleep(2)
+            erros_consecutivos += 1
+            time.sleep(3)
             continue
             
         except requests.exceptions.ConnectionError as e:
             print(f"⚠️ Erro de conexão: {e}")
-            paginas_consecutivas_sem_novas += 1
+            erros_consecutivos += 1
             pagina += 1
             time.sleep(3)
             
         except Exception as e:
             print(f"⚠️ Erro: {str(e)[:100]}")
-            paginas_consecutivas_sem_novas += 1
+            erros_consecutivos += 1
             pagina += 1
             time.sleep(2)
         
@@ -4906,7 +4930,7 @@ def carregar_todas_rodadas_possiveis(limite_paginas=200):
     if tempo_total > 0:
         print(f"🚀 Velocidade média: {total_carregadas/tempo_total:.1f} rodadas/s")
     
-    # Buscar informações das datas para saber o período coberto
+    # Buscar informações das datas
     conn = get_db_connection()
     if conn:
         try:
@@ -4937,6 +4961,8 @@ def carregar_todas_rodadas_possiveis(limite_paginas=200):
         atualizar_dados_leves()
     
     return total_carregadas
+
+
     
 # =============================================================================
 # FONTE 3: API NORMAL (CARGA HISTÓRICA COMPLETA) - CORRIGIDA
@@ -5797,12 +5823,109 @@ def salvar_padroes():
 
 
 # =============================================================================
+# 🔍 FUNÇÃO PARA TESTAR ACESSO À API (ADICIONE ANTES DO MAIN)
+# =============================================================================
+
+def testar_acesso_api():
+    """Testa diferentes formas de acessar a API"""
+    print("\n" + "="*80)
+    print("🔍 TESTANDO ACESSO À API NORMAL")
+    print("="*80)
+    
+    headers_reais = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json',
+    }
+    
+    try:
+        # Teste 1: Sem parâmetros
+        print("\n📡 Teste 1: Request básico...")
+        r1 = requests.get(API_URL, timeout=10)
+        print(f"   Status: {r1.status_code}")
+        print(f"   Content-Type: {r1.headers.get('Content-Type', 'desconhecido')}")
+        if r1.status_code == 200:
+            try:
+                dados = r1.json()
+                print(f"   ✅ Resposta é JSON válido")
+                print(f"   📦 Tipo: {type(dados)}")
+                if isinstance(dados, list):
+                    print(f"   📊 Tamanho: {len(dados)}")
+            except:
+                print(f"   ❌ Resposta não é JSON: {r1.text[:200]}")
+        
+        # Teste 2: Com headers de navegador
+        print("\n📡 Teste 2: Com headers de navegador...")
+        r2 = requests.get(API_URL, headers=headers_reais, timeout=10)
+        print(f"   Status: {r2.status_code}")
+        print(f"   Content-Type: {r2.headers.get('Content-Type', 'desconhecido')}")
+        if r2.status_code == 200:
+            try:
+                dados = r2.json()
+                print(f"   ✅ Resposta é JSON válido")
+                print(f"   📦 Tipo: {type(dados)}")
+                if isinstance(dados, list):
+                    print(f"   📊 Tamanho: {len(dados)}")
+            except:
+                print(f"   ❌ Resposta não é JSON: {r2.text[:200]}")
+        
+        # Teste 3: Com parâmetros de página
+        print("\n📡 Teste 3: Com page=0...")
+        params = {'page': 0, 'size': 1}
+        r3 = requests.get(API_URL, params=params, headers=headers_reais, timeout=10)
+        print(f"   Status: {r3.status_code}")
+        print(f"   Content-Type: {r3.headers.get('Content-Type', 'desconhecido')}")
+        if r3.status_code == 200:
+            try:
+                dados = r3.json()
+                print(f"   ✅ Resposta é JSON válido")
+                print(f"   📦 Tipo: {type(dados)}")
+                if isinstance(dados, list):
+                    print(f"   📊 Tamanho: {len(dados)}")
+                    if len(dados) > 0:
+                        print(f"   🆔 Primeiro ID: {dados[0].get('data', {}).get('id')}")
+            except:
+                print(f"   ❌ Resposta não é JSON: {r3.text[:200]}")
+        
+        # Teste 4: Com headers completos de Chrome
+        print("\n📡 Teste 4: Com headers COMPLETOS de Chrome...")
+        headers_chrome = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Origin': 'https://www.casino.org',
+            'Referer': 'https://www.casino.org/',
+            'Connection': 'keep-alive',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+        }
+        r4 = requests.get(API_URL, params={'page': 0, 'size': 1}, headers=headers_chrome, timeout=10)
+        print(f"   Status: {r4.status_code}")
+        print(f"   Content-Type: {r4.headers.get('Content-Type', 'desconhecido')}")
+        if r4.status_code == 200:
+            try:
+                dados = r4.json()
+                print(f"   ✅ Resposta é JSON válido")
+                print(f"   📦 Tipo: {type(dados)}")
+            except:
+                print(f"   ❌ Resposta não é JSON: {r4.text[:200]}")
+        
+    except Exception as e:
+        print(f"❌ Erro no teste: {e}")
+    
+    print("="*80)
+
+
+# =============================================================================
 # MAIN - VERSÃO ULTRA PRECISÃO 9.0 (TURBINADA 95%+) COM MELHORIAS
 # =============================================================================
 if __name__ == "__main__":
     print("="*80)
     print("🚀 BOT BACBO - VERSÃO ULTRA PRECISÃO 9.0 (TURBINADA 95%+)")
     print("="*80)
+    
+    # 🔍 ADICIONADO: Testar acesso à API antes de tudo
+    testar_acesso_api()
     
     mp.set_start_method('spawn', force=True)
     
