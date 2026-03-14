@@ -1653,7 +1653,7 @@ class AgenteRLPuro:
 
 
 # =============================================================================
-# 🧠 AGENTE RL TURBINADO - VERSÃO 11.0 (95%+)
+# 🧠 AGENTE RL TURBINADO - VERSÃO 11.0 (95%+) - CORRIGIDO
 # =============================================================================
 
 class AgenteRLElitizado(AgenteRLPuro):
@@ -1701,37 +1701,67 @@ class AgenteRLElitizado(AgenteRLPuro):
         self.steps_since_train = 0
         self.train_frequency = 4
         
-        # Recriar rede com BatchNorm
+        # Recriar rede com BatchNorm (VERSÃO CORRIGIDA)
         self._criar_rede_pytorch_turbinada()
         
         print(f"✅ Agente TURBINADO {nome} criado - LR:{self.learning_rate} EPS:{self.epsilon}")
     
+    # =========================================================================
+    # MÉTODO CORRIGIDO - Rede neural com BatchNorm
+    # =========================================================================
     def _criar_rede_pytorch_turbinada(self):
-        """Rede neural com BatchNorm para estabilidade"""
+        """
+        Rede neural com BatchNorm para estabilidade
+        VERSÃO CORRIGIDA - Usa OrderedDict para nomes consistentes
+        """
         try:
-            # Rede com Batch Normalization
-            self.model = nn.Sequential(
-                nn.Linear(self.state_size, 256),
-                nn.BatchNorm1d(256),
-                nn.ReLU(),
-                nn.Dropout(0.2),
-                
-                nn.Linear(256, 256),
-                nn.BatchNorm1d(256),
-                nn.ReLU(),
-                nn.Dropout(0.2),
-                
-                nn.Linear(256, 128),
-                nn.BatchNorm1d(128),
-                nn.ReLU(),
-                
-                nn.Linear(128, 64),
-                nn.ReLU(),
-                
-                nn.Linear(64, self.action_size)
-            ).to(self.device)
+            from collections import OrderedDict
             
-            self.target_model = type(self.model)().to(self.device)
+            # CORREÇÃO 1: Usar OrderedDict para ter nomes de camadas consistentes
+            self.model = nn.Sequential(OrderedDict([
+                ('fc1', nn.Linear(self.state_size, 256)),
+                ('bn1', nn.BatchNorm1d(256)),
+                ('relu1', nn.ReLU()),
+                ('drop1', nn.Dropout(0.2)),
+                
+                ('fc2', nn.Linear(256, 256)),
+                ('bn2', nn.BatchNorm1d(256)),
+                ('relu2', nn.ReLU()),
+                ('drop2', nn.Dropout(0.2)),
+                
+                ('fc3', nn.Linear(256, 128)),
+                ('bn3', nn.BatchNorm1d(128)),
+                ('relu3', nn.ReLU()),
+                
+                ('fc4', nn.Linear(128, 64)),
+                ('relu4', nn.ReLU()),
+                
+                ('fc5', nn.Linear(64, self.action_size))
+            ])).to(self.device)
+            
+            # CORREÇÃO 2: Target model com a mesma arquitetura
+            self.target_model = nn.Sequential(OrderedDict([
+                ('fc1', nn.Linear(self.state_size, 256)),
+                ('bn1', nn.BatchNorm1d(256)),
+                ('relu1', nn.ReLU()),
+                ('drop1', nn.Dropout(0.2)),
+                
+                ('fc2', nn.Linear(256, 256)),
+                ('bn2', nn.BatchNorm1d(256)),
+                ('relu2', nn.ReLU()),
+                ('drop2', nn.Dropout(0.2)),
+                
+                ('fc3', nn.Linear(256, 128)),
+                ('bn3', nn.BatchNorm1d(128)),
+                ('relu3', nn.ReLU()),
+                
+                ('fc4', nn.Linear(128, 64)),
+                ('relu4', nn.ReLU()),
+                
+                ('fc5', nn.Linear(64, self.action_size))
+            ])).to(self.device)
+            
+            # CORREÇÃO 3: Inicializar target model com os mesmos pesos
             self.target_model.load_state_dict(self.model.state_dict())
             
             # Optimizer com learning rate maior e weight decay
@@ -1739,14 +1769,21 @@ class AgenteRLElitizado(AgenteRLPuro):
                                         lr=self.learning_rate,
                                         weight_decay=1e-5)
             
-            # NOVO: scheduler para reduzir LR gradualmente
+            # Scheduler para reduzir LR gradualmente
             self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=1000, gamma=0.95)
             
-            print(f"✅ Rede TURBINADA criada para {self.nome}")
+            print(f"   ✅ Rede TURBINADA criada para {self.nome}")
+            print(f"      📊 Arquitetura: {self.state_size}→256→256→128→64→{self.action_size}")
+            print(f"      📊 Dispositivo: {self.device}")
+            
         except Exception as e:
-            print(f"❌ Erro ao criar rede turbinada: {e}")
+            print(f"   ❌ Erro ao criar rede turbinada: {e}")
             self.model = None
+            self.target_model = None
     
+    # =========================================================================
+    # MÉTODO AGIR - Com exploração constante
+    # =========================================================================
     def agir(self, historico):
         """
         Agir com EXPLORAÇÃO CONSTANTE (epsilon nunca chega a 0)
@@ -1755,7 +1792,7 @@ class AgenteRLElitizado(AgenteRLPuro):
         
         if len(historico) < 30:
             return random.choice([0, 1]), 0.5
-        
+            
         state_tensor = self.get_state_tensor(historico)
         self.ultimo_estado = state_tensor
         
@@ -1793,6 +1830,9 @@ class AgenteRLElitizado(AgenteRLPuro):
         self.confianca = confianca
         return acao, confianca
     
+    # =========================================================================
+    # MÉTODO APRENDER - Com recompensas turbinadas
+    # =========================================================================
     def aprender(self, historico, acao, resultado, recompensa_base=0):
         """
         Aprendizado TURBINADO:
@@ -1877,7 +1917,6 @@ class AgenteRLElitizado(AgenteRLPuro):
         if self.total_uso % 20 == 0:
             if self.total_uso > 100:
                 # Calcular precisão das últimas 100 ações
-                # (isso requer manter histórico, simplificando)
                 taxa_recente = self.acertos / max(self.total_uso, 1)
                 
                 # Peso mais agressivo
@@ -1886,6 +1925,9 @@ class AgenteRLElitizado(AgenteRLPuro):
         
         return acertou if resultado != 'TIE' else False
     
+    # =========================================================================
+    # MÉTODO GET_STATS - Estatísticas turbinadas
+    # =========================================================================
     def get_stats(self):
         stats = super().get_stats()
         stats.update({
@@ -1900,7 +1942,7 @@ class AgenteRLElitizado(AgenteRLPuro):
         if self.acertos_tie + self.erros_tie > 0:
             stats['precisao_tie'] = round((self.acertos_tie / (self.acertos_tie + self.erros_tie)) * 100, 1)
         return stats
-
+        
 
 # =============================================================================
 # 🧬 SISTEMA DE EVOLUÇÃO TURBINADO
