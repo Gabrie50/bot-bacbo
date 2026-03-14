@@ -1942,7 +1942,6 @@ class AgenteRLElitizado(AgenteRLPuro):
         if self.acertos_tie + self.erros_tie > 0:
             stats['precisao_tie'] = round((self.acertos_tie / (self.acertos_tie + self.erros_tie)) * 100, 1)
         return stats
-        
 
 # =============================================================================
 # 🧬 SISTEMA DE EVOLUÇÃO TURBINADO
@@ -2477,17 +2476,13 @@ def turbinar_sistema():
     for nome, agente in list(agentes_antigos.items()):
         # Verificar se já é turbinado
         if 'Turbinado' in nome or isinstance(agente, AgenteRLElitizado):
-            print(f"   ⏩ {nome} já é turbinado, pulando...")
             continue
             
         try:
-            print(f"\n   🔄 Convertendo {nome}...")
-            
             # CORREÇÃO: Criar novo agente turbinado
             novo_agente = AgenteRLElitizado(nome, agente.id)
             
             # CORREÇÃO: Transferir APENAS estatísticas, NÃO os pesos
-            # As arquiteturas são diferentes, não podemos transferir pesos
             novo_agente.acertos = agente.acertos
             novo_agente.erros = agente.erros
             novo_agente.total_uso = agente.total_uso
@@ -2502,15 +2497,12 @@ def turbinar_sistema():
             sistema.agentes[nome] = novo_agente
             convertidos += 1
             
-            print(f"      ✅ {nome} convertido para turbinado (pesos zerados)")
-            
             if convertidos % 50 == 0:
                 print(f"   ... {convertidos} agentes convertidos até agora")
                     
         except Exception as e:
             print(f"      ❌ Erro ao converter {nome}: {e}")
             erros += 1
-            # Manter o agente original em caso de erro
             continue
     
     print(f"\n📊 RESULTADO DA CONVERSÃO:")
@@ -2523,15 +2515,13 @@ def turbinar_sistema():
     cache['evolucao'] = evolucao
     
     print("\n📊 NOVAS CONFIGURAÇÕES DOS AGENTES TURBINADOS:")
-    print("   • Learning Rate: 0.005 (balanceado)")
-    print("   • Recompensa acerto: 8.0 (4x maior)")
-    print("   • Penalidade erro: -0.3 (5x menor)")
+    print("   • Learning Rate: 0.005")
+    print("   • Recompensa acerto: 8.0")
+    print("   • Penalidade erro: -0.3")
     print("   • Bônus TIE: 15.0")
     print("   • BatchNorm: Ativado")
-    print("   • Memória: 200.000 (20x maior)")
-    print("   • Epsilon mínimo: 0.05 (nunca para de explorar)")
-    print("\n   ⚠️ IMPORTANTE: Os agentes turbinados precisam ser treinados!")
-    print("      Use treinar_rl_com_historico() para treiná-los com dados reais.")
+    print("   • Memória: 200.000")
+    print("   • Epsilon mínimo: 0.05")
     
     return evolucao
 
