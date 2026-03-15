@@ -5237,9 +5237,19 @@ def processar_fila():
     historico_buffer = []
     ultima_previsao_feita = None
     contador_avaliacao = 0
+    modo_atual = "AGUARDANDO_DADOS"
+    rodadas_para_iniciar = 30  # Precisamos de 30 rodadas para começar
+    previsoes_feitas = 0
 
     while True:
         try:
+            # Verificar se já temos rodadas suficientes
+            if len(historico_buffer) >= rodadas_para_iniciar and modo_atual == "AGUARDANDO_DADOS":
+                print(f"\n" + "="*60)
+                print(f"🎯 JÁ TEMOS {len(historico_buffer)} RODADAS! INICIANDO PREVISÕES...")
+                print(f"="*60)
+                modo_atual = "ATIVO"
+            
             # Avaliar agentes a cada 100 rodadas
             contador_avaliacao += 1
             if contador_avaliacao % 100 == 0 and cache.get('evolucao'):
@@ -5253,15 +5263,19 @@ def processar_fila():
                     if salvar_rodada(rodada, 'principal'):
                         historico_buffer.append(rodada)
                         cache['ultimo_resultado_real'] = rodada['resultado']
-                        print(f"✅ SALVO: {rodada['player_score']} vs {rodada['banker_score']} - {rodada['resultado']}")
+                        print(f"✅ SALVO: {rodada['player_score']} vs {rodada['banker_score']} - {rodada['resultado']} (Total: {len(historico_buffer)} rodadas)")
                         
+                        # =========================================================
+                        # VERIFICAR PREVISÃO ANTERIOR (SE HOUVER)
+                        # =========================================================
                         if ultima_previsao_feita:
                             resultado_real = rodada['resultado']
                             
                             if resultado_real != 'TIE':
                                 acertou = (ultima_previsao_feita['previsao'] == resultado_real)
+                                previsoes_feitas += 1
                                 
-                                print(f"\n📊 VERIFICANDO PREVISÃO ANTERIOR:")
+                                print(f"\n📊 VERIFICANDO PREVISÃO ANTERIOR #{previsoes_feitas}:")
                                 print(f"   Previsão: {ultima_previsao_feita['previsao']} | Real: {resultado_real} | Acertou: {acertou}")
                                 
                                 contexto = cache['leves']['ultimas_50'] if cache['leves']['ultimas_50'] else []
@@ -5274,6 +5288,7 @@ def processar_fila():
                                         ultima_previsao_feita, resultado_real, contexto, indice_confianca
                                     )
                                 
+                                # SALVAR PREVISÃO NO BANCO
                                 salvar_previsao_completa_segura(
                                     ultima_previsao_feita, 
                                     resultado_real, 
@@ -5299,6 +5314,26 @@ def processar_fila():
                                         acertou
                                     )
                                 
+                                # =================================================
+                                # APRENDIZADO RL ACONTECE AQUI!
+                                # =================================================
+                                if cache.get('rl_system') and len(historico_buffer) >= 30:
+                                    # Converter para o formato esperado pelo RL
+                                    historico_para_aprender = []
+                                    for r in historico_buffer[-50:]:  # Últimas 50 rodadas
+                                        historico_para_aprender.append({
+                                            'player_score': r['player_score'],
+                                            'banker_score': r['banker_score'],
+                                            'resultado': r['resultado']
+                                        })
+                                    
+                                    # Ensinar os agentes
+                                    cache['rl_system'].aprender_com_resultado(
+                                        historico_para_aprender, resultado_real
+                                    )
+                                    print(f"   🧠 Agentes aprendendo com resultado: {resultado_real}")
+                                
+                                # Atualizar histórico de previsões
                                 previsao_historico = {
                                     'data': datetime.now().strftime('%d/%m %H:%M:%S'),
                                     'previsao': ultima_previsao_feita['previsao'],
@@ -5314,11 +5349,7 @@ def processar_fila():
                                 if len(cache['estatisticas']['ultimas_20_previsoes']) > 20:
                                     cache['estatisticas']['ultimas_20_previsoes'].pop()
                                 
-                                if cache.get('rl_system') and len(cache['leves']['ultimas_50']) >= 30:
-                                    cache['rl_system'].aprender_com_resultado(
-                                        cache['leves']['ultimas_50'], resultado_real
-                                    )
-                                
+                                # Atualizar estatísticas dos agentes
                                 if cache.get('rl_system'):
                                     for nome, agente in cache['rl_system'].agentes.items():
                                         if nome in cache['estatisticas']['estrategias']:
@@ -5330,113 +5361,112 @@ def processar_fila():
                                 print(f"📈 Precisão geral: {cache['estatisticas']['acertos']}/{cache['estatisticas']['total_previsoes']} ({precisao}%)")
                             
                             ultima_previsao_feita = None
-                
-                if len(historico_buffer) > 0:
-                    atualizar_dados_leves()
-                    
-                    # PRIORIDADE 0: Detector de padrão 7:2 (NOVA PRIORIDADE MÁXIMA)
-                    if cache.get('detector_72') and len(cache['leves']['ultimas_50']) >= 30:
-                        historico_completo = cache['leves']['ultimas_50']
-                        padrao_72 = cache['detector_72'].analisar(historico_completo)
                         
-                        if padrao_72:
-                            ultima_previsao_feita = {
-                                'modo': 'PADRAO_72',
-                                'previsao': padrao_72['previsao'],
-                                'simbolo': '🔴' if padrao_72['previsao'] == 'BANKER' else '🔵',
-                                'confianca': padrao_72['confianca'],
-                                'estrategias': [f"PADRAO_72_{padrao_72['tipo']}"]
-                            }
-                            cache['ultima_previsao'] = ultima_previsao_feita
-                            cache['leves']['previsao'] = ultima_previsao_feita
+                        # =========================================================
+                        # FAZER NOVA PREVISÃO (SE TIVERMOS DADOS SUFICIENTES)
+                        # =========================================================
+                        if len(historico_buffer) >= 30 and modo_atual == "ATIVO" and ultima_previsao_feita is None:
+                            print(f"\n🔮 FAZENDO NOVA PREVISÃO com {len(historico_buffer)} rodadas...")
                             
-                            print(f"\n🎯 PADRÃO 7:2 DETECTADO! Prevendo {padrao_72['previsao']} com {padrao_72['confianca']}% (proporção {padrao_72['proporcao']})")
-                    
-                    # PRIORIDADE 1: Sistema Curto Prazo
-                    elif cache.get('curto_prazo') and len(cache['leves']['ultimas_50']) >= 30:
-                        historico_completo = cache['leves']['ultimas_50']
-                        
-                        previsao_cp = cache['curto_prazo'].processar_rodada(historico_completo)
-                        
-                        if previsao_cp:
-                            if previsao_cp['ultimas_5'] and cache.get('estrategia_surto'):
-                                surto = cache['estrategia_surto'].analisar_ultimas_5(historico_completo[:5])
-                                if surto and surto['confianca'] > 75:
-                                    previsao_cp['previsao'] = surto['previsao']
-                                    previsao_cp['confianca'] = surto['confianca']
-                                    previsao_cp['estrategias'] = [f"SURTO_{surto['padrao']}"]
-                                    print(f"⚡ SURTO ATIVADO! {surto['padrao']}")
+                            # Converter para o formato esperado pelos sistemas
+                            historico_completo = []
+                            for r in historico_buffer[-50:]:  # Últimas 50 rodadas
+                                historico_completo.append({
+                                    'player_score': r['player_score'],
+                                    'banker_score': r['banker_score'],
+                                    'resultado': r['resultado']
+                                })
                             
-                            ultima_previsao_feita = {
-                                'modo': 'CURTO_PRAZO',
-                                'previsao': previsao_cp['previsao'],
-                                'simbolo': '🔴' if previsao_cp['previsao'] == 'BANKER' else '🔵',
-                                'confianca': previsao_cp['confianca'],
-                                'estrategias': [f"CICLO_{previsao_cp['ciclo']}", f"R{previsao_cp['rodada_no_ciclo']}"] + 
-                                              ([v['agente'] for v in previsao_cp['votos'][:2]] if previsao_cp.get('votos') else [])
-                            }
-                            cache['ultima_previsao'] = ultima_previsao_feita
-                            cache['leves']['previsao'] = ultima_previsao_feita
+                            previsao_feita = False
                             
-                            print(f"\n🎯 CP CICLO {previsao_cp['ciclo']} R{previsao_cp['rodada_no_ciclo']}: {previsao_cp['previsao']} com {previsao_cp['confianca']}%")
-                    
-                    # PRIORIDADE 2: Ultra Precisão (fallback)
-                    elif cache.get('ultra_precisao') and len(cache['leves']['ultimas_50']) >= 30:
-                        historico_completo = cache['leves']['ultimas_50']
-                        previsao_rl = cache['rl_system'].processar_rodada(historico_completo)
-                        
-                        if previsao_rl:
-                            decisao = cache['ultra_precisao'].decidir_aposta_completa(
-                                historico_completo,
-                                previsao_rl['previsao'],
-                                previsao_rl['confianca']
-                            )
+                            # PRIORIDADE 0: Detector de padrão 7:2
+                            if cache.get('detector_72') and not previsao_feita:
+                                padrao_72 = cache['detector_72'].analisar(historico_completo)
+                                if padrao_72:
+                                    ultima_previsao_feita = {
+                                        'modo': 'PADRAO_72',
+                                        'previsao': padrao_72['previsao'],
+                                        'simbolo': '🔴' if padrao_72['previsao'] == 'BANKER' else '🔵',
+                                        'confianca': padrao_72['confianca'],
+                                        'estrategias': [f"PADRAO_72_{padrao_72['tipo']}"]
+                                    }
+                                    previsao_feita = True
+                                    print(f"   ✅ PADRÃO 7:2: {ultima_previsao_feita['previsao']} com {ultima_previsao_feita['confianca']}%")
                             
-                            if decisao['apostar']:
+                            # PRIORIDADE 1: Sistema Curto Prazo
+                            if cache.get('curto_prazo') and not previsao_feita:
+                                previsao_cp = cache['curto_prazo'].processar_rodada(historico_completo)
+                                if previsao_cp:
+                                    if previsao_cp['ultimas_5'] and cache.get('estrategia_surto'):
+                                        surto = cache['estrategia_surto'].analisar_ultimas_5(historico_completo[:5])
+                                        if surto and surto['confianca'] > 75:
+                                            previsao_cp['previsao'] = surto['previsao']
+                                            previsao_cp['confianca'] = surto['confianca']
+                                            previsao_cp['estrategias'] = [f"SURTO_{surto['padrao']}"]
+                                    
+                                    ultima_previsao_feita = {
+                                        'modo': 'CURTO_PRAZO',
+                                        'previsao': previsao_cp['previsao'],
+                                        'simbolo': '🔴' if previsao_cp['previsao'] == 'BANKER' else '🔵',
+                                        'confianca': previsao_cp['confianca'],
+                                        'estrategias': [f"CICLO_{previsao_cp['ciclo']}", f"R{previsao_cp['rodada_no_ciclo']}"] + 
+                                                      ([v['agente'] for v in previsao_cp['votos'][:2]] if previsao_cp.get('votos') else [])
+                                    }
+                                    previsao_feita = True
+                                    print(f"   ✅ CURTO PRAZO: {ultima_previsao_feita['previsao']} com {ultima_previsao_feita['confianca']}%")
+                            
+                            # PRIORIDADE 2: Ultra Precisão
+                            if cache.get('ultra_precisao') and cache.get('rl_system') and not previsao_feita:
+                                previsao_rl = cache['rl_system'].processar_rodada(historico_completo)
+                                if previsao_rl:
+                                    decisao = cache['ultra_precisao'].decidir_aposta_completa(
+                                        historico_completo,
+                                        previsao_rl['previsao'],
+                                        previsao_rl['confianca']
+                                    )
+                                    if decisao['apostar']:
+                                        ultima_previsao_feita = {
+                                            'modo': 'ULTRA_PRECISAO',
+                                            'previsao': decisao['previsao'],
+                                            'simbolo': '🔴' if decisao['previsao'] == 'BANKER' else '🔵',
+                                            'confianca': decisao['confianca'],
+                                            'estrategias': [decisao['motivo']] + [v['agente'] for v in previsao_rl['votos'][:2]]
+                                        }
+                                        previsao_feita = True
+                                        print(f"   ✅ ULTRA: {ultima_previsao_feita['previsao']} com {ultima_previsao_feita['confianca']}%")
+                                    else:
+                                        print(f"   ⏸️ ULTRA aguardando: {decisao['motivo']}")
+                            
+                            # PRIORIDADE 3: RL Puro
+                            if cache.get('rl_system') and not previsao_feita:
+                                previsao_rl = cache['rl_system'].processar_rodada(historico_completo)
+                                if previsao_rl:
+                                    ultima_previsao_feita = {
+                                        'modo': 'RL_PURO',
+                                        'previsao': previsao_rl['previsao'],
+                                        'simbolo': '🔴' if previsao_rl['previsao'] == 'BANKER' else '🔵',
+                                        'confianca': previsao_rl['confianca'],
+                                        'estrategias': [v['agente'] for v in previsao_rl['votos']]
+                                    }
+                                    previsao_feita = True
+                                    print(f"   ✅ RL PURO: {ultima_previsao_feita['previsao']} com {ultima_previsao_feita['confianca']}%")
+                            
+                            # PRIORIDADE 4: Fallback (se nada funcionar)
+                            if not previsao_feita:
                                 ultima_previsao_feita = {
-                                    'modo': 'ULTRA_PRECISAO',
-                                    'previsao': decisao['previsao'],
-                                    'simbolo': '🔴' if decisao['previsao'] == 'BANKER' else '🔵',
-                                    'confianca': decisao['confianca'],
-                                    'estrategias': [decisao['motivo']] + [v['agente'] for v in previsao_rl['votos'][:2]]
+                                    'modo': 'FALLBACK',
+                                    'previsao': random.choice(['BANKER', 'PLAYER']),
+                                    'simbolo': '🔴' if random.choice([True, False]) else '🔵',
+                                    'confianca': 50,
+                                    'estrategias': ['FALLBACK_MODE']
                                 }
+                                print(f"   ⚠️ FALLBACK: {ultima_previsao_feita['previsao']} com 50%")
+                            
+                            # Salvar previsão no cache
+                            if ultima_previsao_feita:
                                 cache['ultima_previsao'] = ultima_previsao_feita
                                 cache['leves']['previsao'] = ultima_previsao_feita
-                                
-                                print(f"\n🎯 ULTRA: {decisao['previsao']} com {decisao['confianca']}%")
-                            else:
-                                print(f"\n⏸️ ULTRA AGUARDANDO... {decisao['motivo']}")
-                    
-                    elif cache.get('mp_system') and len(cache['leves']['ultimas_50']) >= 30:
-                        stats_mp = cache['mp_system'].get_stats()
-                        ultima_previsao_feita = {
-                            'modo': 'MULTIPROCESSING',
-                            'previsao': random.choice(['BANKER', 'PLAYER']),
-                            'simbolo': '🔴' if random.choice([True, False]) else '🔵',
-                            'confianca': 75,
-                            'estrategias': [f"MP_Agente_{random.randint(1,50)}"]
-                        }
-                        cache['ultima_previsao'] = ultima_previsao_feita
-                        cache['leves']['previsao'] = ultima_previsao_feita
-                        
-                        print(f"\n🎯 NOVA PREVISÃO (Multiprocessing): {ultima_previsao_feita['previsao']} com {ultima_previsao_feita['confianca']}%")
-                    
-                    elif cache.get('rl_system') and len(cache['leves']['ultimas_50']) >= 30:
-                        historico_completo = cache['leves']['ultimas_50']
-                        previsao_rl = cache['rl_system'].processar_rodada(historico_completo)
-                        
-                        if previsao_rl:
-                            ultima_previsao_feita = {
-                                'modo': 'RL_PURO',
-                                'previsao': previsao_rl['previsao'],
-                                'simbolo': '🔴' if previsao_rl['previsao'] == 'BANKER' else '🔵',
-                                'confianca': previsao_rl['confianca'],
-                                'estrategias': [v['agente'] for v in previsao_rl['votos']]
-                            }
-                            cache['ultima_previsao'] = ultima_previsao_feita
-                            cache['leves']['previsao'] = ultima_previsao_feita
-                            
-                            print(f"\n🎯 NOVA PREVISÃO (RL): {ultima_previsao_feita['previsao']} com {ultima_previsao_feita['confianca']}%")
+                                print(f"   💾 Previsão salva no cache")
                     
                     cache['leves']['ultima_atualizacao'] = datetime.now(timezone.utc)
 
