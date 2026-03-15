@@ -2157,13 +2157,13 @@ class SistemaRLCompleto:
         self.manipulacoes_detectadas = 0
         
         # Criar 1000 agentes (800 normais + 200 turbinados)
-        for i in range(800):
+        for i in range(720):
             nome = f"RL_Agente_{i+1}"
             random.seed(i * 42)
             np.random.seed(i * 42)
             self.agentes[nome] = AgenteRLPuro(nome, i)
         
-        for i in range(800, 1000):
+        for i in range(720, 900):
             nome = f"RL_Turbinado_{i+1}"
             random.seed(i * 42)
             np.random.seed(i * 42)
@@ -2797,7 +2797,7 @@ class AnalisadorDeErros:
 # =============================================================================
 
 class NeuroEvolucaoCorretiva:
-    def __init__(self, sistema_rl, num_agentes=1000):
+    def __init__(self, sistema_rl, num_agentes=900):
         self.sistema_rl = sistema_rl
         self.num_agentes = num_agentes
         self.historico_erros = deque(maxlen=15000)
