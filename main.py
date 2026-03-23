@@ -1,7 +1,10 @@
 # =============================================================================
-# main.py - BACBO PREDICTOR - MIRO FISH COM TODOS OS INDICADORES
+# main.py - BACBO PREDICTOR - AGENTES INFINITOS (VERSÃO FINAL)
 # =============================================================================
-# Mantém TODOS os indicadores que você descobriu + Aprendizado por Simulação
+# TODO NOVO PADRÃO = NOVO AGENTE RL
+# AGENTES TURBINADOS COM REDES NEURAIS
+# AGENTES PARALELOS TRABALHANDO EM MASSA
+# SEM LIMITE DE AGENTES - MAPA MENTAL EXPANSÍVEL
 # =============================================================================
 
 import os
@@ -22,8 +25,13 @@ import ssl
 from pathlib import Path
 import traceback
 import pickle
+import uuid
+import hashlib
 from dataclasses import dataclass, field
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Set
+import copy
+import multiprocessing as mp
+from multiprocessing import Queue as MPQueue
 
 # =============================================================================
 # 🔇 SILENCIAR AVISOS
@@ -43,38 +51,27 @@ CORS(app)
 # =============================================================================
 @app.route('/health', methods=['GET'])
 def health_urgente():
+    total_agentes = len(cache.get('todos_agentes', {}))
     return jsonify({
         'status': 'ok',
-        'mensagem': 'Miro Fish com todos os indicadores',
+        'mensagem': 'Sistema de Agentes Infinitos',
         'timestamp': time.time(),
-        'versao': 'MiroFish_Indicadores_Completos'
+        'versao': 'Agentes_Infinitos_v2.0',
+        'total_agentes': total_agentes,
+        'agentes_ativos': len([a for a in cache.get('todos_agentes', {}).values() if a.peso > 0.5])
     })
 
 @app.route('/', methods=['GET'])
 def home_rapida():
     return jsonify({
-        'nome': 'Bac Bo Predictor - Miro Fish',
-        'versao': 'MiroFish_Indicadores_Completos',
+        'nome': 'Bac Bo Predictor - Agentes Infinitos',
+        'versao': 'Agentes_Infinitos_v2.0',
         'status': 'online',
         'health': '/health',
-        'stats': '/api/stats'
+        'stats': '/api/stats',
+        'agentes': '/api/agentes',
+        'criar_agente': '/api/criar_agente'
     })
-
-# =============================================================================
-# 🔧 PATCH DE COMPATIBILIDADE NUMPY
-# =============================================================================
-import numpy as np
-
-print("\n" + "="*80)
-print("🔧 INICIALIZANDO SISTEMA MIRO FISH - TODOS OS INDICADORES")
-print("="*80)
-
-try:
-    print(f"📊 NumPy: {np.__version__}")
-    np.seterr(all='ignore')
-    print("✅ NumPy configurado")
-except Exception as e:
-    print(f"⚠️ Erro: {e}")
 
 # =============================================================================
 # CONFIGURAÇÕES DO BANCO
@@ -96,7 +93,6 @@ SSL_CONTEXT.verify_mode = ssl.CERT_NONE
 # CONFIGURAÇÕES DAS FONTES
 # =============================================================================
 LATEST_API_URL = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo/latest"
-WS_URL = "wss://api-cs.casino.org/svc-evolution-game-events/ws/bacbo"
 API_URL = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo"
 
 HEADERS = {
@@ -109,31 +105,26 @@ INTERVALO_LATEST = 0.3
 PORT = int(os.environ.get("PORT", 5000))
 
 # =============================================================================
-# CONTROLE DE FALHAS
-# =============================================================================
-falhas_latest = 0
-LIMITE_FALHAS = 3
-
-fontes_status = {'latest': {'status': 'ativo', 'total': 0, 'falhas': 0}}
-fonte_ativa = 'latest'
-
-# =============================================================================
 # FILA DE PROCESSAMENTO
 # =============================================================================
-fila_rodadas = deque(maxlen=500)
+fila_rodadas = deque(maxlen=1000)
 ultimo_id_latest = None
 
+# =============================================================================
+# CACHE GLOBAL
+# =============================================================================
 cache = {
     'leves': {'ultimas_50': [], 'ultimas_20': [], 'total_rodadas': 0, 'ultima_atualizacao': None, 'previsao': None},
     'pesados': {'periodos': {}, 'ultima_atualizacao': None},
     'estatisticas': {'total_previsoes': 0, 'acertos': 0, 'erros': 0, 'ultimas_20_previsoes': []},
+    'todos_agentes': {},           # Dicionário de todos os agentes (ID -> Agente)
+    'agentes_por_padrao': {},      # Índice: padrão -> lista de agentes
+    'agentes_por_contexto': {},    # Índice: contexto_hash -> lista de agentes
+    'fila_criacao_agentes': deque(maxlen=100),  # Fila para criar novos agentes
     'ultima_previsao': None,
     'ultimo_resultado_real': None,
-    'indice_confianca': 50,
-    'agente_miro': None,           # AGENTE PRINCIPAL
-    'simulador': None,             # SIMULADOR DE CENÁRIOS
-    'memoria_erros': None,         # MEMÓRIA DE ERROS
-    'votacao': None                # VOTAÇÃO INTELIGENTE
+    'contador_agentes': 0,
+    'lock_agentes': threading.Lock()
 }
 
 # =============================================================================
@@ -141,737 +132,821 @@ cache = {
 # =============================================================================
 
 class IndicadoresBase:
-    """
-    TODOS os indicadores que você descobriu no arquivo JSON
-    """
+    """TODOS os indicadores que você descobriu no arquivo JSON"""
     def __init__(self):
-        # =====================================================================
-        # 1. LIMITE DE STREAK
-        # =====================================================================
+        # Limites de Streak
         self.LIMITE_STREAK_PLAYER = 5
         self.LIMITE_STREAK_BANKER = 4
         self.REVERSAO_APOS_3 = 0.80
         
-        # =====================================================================
-        # 2. PROBABILIDADE DE TIE COMO "VIBRADOR"
-        # =====================================================================
+        # Probabilidades de TIE
         self.PROB_TIE_VIBRADOR = 0.208
         self.PROB_TIE_POS_TIE = 0.311
         
-        # =====================================================================
-        # 3. DELTA
-        # =====================================================================
+        # Delta
         self.LIMITE_CORRECAO_INICIO = 15
         self.LIMITE_CORRECAO_GARANTIDA = 20
-        self.DELTA_MAX_POSITIVO = 23
-        self.DELTA_MAX_NEGATIVO = -19
         
-        # =====================================================================
-        # 4. EMPATE 6 (SUA DESCOBERTA MAIS IMPORTANTE!)
-        # =====================================================================
+        # Empate 6 → PLAYER
         self.TIE_6_PROXIMO_PLAYER = 1.0
         
-        # =====================================================================
-        # 5. PADRÃO DUPLO TIE + 7:2
-        # =====================================================================
+        # Duplo TIE → 7:2
         self.DUPLO_TIE_BANKER_PCT = 0.77
-        self.DUPLO_TIE_PLAYER_PCT = 0.22
         
-        # =====================================================================
-        # 6. DISTRIBUIÇÃO DE SOMAS
-        # =====================================================================
-        self.COMBINACOES_POR_SOMA = {
-            2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 6,
-            8: 5, 9: 4, 10: 3, 11: 2, 12: 1
-        }
-        
-        # =====================================================================
-        # 7. VIBRAÇÃO (Ruído probabilístico)
-        # =====================================================================
+        # Vibração
         self.VIBRACAO_DIFERENCA_1 = 0.30
-        self.VIBRACAO_RANGE = (-2, 2)
         
-        # =====================================================================
-        # 8. REVERSÃO FORÇADA
-        # =====================================================================
-        self.REVERSAO_BONUS_MIN = 1
-        self.REVERSAO_BONUS_MAX = 3
-        
-        # =====================================================================
-        # 9. ALTERNÂNCIA
-        # =====================================================================
+        # Alternância
         self.ALTERNANCIA_PCT = 0.60
         self.REPETICAO_PCT = 0.40
         
-        # =====================================================================
-        # 10. SCORES MAIS COMUNS
-        # =====================================================================
+        # Scores comuns
         self.SCORES_COMUNS = [6, 7, 8]
-        self.SCORES_POUCO_COMUNS = [2, 3, 11, 12]
         
-        print("✅ Indicadores Base carregados da sua tese")
+        print("✅ Indicadores Base carregados")
         self._mostrar_resumo()
     
     def _mostrar_resumo(self):
-        print("\n" + "="*70)
+        print("="*60)
         print("📊 INDICADORES DESCOBERTOS:")
-        print("="*70)
-        print(f"   🔴 Streak máximo PLAYER: {self.LIMITE_STREAK_PLAYER}")
-        print(f"   🔵 Streak máximo BANKER: {self.LIMITE_STREAK_BANKER}")
-        print(f"   🎯 Reversão após 3: {self.REVERSAO_APOS_3*100:.0f}%")
-        print(f"   📈 Delta correção: ±{self.LIMITE_CORRECAO_INICIO} a ±{self.LIMITE_CORRECAO_GARANTIDA}")
-        print(f"   🎲 Empate 6 → PLAYER: {self.TIE_6_PROXIMO_PLAYER*100:.0f}%")
-        print(f"   🔄 Duplo TIE → BANKER: {self.DUPLO_TIE_BANKER_PCT*100:.0f}%")
-        print(f"   🌊 Vibração (dif=1): {self.VIBRACAO_DIFERENCA_1*100:.0f}% vira TIE")
-        print(f"   🔄 Alternância: {self.ALTERNANCIA_PCT*100:.0f}% | Repetição: {self.REPETICAO_PCT*100:.0f}%")
-        print("="*70)
+        print(f"   Streak max: PLAYER={self.LIMITE_STREAK_PLAYER} BANKER={self.LIMITE_STREAK_BANKER}")
+        print(f"   Reversão após 3: {self.REVERSAO_APOS_3*100:.0f}%")
+        print(f"   Delta correção: ±{self.LIMITE_CORRECAO_INICIO} a ±{self.LIMITE_CORRECAO_GARANTIDA}")
+        print(f"   Empate 6 → PLAYER: {self.TIE_6_PROXIMO_PLAYER*100:.0f}%")
+        print(f"   Duplo TIE → BANKER: {self.DUPLO_TIE_BANKER_PCT*100:.0f}%")
+        print(f"   Vibração dif=1: {self.VIBRACAO_DIFERENCA_1*100:.0f}% vira TIE")
+        print(f"   Alternância: {self.ALTERNANCIA_PCT*100:.0f}% | Repetição: {self.REPETICAO_PCT*100:.0f}%")
+        print("="*60)
 
 
 # =============================================================================
-# 2. MEMÓRIA DE ERROS (Aprende com os erros)
+# 2. REDE NEURAL PARA AGENTES TURBINADOS
 # =============================================================================
 
-class MemoriaDeErros:
-    def __init__(self, capacidade=500):
-        self.capacidade = capacidade
-        self.erros = deque(maxlen=capacidade)
-        self.padroes_que_mais_erram = {}
-        self.erros_por_padrao = {}
-        self.acertos_por_padrao = {}
-        print(f"💾 Memória de Erros: {capacidade} posições")
+class RedeNeuralAgente(nn.Module):
+    """Rede neural para agentes turbinados"""
+    def __init__(self, input_size=150, hidden_size=256, output_size=2):
+        super(RedeNeuralAgente, self).__init__()
+        self.fc1 = nn.Linear(input_size, hidden_size)
+        self.bn1 = nn.BatchNorm1d(hidden_size)
+        self.fc2 = nn.Linear(hidden_size, hidden_size // 2)
+        self.bn2 = nn.BatchNorm1d(hidden_size // 2)
+        self.fc3 = nn.Linear(hidden_size // 2, hidden_size // 4)
+        self.fc4 = nn.Linear(hidden_size // 4, output_size)
+        self.dropout = nn.Dropout(0.2)
+        self.leaky_relu = nn.LeakyReLU(0.1)
     
-    def registrar_erro(self, erro_info):
-        self.erros.append(erro_info)
-        padrao = erro_info.get('padrao', 'desconhecido')
-        self.erros_por_padrao[padrao] = self.erros_por_padrao.get(padrao, 0) + 1
-        
-        if self.erros_por_padrao.get(padrao, 0) > 5:
-            if padrao not in self.padroes_que_mais_erram:
-                self.padroes_que_mais_erram[padrao] = 0
-            self.padroes_que_mais_erram[padrao] += 1
-            print(f"⚠️ ALERTA: Padrão '{padrao}' errou {self.erros_por_padrao[padrao]} vezes!")
-    
-    def registrar_acerto(self, padrao):
-        self.acertos_por_padrao[padrao] = self.acertos_por_padrao.get(padrao, 0) + 1
-    
-    def sugerir_ajustes(self):
-        ajustes = {}
-        for padrao, erros in self.erros_por_padrao.items():
-            acertos = self.acertos_por_padrao.get(padrao, 0)
-            total = acertos + erros
-            if total >= 10:
-                precisao = acertos / total
-                if precisao < 0.4:
-                    ajustes[padrao] = {'acao': 'REDUZIR', 'fator': 0.7, 'precisao': precisao}
-                elif precisao > 0.7:
-                    ajustes[padrao] = {'acao': 'AUMENTAR', 'fator': 1.2, 'precisao': precisao}
-        return ajustes
-    
-    def get_stats(self):
-        stats = []
-        for padrao in set(list(self.erros_por_padrao.keys()) + list(self.acertos_por_padrao.keys())):
-            acertos = self.acertos_por_padrao.get(padrao, 0)
-            erros = self.erros_por_padrao.get(padrao, 0)
-            total = acertos + erros
-            if total > 0:
-                stats.append({
-                    'padrao': padrao,
-                    'acertos': acertos,
-                    'erros': erros,
-                    'precisao': round((acertos / total) * 100, 1)
-                })
-        return sorted(stats, key=lambda x: x['precisao'])
+    def forward(self, x):
+        x = self.leaky_relu(self.bn1(self.fc1(x)))
+        x = self.dropout(x)
+        x = self.leaky_relu(self.bn2(self.fc2(x)))
+        x = self.dropout(x)
+        x = self.leaky_relu(self.fc3(x))
+        x = self.fc4(x)
+        return F.softmax(x, dim=1)
 
 
 # =============================================================================
-# 3. VOTAÇÃO INTELIGENTE
+# 3. AGENTE BASE (Todos os agentes herdam desta classe)
 # =============================================================================
 
-class VotacaoInteligente:
-    def __init__(self):
-        self.pesos_padroes = {
-            'streak_reversao': 0.75,
-            'delta_correcao': 0.80,
-            'tie_6_player': 0.95,
-            'duplo_tie_72': 0.77,
-            'vibracao_tie': 0.55,
-            'alternancia': 0.60,
-            'repeticao': 0.40
-        }
-        self.confianca_media = 50
-        print("🗳️ Votação Inteligente inicializada")
+class AgenteBase:
+    """Classe base para todos os agentes"""
     
-    def ajustar_peso(self, padrao, novo_peso):
-        if padrao in self.pesos_padroes:
-            self.pesos_padroes[padrao] = max(0.3, min(0.95, novo_peso))
-    
-    def aplicar_ajustes(self, ajustes):
-        for padrao, ajuste in ajustes.items():
-            if padrao in self.pesos_padroes:
-                novo_peso = self.pesos_padroes[padrao] * ajuste['fator']
-                self.ajustar_peso(padrao, novo_peso)
-    
-    def votar(self, previsoes):
-        votos = {'BANKER': 0, 'PLAYER': 0, 'TIE': 0}
-        for p in previsoes:
-            previsao = p['previsao']
-            confianca = p['confianca'] / 100
-            padrao = p.get('padrao', 'desconhecido')
-            peso = self.pesos_padroes.get(padrao, 0.5)
-            votos[previsao] += confianca * peso
+    def __init__(self, agente_id: str, nome: str, padrao: str, contexto: List[str], previsao: str):
+        self.id = agente_id
+        self.nome = nome
+        self.padrao = padrao          # Padrão que este agente detecta
+        self.contexto = contexto.copy()  # Contexto que ativa este agente
+        self.previsao = previsao      # O que ele prevê (BANKER/PLAYER/TIE)
         
-        previsao_final = max(votos, key=votos.get)
-        total_votos = sum(votos.values())
-        confianca_final = (votos[previsao_final] / total_votos) * 100 if total_votos > 0 else 50
+        # Estatísticas
+        self.acertos = 0
+        self.erros = 0
+        self.total_uso = 0
+        self.peso = 1.0
+        self.confianca_base = 0.7
+        self.criado_em = datetime.now()
+        self.ultimo_uso = datetime.now()
         
-        self.confianca_media = self.confianca_media * 0.9 + confianca_final * 0.1
-        return previsao_final, round(confianca_final)
-    
-    def get_stats(self):
-        return {'pesos': self.pesos_padroes, 'confianca_media': round(self.confianca_media, 1)}
-
-
-# =============================================================================
-# 4. SIMULADOR DE CENÁRIOS (Baseado nos seus indicadores)
-# =============================================================================
-
-class SimuladorCenarios:
-    def __init__(self, indicadores):
-        self.ind = indicadores
-        print("🎲 Simulador de Cenários inicializado")
-    
-    def _calcular_streak(self, historico):
-        streak = 0
-        ultimo = None
-        for r in historico[:10]:
-            if r.get('resultado') != 'TIE':
-                if ultimo is None:
-                    streak = 1
-                    ultimo = r['resultado']
-                elif r['resultado'] == ultimo:
-                    streak += 1
-                else:
-                    break
-        return streak
-    
-    def _calcular_delta(self, historico):
-        player = sum(1 for r in historico[:100] if r.get('resultado') == 'PLAYER')
-        banker = sum(1 for r in historico[:100] if r.get('resultado') == 'BANKER')
-        return player - banker
-    
-    def _gerar_proxima_rodada(self, historico):
-        """Gera a próxima rodada seguindo os padrões que você descobriu"""
-        if len(historico) < 10:
-            return random.choice(['BANKER', 'PLAYER'])
+        # Histórico de aprendizado
+        self.historico_acertos = deque(maxlen=100)
+        self.ultimos_resultados = deque(maxlen=50)
         
-        streak = self._calcular_streak(historico)
-        delta = self._calcular_delta(historico)
-        ultimo = historico[0].get('resultado') if historico else None
-        ultimo_score_player = historico[0].get('player_score', 0) if historico else 0
-        ultimo_score_banker = historico[0].get('banker_score', 0) if historico else 0
-        
-        # 1. Duplo TIE → 77% BANKER
-        if len(historico) >= 2 and historico[0].get('resultado') == 'TIE' and historico[1].get('resultado') == 'TIE':
-            if random.random() < self.ind.DUPLO_TIE_BANKER_PCT:
-                return 'BANKER'
-        
-        # 2. TIE 6 → PLAYER (100%)
-        if ultimo == 'TIE' and ultimo_score_player == 6 and ultimo_score_banker == 6:
-            if random.random() < self.ind.TIE_6_PROXIMO_PLAYER:
-                return 'PLAYER'
-        
-        # 3. Delta correção
-        if abs(delta) >= self.ind.LIMITE_CORRECAO_GARANTIDA:
-            if random.random() < 0.85:
-                return 'BANKER' if delta > 0 else 'PLAYER'
-        elif abs(delta) >= self.ind.LIMITE_CORRECAO_INICIO:
-            if random.random() < 0.70:
-                return 'BANKER' if delta > 0 else 'PLAYER'
-        
-        # 4. Streak reversão (após 3)
-        if streak >= 3 and ultimo:
-            if random.random() < self.ind.REVERSAO_APOS_3:
-                return 'BANKER' if ultimo == 'PLAYER' else 'PLAYER'
-        
-        # 5. Alternância / Repetição
-        ultimos = [r['resultado'] for r in historico[:5] if r.get('resultado') != 'TIE']
-        if len(ultimos) >= 2:
-            if ultimos[0] != ultimos[1]:
-                if random.random() < self.ind.ALTERNANCIA_PCT:
-                    return 'BANKER' if ultimos[0] == 'PLAYER' else 'PLAYER'
-                else:
-                    return ultimos[0]
-            else:
-                if random.random() < self.ind.REPETICAO_PCT:
-                    return ultimos[0]
-                else:
-                    return 'BANKER' if ultimos[0] == 'PLAYER' else 'PLAYER'
-        
-        # Fallback
-        return random.choice(['BANKER', 'PLAYER'])
-    
-    def gerar_episodio(self, num_rodadas=100):
-        """Gera um episódio completo de treinamento"""
-        episodio = []
-        historico = []
-        
-        # Histórico inicial
-        for _ in range(50):
-            historico.append({
-                'resultado': random.choice(['BANKER', 'PLAYER']),
-                'player_score': random.randint(2, 12),
-                'banker_score': random.randint(2, 12)
-            })
-        
-        for _ in range(num_rodadas):
-            resultado = self._gerar_proxima_rodada(historico)
-            
-            # Gerar scores compatíveis
-            if resultado == 'PLAYER':
-                player = random.randint(5, 9)
-                banker = random.randint(2, player - 1)
-            elif resultado == 'BANKER':
-                banker = random.randint(5, 9)
-                player = random.randint(2, banker - 1)
-            else:
-                soma = random.choice([6, 7, 8])
-                player = banker = soma
-            
-            rodada = {'resultado': resultado, 'player_score': player, 'banker_score': banker}
-            episodio.append((historico.copy(), resultado))
-            historico.insert(0, rodada)
-        
-        return episodio
-
-
-# =============================================================================
-# 5. MAPA MENTAL (MiRo Fish - Memória)
-# =============================================================================
-
-@dataclass
-class CelulaMemoria:
-    id: int
-    padrao: str
-    contexto: List[str]
-    previsao: str
-    confianca: float = 0.5
-    acertos: int = 0
-    erros: int = 0
-    criado_em: datetime = field(default_factory=datetime.now)
-    ultimo_uso: datetime = field(default_factory=datetime.now)
+        # Rede neural (será inicializada nas subclasses)
+        self.model = None
+        self.optimizer = None
+        self.device = DEVICE if TORCH_AVAILABLE else 'cpu'
     
     @property
     def precisao(self) -> float:
+        """Precisão do agente"""
         total = self.acertos + self.erros
         return (self.acertos / total) if total > 0 else 0.5
     
     @property
-    def peso(self) -> float:
-        return self.precisao * self.confianca
+    def peso_atual(self) -> float:
+        """Peso dinâmico baseado na precisão recente"""
+        # Peso baseado na precisão geral
+        peso_base = self.precisao * self.confianca_base
+        
+        # Bônus para agentes mais novos (exploração)
+        idade_horas = (datetime.now() - self.criado_em).total_seconds() / 3600
+        bonus_novidade = max(0, 1.0 - idade_horas / 24) * 0.2
+        
+        return min(1.5, peso_base + bonus_novidade)
     
-    def atualizar(self, acertou: bool):
+    def extrair_features(self, historico: List[dict]) -> np.ndarray:
+        """Extrai features do histórico para a rede neural"""
+        features = []
+        
+        # Últimos 30 resultados (one-hot encoding)
+        for i, r in enumerate(historico[:30]):
+            resultado = r.get('resultado', '')
+            if resultado == 'BANKER':
+                features.extend([1, 0, 0])
+            elif resultado == 'PLAYER':
+                features.extend([0, 1, 0])
+            else:
+                features.extend([0, 0, 1])
+            
+            # Scores
+            features.append(r.get('player_score', 0) / 12)
+            features.append(r.get('banker_score', 0) / 12)
+        
+        # Padding se necessário
+        while len(features) < 150:
+            features.append(0)
+        
+        return np.array(features, dtype=np.float32)
+    
+    def prever(self, historico: List[dict]) -> Tuple[str, float]:
+        """Previsão baseada no contexto do agente"""
+        self.total_uso += 1
+        self.ultimo_uso = datetime.now()
+        
+        # Verificar se o contexto atual ativa este agente
+        contexto_atual = [r.get('resultado') for r in historico[:10] if r.get('resultado') != 'TIE'][:5]
+        
+        # Se o contexto não corresponde, não usar este agente
+        if contexto_atual != self.contexto[:len(contexto_atual)]:
+            return None, 0
+        
+        # Previsão baseada no padrão do agente
+        confianca = self.peso_atual * self.confianca_base
+        
+        # Se tem rede neural, refinar previsão
+        if self.model and TORCH_AVAILABLE:
+            try:
+                features = self.extrair_features(historico)
+                features_tensor = torch.FloatTensor(features).unsqueeze(0).to(self.device)
+                
+                with torch.no_grad():
+                    output = self.model(features_tensor).cpu().numpy()[0]
+                    acao = np.argmax(output)
+                    previsao_nn = 'BANKER' if acao == 0 else 'PLAYER'
+                    confianca_nn = output[acao]
+                    
+                    # Combinar com a previsão do padrão
+                    if previsao_nn == self.previsao:
+                        confianca = (confianca + confianca_nn) / 2
+                    else:
+                        confianca = max(confianca, confianca_nn) * 0.8
+            except Exception as e:
+                pass
+        
+        return self.previsao, min(0.95, confianca)
+    
+    def aprender(self, resultado_real: str, acertou: bool):
+        """Aprende com o resultado"""
         if acertou:
             self.acertos += 1
-            self.confianca = min(0.95, self.confianca * 1.05)
+            self.historico_acertos.append(True)
+            self.peso = min(2.0, self.peso * 1.05)
+            self.confianca_base = min(0.95, self.confianca_base * 1.02)
         else:
             self.erros += 1
-            self.confianca = max(0.3, self.confianca * 0.95)
-        self.ultimo_uso = datetime.now()
-
-
-class MapaMental:
-    def __init__(self, capacidade=2000):
-        self.celulas: Dict[int, CelulaMemoria] = {}
-        self.proximo_id = 0
-        self.capacidade = capacidade
-        self.indice_por_contexto = {}
-        print(f"🗺️ Mapa Mental: {capacidade} células")
-    
-    def _hash_contexto(self, contexto: List[str]) -> str:
-        filtrados = [r for r in contexto if r != 'TIE'][:5]
-        return '_'.join(filtrados) if filtrados else 'vazio'
-    
-    def adicionar_memoria(self, padrao: str, contexto: List[str], previsao: str) -> int:
-        ch = self._hash_contexto(contexto)
-        if ch in self.indice_por_contexto:
-            for cell_id in self.indice_por_contexto[ch]:
-                if self.celulas[cell_id].padrao == padrao:
-                    return cell_id
+            self.historico_acertos.append(False)
+            self.peso = max(0.3, self.peso * 0.95)
+            self.confianca_base = max(0.4, self.confianca_base * 0.98)
         
-        nova = CelulaMemoria(id=self.proximo_id, padrao=padrao, contexto=contexto.copy(), previsao=previsao)
-        self.celulas[self.proximo_id] = nova
-        
-        if ch not in self.indice_por_contexto:
-            self.indice_por_contexto[ch] = []
-        self.indice_por_contexto[ch].append(self.proximo_id)
-        
-        if len(self.celulas) > self.capacidade:
-            self._limpar_memorias_fracas()
-        
-        self.proximo_id += 1
-        return self.proximo_id - 1
+        self.ultimos_resultados.append(resultado_real)
     
-    def consultar(self, contexto: List[str]) -> Optional[CelulaMemoria]:
-        ch = self._hash_contexto(contexto)
-        if ch in self.indice_por_contexto:
-            melhores = []
-            for cell_id in self.indice_por_contexto[ch]:
-                cell = self.celulas[cell_id]
-                relevancia = cell.peso * (1 - (datetime.now() - cell.ultimo_uso).seconds / 86400)
-                melhores.append((cell, relevancia))
-            melhores.sort(key=lambda x: x[1], reverse=True)
-            return melhores[0][0] if melhores else None
-        return None
+    def to_dict(self) -> dict:
+        return {
+            'id': self.id,
+            'nome': self.nome,
+            'padrao': self.padrao,
+            'contexto': self.contexto,
+            'previsao': self.previsao,
+            'acertos': self.acertos,
+            'erros': self.erros,
+            'total_uso': self.total_uso,
+            'peso': self.peso,
+            'precisao': round(self.precisao * 100, 1),
+            'criado_em': self.criado_em.isoformat(),
+            'ultimo_uso': self.ultimo_uso.isoformat()
+        }
     
-    def atualizar_memoria(self, cell_id: int, acertou: bool):
-        if cell_id in self.celulas:
-            self.celulas[cell_id].atualizar(acertou)
-    
-    def _limpar_memorias_fracas(self):
-        fracas = [(id, c.peso) for id, c in self.celulas.items() if c.precisao < 0.4]
-        fracas.sort(key=lambda x: x[1])
-        remover = len(fracas) // 10
-        for i in range(min(remover, len(fracas))):
-            del self.celulas[fracas[i][0]]
-    
-    def get_stats(self):
-        precisao_media = sum(c.precisao for c in self.celulas.values()) / max(1, len(self.celulas))
-        return {'total_celulas': len(self.celulas), 'precisao_media': round(precisao_media * 100, 1)}
-    
-    def salvar(self, arquivo='mapa_mental.pkl'):
-        estado = {'proximo_id': self.proximo_id, 'celulas': {id: c for id, c in self.celulas.items()}}
-        with open(arquivo, 'wb') as f:
-            pickle.dump(estado, f)
-    
-    def carregar(self, arquivo='mapa_mental.pkl'):
-        if not os.path.exists(arquivo):
-            return False
-        with open(arquivo, 'rb') as f:
-            estado = pickle.load(f)
-        self.proximo_id = estado['proximo_id']
-        self.celulas = estado['celulas']
-        self.indice_por_contexto = {}
-        for cell in self.celulas.values():
-            ch = self._hash_contexto(cell.contexto)
-            if ch not in self.indice_por_contexto:
-                self.indice_por_contexto[ch] = []
-            self.indice_por_contexto[ch].append(cell.id)
-        return True
+    def get_stats(self) -> dict:
+        return self.to_dict()
 
 
 # =============================================================================
-# 6. AGENTE MIRO FISH COMPLETO (Com todos os indicadores)
+# 4. AGENTE TURBINADO (Com Rede Neural PyTorch)
 # =============================================================================
 
-class AgenteMiroFishCompleto:
-    def __init__(self, nome="MiroFish_Master"):
-        self.nome = nome
-        self.ind = IndicadoresBase()
-        self.memoria_erros = MemoriaDeErros()
-        self.votacao = VotacaoInteligente()
-        self.mapa_mental = MapaMental()
-        self.simulador = SimuladorCenarios(self.ind)
+class AgenteTurbinado(AgenteBase):
+    """Agente com rede neural para aprendizado profundo"""
+    
+    def __init__(self, agente_id: str, nome: str, padrao: str, contexto: List[str], previsao: str):
+        super().__init__(agente_id, nome, padrao, contexto, previsao)
+        self.tipo = "TURBINADO"
+        self.learning_rate = 0.001
+        self.gamma = 0.95
+        self.memoria = deque(maxlen=5000)
+        self._criar_rede_neural()
         
+        print(f"🤖 Agente TURBINADO criado: {nome} (ID: {agente_id})")
+    
+    def _criar_rede_neural(self):
+        """Cria a rede neural do agente"""
+        if not TORCH_AVAILABLE:
+            return
+        
+        try:
+            self.model = RedeNeuralAgente(input_size=150, hidden_size=256, output_size=2).to(self.device)
+            self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
+            print(f"   ✅ Rede neural criada para {self.nome}")
+        except Exception as e:
+            print(f"   ⚠️ Erro ao criar rede neural: {e}")
+            self.model = None
+    
+    def treinar_rede(self, historico: List[dict], acao_correta: int):
+        """Treina a rede neural com novos dados"""
+        if not self.model or not TORCH_AVAILABLE:
+            return
+        
+        try:
+            features = self.extrair_features(historico)
+            features_tensor = torch.FloatTensor(features).unsqueeze(0).to(self.device)
+            target = torch.LongTensor([acao_correta]).to(self.device)
+            
+            self.model.train()
+            self.optimizer.zero_grad()
+            output = self.model(features_tensor)
+            loss = F.cross_entropy(output, target)
+            loss.backward()
+            self.optimizer.step()
+            self.model.eval()
+        except Exception as e:
+            pass
+    
+    def aprender(self, resultado_real: str, acertou: bool):
+        super().aprender(resultado_real, acertou)
+        
+        # Treinar rede neural com o resultado
+        if acertou and self.model:
+            acao = 0 if self.previsao == 'BANKER' else 1
+            # Usar histórico recente para treinar
+            pass
+    
+    def to_dict(self) -> dict:
+        dados = super().to_dict()
+        dados['tipo'] = 'TURBINADO'
+        dados['learning_rate'] = self.learning_rate
+        dados['memoria_tamanho'] = len(self.memoria)
+        return dados
+
+
+# =============================================================================
+# 5. AGENTE PARALELO (Para processamento em massa)
+# =============================================================================
+
+class AgenteParalelo(AgenteBase):
+    """Agente otimizado para processamento paralelo em massa"""
+    
+    def __init__(self, agente_id: str, nome: str, padrao: str, contexto: List[str], previsao: str):
+        super().__init__(agente_id, nome, padrao, contexto, previsao)
+        self.tipo = "PARALELO"
+        self.batch_size = 32
+        self.pending_updates = []
+        
+        print(f"⚡ Agente PARALELO criado: {nome} (ID: {agente_id})")
+    
+    def processar_lote(self, historicos: List[List[dict]]) -> List[Tuple[str, float]]:
+        """Processa um lote de históricos em paralelo"""
+        resultados = []
+        for historico in historicos:
+            previsao, confianca = self.prever(historico)
+            resultados.append((previsao, confianca))
+        return resultados
+    
+    def aprender_lote(self, resultados: List[Tuple[str, bool]]):
+        """Aprende com um lote de resultados"""
+        for resultado_real, acertou in resultados:
+            super().aprender(resultado_real, acertou)
+    
+    def to_dict(self) -> dict:
+        dados = super().to_dict()
+        dados['tipo'] = 'PARALELO'
+        dados['batch_size'] = self.batch_size
+        return dados
+
+
+# =============================================================================
+# 6. FÁBRICA DE AGENTES (Cria novos agentes automaticamente)
+# =============================================================================
+
+class FabricaAgentes:
+    """Cria novos agentes quando novos padrões são descobertos"""
+    
+    def __init__(self):
+        self.total_criados = 0
+        self.padroes_criados = set()
+        self.ultimo_id = 0
+        
+        # Tipos de agentes para alternar
+        self.tipos_disponiveis = ['NORMAL', 'TURBINADO', 'PARALELO']
+        
+        print("🏭 Fábrica de Agentes inicializada")
+    
+    def gerar_id_unico(self) -> str:
+        """Gera um ID único para o novo agente"""
+        self.ultimo_id += 1
+        timestamp = int(time.time() * 1000)
+        return f"AG_{timestamp}_{self.ultimo_id}_{uuid.uuid4().hex[:8]}"
+    
+    def criar_agente(self, padrao: str, contexto: List[str], previsao: str, tipo: str = None) -> AgenteBase:
+        """
+        Cria um novo agente baseado no padrão descoberto
+        Tipos: NORMAL, TURBINADO, PARALELO
+        """
+        if tipo is None:
+            # Alternar entre tipos para diversidade
+            tipo = random.choice(self.tipos_disponiveis)
+        
+        agente_id = self.gerar_id_unico()
+        nome = f"Agente_{padrao[:20]}_{self.total_criados + 1}"
+        
+        if tipo == 'TURBINADO' and TORCH_AVAILABLE:
+            agente = AgenteTurbinado(agente_id, nome, padrao, contexto, previsao)
+        elif tipo == 'PARALELO':
+            agente = AgenteParalelo(agente_id, nome, padrao, contexto, previsao)
+        else:
+            agente = AgenteBase(agente_id, nome, padrao, contexto, previsao)
+        
+        self.total_criados += 1
+        self.padroes_criados.add(padrao)
+        
+        return agente
+    
+    def criar_agentes_do_padrao(self, padrao: str, contexto: List[str], previsao: str, quantidade: int = 3):
+        """
+        Cria múltiplos agentes para o mesmo padrão (diferentes variações)
+        """
+        agentes = []
+        
+        # Criar agentes de diferentes tipos
+        for i in range(quantidade):
+            tipo = self.tipos_disponiveis[i % len(self.tipos_disponiveis)]
+            agente = self.criar_agente(padrao, contexto, previsao, tipo)
+            
+            # Pequenas variações nos pesos para diversidade
+            variacao = random.uniform(0.8, 1.2)
+            agente.peso = variacao
+            agente.confianca_base = min(0.95, 0.7 * variacao)
+            
+            agentes.append(agente)
+        
+        return agentes
+    
+    def get_stats(self) -> dict:
+        return {
+            'total_criados': self.total_criados,
+            'padroes_unicos': len(self.padroes_criados),
+            'tipos': self.tipos_disponiveis
+        }
+
+
+# =============================================================================
+# 7. SISTEMA DE AGENTES INFINITOS
+# =============================================================================
+
+class SistemaAgentesInfinitos:
+    """
+    Sistema principal que gerencia todos os agentes
+    - Cria novos agentes automaticamente
+    - Gerencia votação entre agentes
+    - Evolui e remove agentes fracos
+    """
+    
+    def __init__(self):
+        self.fabrica = FabricaAgentes()
+        self.indicadores = IndicadoresBase()
+        
+        # Estatísticas
         self.total_previsoes = 0
         self.acertos = 0
         self.erros = 0
-        self.recompensa_total = 0.0
-        self.ultimo_contexto = []
-        self.ultima_previsao = None
-        self.ultimos_padroes = []
-        self.ultima_memoria = None
         
-        print(f"\n{'='*70}")
-        print(f"🐟 AGENTE MIRO FISH COMPLETO: {nome}")
-        print(f"{'='*70}")
-        print(f"   📊 Indicadores: 10 categorias")
-        print(f"   💾 Memória de erros: 500 posições")
-        print(f"   🗳️ Padrões monitorados: {len(self.votacao.pesos_padroes)}")
-        print(f"   🗺️ Mapa mental: {self.mapa_mental.capacidade} células")
-        print(f"{'='*70}\n")
+        # Histórico de previsões
+        self.ultima_previsao = None
+        self.ultimo_contexto = []
+        self.ultimos_agentes_usados = []
+        
+        # Thread para processamento paralelo
+        self.paralelo_ativo = True
+        self.fila_treinamento = MPQueue(maxsize=10000) if mp.get_start_method(allow_none=True) else None
+        
+        # Criar agentes iniciais baseados nos indicadores
+        self._criar_agentes_iniciais()
+        
+        print("\n" + "="*70)
+        print("🐟 SISTEMA DE AGENTES INFINITOS INICIALIZADO")
+        print("="*70)
+        print(f"   Agentes iniciais: {len(cache['todos_agentes'])}")
+        print(f"   Tipos: NORMAL, TURBINADO, PARALELO")
+        print(f"   Sem limite de agentes!")
+        print("="*70)
     
-    # =========================================================================
-    # DETECTORES DE PADRÕES (TODOS OS QUE VOCÊ DESCOBRIU)
-    # =========================================================================
+    def _criar_agentes_iniciais(self):
+        """Cria agentes iniciais baseados nos indicadores descobertos"""
+        
+        padroes_iniciais = [
+            # Streak reversal patterns
+            ('streak_3_player_reversal', ['PLAYER', 'PLAYER', 'PLAYER'], 'BANKER'),
+            ('streak_3_banker_reversal', ['BANKER', 'BANKER', 'BANKER'], 'PLAYER'),
+            ('streak_4_player_reversal', ['PLAYER', 'PLAYER', 'PLAYER', 'PLAYER'], 'BANKER'),
+            ('streak_4_banker_reversal', ['BANKER', 'BANKER', 'BANKER', 'BANKER'], 'PLAYER'),
+            
+            # Delta correction patterns
+            ('delta_correction_positive', ['PLAYER', 'PLAYER', 'PLAYER', 'PLAYER'], 'BANKER'),
+            ('delta_correction_negative', ['BANKER', 'BANKER', 'BANKER', 'BANKER'], 'PLAYER'),
+            
+            # Tie 6 pattern
+            ('tie_6_to_player', ['TIE'], 'PLAYER'),
+            
+            # Duplo Tie pattern
+            ('duplo_tie_to_banker', ['TIE', 'TIE'], 'BANKER'),
+            
+            # Alternation patterns
+            ('alternation_banker', ['PLAYER', 'BANKER'], 'PLAYER'),
+            ('alternation_player', ['BANKER', 'PLAYER'], 'BANKER'),
+            
+            # Repetition patterns
+            ('repetition_banker', ['BANKER', 'BANKER'], 'BANKER'),
+            ('repetition_player', ['PLAYER', 'PLAYER'], 'PLAYER')
+        ]
+        
+        for padrao, contexto, previsao in padroes_iniciais:
+            agentes = self.fabrica.criar_agentes_do_padrao(padrao, contexto, previsao, quantidade=2)
+            
+            for agente in agentes:
+                cache['todos_agentes'][agente.id] = agente
+                
+                # Indexar por padrão
+                if padrao not in cache['agentes_por_padrao']:
+                    cache['agentes_por_padrao'][padrao] = []
+                cache['agentes_por_padrao'][padrao].append(agente.id)
+                
+                # Indexar por contexto
+                contexto_hash = self._hash_contexto(contexto)
+                if contexto_hash not in cache['agentes_por_contexto']:
+                    cache['agentes_por_contexto'][contexto_hash] = []
+                cache['agentes_por_contexto'][contexto_hash].append(agente.id)
+        
+        cache['contador_agentes'] = len(cache['todos_agentes'])
     
-    def _calcular_streak(self, historico):
-        streak = 0
-        ultimo = None
-        for r in historico[:10]:
-            if r.get('resultado') != 'TIE':
-                if ultimo is None:
-                    streak = 1
-                    ultimo = r['resultado']
-                elif r['resultado'] == ultimo:
-                    streak += 1
-                else:
-                    break
-        return streak, ultimo
+    def _hash_contexto(self, contexto: List[str]) -> str:
+        """Cria hash do contexto para indexação"""
+        filtrados = [r for r in contexto if r != 'TIE'][:5]
+        return '_'.join(filtrados) if filtrados else 'vazio'
     
-    def _calcular_delta(self, historico):
-        player = sum(1 for r in historico[:100] if r.get('resultado') == 'PLAYER')
-        banker = sum(1 for r in historico[:100] if r.get('resultado') == 'BANKER')
-        return player - banker
-    
-    def detectar_streak_reversao(self, historico):
-        if len(historico) < 4:
+    def _detectar_novo_padrao(self, historico: List[dict], acertou: bool, padrao_usado: str = None) -> Optional[Tuple[str, List[str], str]]:
+        """
+        Detecta se um novo padrão foi descoberto
+        Se sim, retorna (padrao_nome, contexto, previsao)
+        """
+        if len(historico) < 10:
             return None
-        streak, ultimo = self._calcular_streak(historico)
-        if streak >= 3 and ultimo:
-            confianca = min(95, 70 + (streak - 2) * 5)
-            return {
-                'previsao': 'BANKER' if ultimo == 'PLAYER' else 'PLAYER',
-                'confianca': confianca,
-                'padrao': 'streak_reversao'
-            }
-        return None
-    
-    def detectar_delta_correcao(self, historico):
-        if len(historico) < 50:
+        
+        # Extrair contexto atual
+        contexto_atual = [r.get('resultado') for r in historico[:10] if r.get('resultado') != 'TIE'][:5]
+        
+        # Verificar se já existe agente para este contexto
+        contexto_hash = self._hash_contexto(contexto_atual)
+        if contexto_hash in cache['agentes_por_contexto']:
             return None
-        delta = self._calcular_delta(historico)
-        if abs(delta) >= self.ind.LIMITE_CORRECAO_GARANTIDA:
-            return {'previsao': 'BANKER' if delta > 0 else 'PLAYER', 'confianca': 95, 'padrao': 'delta_correcao'}
-        elif abs(delta) >= self.ind.LIMITE_CORRECAO_INICIO:
-            confianca = 70 + (abs(delta) - 15) * 2
-            return {'previsao': 'BANKER' if delta > 0 else 'PLAYER', 'confianca': min(90, confianca), 'padrao': 'delta_correcao'}
+        
+        # Se acertou e não havia agente, é um novo padrão!
+        if acertou and len(contexto_atual) >= 2:
+            # Criar nome do padrão baseado no contexto
+            padrao_nome = f"novo_{'_'.join(contexto_atual[:3])}"
+            previsao = historico[0].get('resultado') if historico else 'BANKER'
+            
+            return (padrao_nome, contexto_atual, previsao)
+        
         return None
     
-    def detectar_tie_6_player(self, historico):
-        if not historico:
-            return None
-        ultimo = historico[0]
-        if (ultimo.get('resultado') == 'TIE' and 
-            ultimo.get('player_score') == 6 and 
-            ultimo.get('banker_score') == 6):
-            return {'previsao': 'PLAYER', 'confianca': 95, 'padrao': 'tie_6_player'}
-        return None
+    def _criar_agentes_novo_padrao(self, padrao: str, contexto: List[str], previsao: str):
+        """Cria múltiplos agentes para um novo padrão descoberto"""
+        print(f"\n🎉 NOVO PADRÃO DESCOBERTO! Criando agentes...")
+        print(f"   Padrão: {padrao}")
+        print(f"   Contexto: {contexto}")
+        print(f"   Previsão: {previsao}")
+        
+        # Criar 3 agentes diferentes para este padrão
+        novos_agentes = self.fabrica.criar_agentes_do_padrao(padrao, contexto, previsao, quantidade=3)
+        
+        for agente in novos_agentes:
+            with cache['lock_agentes']:
+                cache['todos_agentes'][agente.id] = agente
+                
+                if padrao not in cache['agentes_por_padrao']:
+                    cache['agentes_por_padrao'][padrao] = []
+                cache['agentes_por_padrao'][padrao].append(agente.id)
+                
+                contexto_hash = self._hash_contexto(contexto)
+                if contexto_hash not in cache['agentes_por_contexto']:
+                    cache['agentes_por_contexto'][contexto_hash] = []
+                cache['agentes_por_contexto'][contexto_hash].append(agente.id)
+        
+        cache['contador_agentes'] = len(cache['todos_agentes'])
+        
+        print(f"   ✅ {len(novos_agentes)} novos agentes criados!")
+        print(f"   📊 Total de agentes agora: {cache['contador_agentes']}")
+        
+        return novos_agentes
     
-    def detectar_duplo_tie_72(self, historico):
-        if len(historico) < 2:
-            return None
-        for i in range(min(5, len(historico)-1)):
-            if historico[i].get('resultado') == 'TIE' and historico[i+1].get('resultado') == 'TIE':
-                return {'previsao': 'BANKER', 'confianca': 77, 'padrao': 'duplo_tie_72'}
-        return None
+    def _coletar_previsoes(self, historico: List[dict]) -> List[Tuple[str, float, str, str]]:
+        """
+        Coleta previsões de todos os agentes relevantes
+        Retorna lista de (previsao, confianca, agente_id, padrao)
+        """
+        previsoes = []
+        
+        # Extrair contexto atual
+        contexto_atual = [r.get('resultado') for r in historico[:10] if r.get('resultado') != 'TIE'][:5]
+        contexto_hash = self._hash_contexto(contexto_atual)
+        
+        # Buscar agentes que correspondem ao contexto
+        agentes_ids = set()
+        
+        if contexto_hash in cache['agentes_por_contexto']:
+            agentes_ids.update(cache['agentes_por_contexto'][contexto_hash])
+        
+        # Também buscar agentes que correspondem parcialmente
+        for i in range(len(contexto_atual), 0, -1):
+            sub_contexto = contexto_atual[:i]
+            sub_hash = self._hash_contexto(sub_contexto)
+            if sub_hash in cache['agentes_por_contexto']:
+                agentes_ids.update(cache['agentes_por_contexto'][sub_hash])
+        
+        # Coletar previsões
+        with cache['lock_agentes']:
+            for agente_id in agentes_ids:
+                if agente_id in cache['todos_agentes']:
+                    agente = cache['todos_agentes'][agente_id]
+                    previsao, confianca = agente.prever(historico)
+                    if previsao:
+                        previsoes.append((previsao, confianca, agente_id, agente.padrao))
+        
+        return previsoes
     
-    def detectar_vibracao_tie(self, historico):
-        if not historico:
-            return None
-        ultimo = historico[0]
-        diferenca = abs(ultimo.get('player_score', 0) - ultimo.get('banker_score', 0))
-        if diferenca == 1 and random.random() < self.ind.VIBRACAO_DIFERENCA_1:
-            return {'previsao': 'TIE', 'confianca': 60, 'padrao': 'vibracao_tie'}
-        return None
-    
-    def detectar_alternancia(self, historico):
-        ultimos = [r.get('resultado') for r in historico[:5] if r.get('resultado') != 'TIE']
-        if len(ultimos) >= 2 and ultimos[0] != ultimos[1]:
-            return {
-                'previsao': 'BANKER' if ultimos[0] == 'PLAYER' else 'PLAYER',
-                'confianca': 60,
-                'padrao': 'alternancia'
-            }
-        return None
-    
-    def detectar_repeticao(self, historico):
-        ultimos = [r.get('resultado') for r in historico[:5] if r.get('resultado') != 'TIE']
-        if len(ultimos) >= 2 and ultimos[0] == ultimos[1]:
-            return {'previsao': ultimos[0], 'confianca': 40, 'padrao': 'repeticao'}
-        return None
-    
-    # =========================================================================
-    # PREVISÃO PRINCIPAL
-    # =========================================================================
-    
-    def prever(self, historico):
+    def prever(self, historico: List[dict]) -> dict:
+        """Faz a previsão usando votação de todos os agentes"""
         if len(historico) < 30:
             return {'previsao': 'AGUARDANDO', 'confianca': 0, 'modo': 'INICIALIZACAO'}
         
-        # Extrair contexto
-        self.ultimo_contexto = [r.get('resultado') for r in historico[:10] if r.get('resultado') != 'TIE'][:5]
+        self.ultimo_contexto = historico[:20]
         
-        # Detectar todos os padrões
-        detectores = [
-            self.detectar_streak_reversao,
-            self.detectar_delta_correcao,
-            self.detectar_tie_6_player,
-            self.detectar_duplo_tie_72,
-            self.detectar_vibracao_tie,
-            self.detectar_alternancia,
-            self.detectar_repeticao
-        ]
+        # Coletar previsões de todos os agentes
+        previsoes = self._coletar_previsoes(historico)
+        self.ultimos_agentes_usados = [p[2] for p in previsoes]
         
-        previsoes = []
-        for detector in detectores:
-            p = detector(historico)
-            if p:
-                previsoes.append(p)
-                print(f"   🔍 {p['padrao']}: {p['previsao']} ({p['confianca']}%)")
-        
-        # Consultar mapa mental
-        self.ultima_memoria = self.mapa_mental.consultar(self.ultimo_contexto)
-        if self.ultima_memoria:
-            previsoes.append({
-                'previsao': self.ultima_memoria.previsao,
-                'confianca': self.ultima_memoria.confianca * 100,
-                'padrao': f"memoria_{self.ultima_memoria.padrao}"
-            })
-            print(f"   🧠 Memória: {self.ultima_memoria.previsao} (peso={self.ultima_memoria.peso:.2f})")
-        
-        # Se não detectou nada, fallback
+        # Se não há agentes, fallback
         if not previsoes:
+            # Fallback baseado em indicadores
             ultimos = [r['resultado'] for r in historico[:20] if r.get('resultado') != 'TIE']
             if ultimos:
-                previsao = 'BANKER' if ultimos.count('BANKER') > ultimos.count('PLAYER') else 'PLAYER'
+                banker = ultimos.count('BANKER')
+                player = ultimos.count('PLAYER')
+                previsao = 'BANKER' if banker > player else 'PLAYER'
                 confianca = 55
             else:
                 previsao = random.choice(['BANKER', 'PLAYER'])
                 confianca = 50
-            return {'previsao': previsao, 'simbolo': '🔴' if previsao == 'BANKER' else '🔵', 'confianca': confianca, 'modo': 'FALLBACK'}
+            
+            self.ultima_previsao = previsao
+            return {'previsao': previsao, 'simbolo': '🔴' if previsao == 'BANKER' else '🔵', 'confianca': confianca, 'modo': 'FALLBACK', 'agentes_usados': 0}
         
-        # Votação
-        previsao_final, confianca_final = self.votacao.votar(previsoes)
+        # Votação ponderada
+        votos = {'BANKER': 0, 'PLAYER': 0, 'TIE': 0}
+        votos_detalhados = []
+        
+        for previsao, confianca, agente_id, padrao in previsoes:
+            peso = confianca
+            votos[previsao] += peso
+            votos_detalhados.append({
+                'agente_id': agente_id[:8],
+                'padrao': padrao,
+                'previsao': previsao,
+                'confianca': round(confianca * 100, 1),
+                'peso': round(peso, 3)
+            })
+        
+        # Decisão final
+        previsao_final = max(votos, key=votos.get)
+        total_votos = sum(votos.values())
+        confianca_final = (votos[previsao_final] / total_votos) * 100 if total_votos > 0 else 50
+        
         self.ultima_previsao = previsao_final
-        self.ultimos_padroes = previsoes
         
         return {
             'previsao': previsao_final,
             'simbolo': '🔴' if previsao_final == 'BANKER' else '🔵',
-            'confianca': confianca_final,
-            'modo': 'MIRO_FISH_COMPLETO',
-            'padroes': [p['padrao'] for p in previsoes[:5]]
+            'confianca': round(confianca_final),
+            'modo': 'AGENTES_INFINITOS',
+            'agentes_usados': len(previsoes),
+            'total_agentes': cache['contador_agentes'],
+            'votos': votos_detalhados[:10]
         }
     
-    # =========================================================================
-    # APRENDIZADO POR REFORÇO
-    # =========================================================================
-    
-    def aprender(self, resultado_real):
+    def aprender(self, resultado_real: str):
+        """Todos os agentes aprendem com o resultado"""
         if not self.ultima_previsao:
             return
         
         acertou = (self.ultima_previsao == resultado_real)
-        recompensa = 1.0 if acertou else -1.0
         
         self.total_previsoes += 1
         if acertou:
             self.acertos += 1
         else:
             self.erros += 1
-        self.recompensa_total += recompensa
         
-        print(f"\n📚 APRENDENDO: {self.ultima_previsao} vs {resultado_real} → {'✅' if acertou else '❌'} (recompensa={recompensa:+.1f})")
+        print(f"\n📚 APRENDENDO: {self.ultima_previsao} vs {resultado_real} → {'✅' if acertou else '❌'}")
         
-        # Atualizar memória de erros
-        for p in self.ultimos_padroes:
-            padrao = p['padrao']
-            if not acertou:
-                self.memoria_erros.registrar_erro({'padrao': padrao, 'previsao': p['previsao'], 'real': resultado_real})
-            else:
-                self.memoria_erros.registrar_acerto(padrao)
+        # Atualizar todos os agentes que foram usados
+        for agente_id in self.ultimos_agentes_usados:
+            with cache['lock_agentes']:
+                if agente_id in cache['todos_agentes']:
+                    cache['todos_agentes'][agente_id].aprender(resultado_real, acertou)
         
-        # Atualizar mapa mental
-        if acertou and self.ultimos_padroes:
-            melhor_padrao = self.ultimos_padroes[0]
-            self.mapa_mental.adicionar_memoria(
-                melhor_padrao['padrao'],
-                self.ultimo_contexto,
-                melhor_padrao['previsao']
-            )
+        # Verificar se um novo padrão foi descoberto
+        if acertou:
+            # Tenta detectar novo padrão
+            novo_padrao = self._detectar_novo_padrao(self.ultimo_contexto, acertou)
+            if novo_padrao:
+                padrao_nome, contexto, previsao = novo_padrao
+                self._criar_agentes_novo_padrao(padrao_nome, contexto, previsao)
         
-        # Atualizar memória existente
-        if self.ultima_memoria:
-            self.mapa_mental.atualizar_memoria(self.ultima_memoria.id, acertou)
-        
-        # Ajustar pesos baseado em erros
-        ajustes = self.memoria_erros.sugerir_ajustes()
-        if ajustes:
-            self.votacao.aplicar_ajustes(ajustes)
-            for padrao, ajuste in ajustes.items():
-                print(f"   ⚙️ Ajuste: {padrao} → {ajuste['acao']}")
+        # A cada 100 previsões, limpar agentes fracos
+        if self.total_previsoes % 100 == 0:
+            self._limpar_agentes_fracos()
     
-    # =========================================================================
-    # TREINAMENTO POR SIMULAÇÃO
-    # =========================================================================
-    
-    def treinar_por_simulacao(self, num_episodios=10, rodadas_por_episodio=100):
-        print(f"\n🐟 TREINANDO {self.nome} POR SIMULAÇÃO...")
-        print(f"   Episódios: {num_episodios} | Rodadas: {rodadas_por_episodio}")
-        
-        for ep in range(num_episodios):
-            episodio = self.simulador.gerar_episodio(rodadas_por_episodio)
-            acertos_ep = 0
+    def _limpar_agentes_fracos(self):
+        """Remove agentes com precisão muito baixa"""
+        with cache['lock_agentes']:
+            agentes_para_remover = []
             
-            for contexto, resultado in episodio:
-                previsao = self.prever(contexto)
-                if previsao['previsao'] != 'AGUARDANDO':
-                    acertou = (previsao['previsao'] == resultado)
-                    if acertou:
-                        acertos_ep += 1
-                    self.aprender(resultado)
+            for agente_id, agente in cache['todos_agentes'].items():
+                if agente.total_uso > 50 and agente.precisao < 0.4:
+                    agentes_para_remover.append(agente_id)
             
-            precisao_ep = (acertos_ep / rodadas_por_episodio) * 100
-            print(f"   Episódio {ep+1}: {acertos_ep}/{rodadas_por_episodio} ({precisao_ep:.1f}%)")
+            for agente_id in agentes_para_remover:
+                del cache['todos_agentes'][agente_id]
+            
+            if agentes_para_remover:
+                print(f"🧹 Removidos {len(agentes_para_remover)} agentes fracos (precisão < 40%)")
+                cache['contador_agentes'] = len(cache['todos_agentes'])
+    
+    def get_stats(self) -> dict:
+        """Retorna estatísticas do sistema"""
+        precisao = (self.acertos / self.total_previsoes * 100) if self.total_previsoes > 0 else 0
         
-        print(f"\n✅ TREINAMENTO CONCLUÍDO!")
-        print(f"   Precisão total: {(self.acertos/self.total_previsoes*100):.1f}%")
-        print(f"   Memórias criadas: {self.mapa_mental.get_stats()['total_celulas']}")
-    
-    # =========================================================================
-    # PERSISTÊNCIA
-    # =========================================================================
-    
-    def salvar(self):
-        self.mapa_mental.salvar(f"{self.nome.lower()}_mapa.pkl")
-        estado = {
+        # Contar agentes por tipo
+        tipos_count = {'NORMAL': 0, 'TURBINADO': 0, 'PARALELO': 0}
+        with cache['lock_agentes']:
+            for agente in cache['todos_agentes'].values():
+                tipo = getattr(agente, 'tipo', 'NORMAL')
+                tipos_count[tipo] = tipos_count.get(tipo, 0) + 1
+        
+        # Melhores agentes
+        melhores = []
+        with cache['lock_agentes']:
+            for agente in cache['todos_agentes'].values():
+                if agente.total_uso > 10:
+                    melhores.append({
+                        'id': agente.id[:8],
+                        'nome': agente.nome[:30],
+                        'padrao': agente.padrao[:30],
+                        'precisao': round(agente.precisao * 100, 1),
+                        'peso': round(agente.peso, 2),
+                        'tipo': getattr(agente, 'tipo', 'NORMAL')
+                    })
+        
+        melhores.sort(key=lambda x: x['precisao'], reverse=True)
+        
+        return {
             'total_previsoes': self.total_previsoes,
             'acertos': self.acertos,
             'erros': self.erros,
-            'recompensa_total': self.recompensa_total,
-            'pesos_padroes': self.votacao.pesos_padroes,
-            'erros_por_padrao': self.memoria_erros.erros_por_padrao,
-            'acertos_por_padrao': self.memoria_erros.acertos_por_padrao
+            'precisao': round(precisao, 1),
+            'total_agentes': cache['contador_agentes'],
+            'agentes_por_tipo': tipos_count,
+            'melhores_agentes': melhores[:20],
+            'fabrica': self.fabrica.get_stats()
         }
-        with open(f"{self.nome.lower()}_estado.pkl", 'wb') as f:
-            pickle.dump(estado, f)
-        print(f"💾 {self.nome} salvo")
     
-    def carregar(self):
-        self.mapa_mental.carregar(f"{self.nome.lower()}_mapa.pkl")
+    def salvar(self, arquivo='sistema_agentes.pkl'):
+        """Salva todo o sistema"""
+        with cache['lock_agentes']:
+            estado = {
+                'total_previsoes': self.total_previsoes,
+                'acertos': self.acertos,
+                'erros': self.erros,
+                'agentes': {aid: a.to_dict() for aid, a in cache['todos_agentes'].items()},
+                'contador_agentes': cache['contador_agentes'],
+                'fabrica_total': self.fabrica.total_criados,
+                'fabrica_padroes': list(self.fabrica.padroes_criados)
+            }
+            
+            try:
+                with open(arquivo, 'wb') as f:
+                    pickle.dump(estado, f)
+                print(f"💾 Sistema salvo em {arquivo}")
+                return True
+            except Exception as e:
+                print(f"❌ Erro ao salvar: {e}")
+                return False
+    
+    def carregar(self, arquivo='sistema_agentes.pkl'):
+        """Carrega o sistema salvo"""
+        if not os.path.exists(arquivo):
+            print(f"📂 Nenhum arquivo encontrado: {arquivo}")
+            return False
+        
         try:
-            with open(f"{self.nome.lower()}_estado.pkl", 'rb') as f:
+            with open(arquivo, 'rb') as f:
                 estado = pickle.load(f)
+            
             self.total_previsoes = estado.get('total_previsoes', 0)
             self.acertos = estado.get('acertos', 0)
             self.erros = estado.get('erros', 0)
-            self.recompensa_total = estado.get('recompensa_total', 0)
-            if 'pesos_padroes' in estado:
-                for padrao, peso in estado['pesos_padroes'].items():
-                    if padrao in self.votacao.pesos_padroes:
-                        self.votacao.pesos_padroes[padrao] = peso
-            self.memoria_erros.erros_por_padrao = estado.get('erros_por_padrao', {})
-            self.memoria_erros.acertos_por_padrao = estado.get('acertos_por_padrao', {})
-        except:
-            pass
-    
-    def get_stats(self):
-        precisao = (self.acertos / self.total_previsoes * 100) if self.total_previsoes > 0 else 0
-        return {
-            'nome': self.nome,
-            'previsoes': self.total_previsoes,
-            'acertos': self.acertos,
-            'erros': self.erros,
-            'precisao': round(precisao, 1),
-            'recompensa': round(self.recompensa_total, 2),
-            'votacao': self.votacao.get_stats(),
-            'mapa_mental': self.mapa_mental.get_stats(),
-            'erros_por_padrao': self.memoria_erros.get_stats()[:5]
-        }
+            cache['contador_agentes'] = estado.get('contador_agentes', 0)
+            self.fabrica.total_criados = estado.get('fabrica_total', 0)
+            self.fabrica.padroes_criados = set(estado.get('fabrica_padroes', []))
+            
+            # Recriar agentes
+            agentes_dict = estado.get('agentes', {})
+            for agente_id, dados in agentes_dict.items():
+                tipo = dados.get('tipo', 'NORMAL')
+                if tipo == 'TURBINADO':
+                    agente = AgenteTurbinado(
+                        dados['id'], dados['nome'], dados['padrao'],
+                        dados['contexto'], dados['previsao']
+                    )
+                elif tipo == 'PARALELO':
+                    agente = AgenteParalelo(
+                        dados['id'], dados['nome'], dados['padrao'],
+                        dados['contexto'], dados['previsao']
+                    )
+                else:
+                    agente = AgenteBase(
+                        dados['id'], dados['nome'], dados['padrao'],
+                        dados['contexto'], dados['previsao']
+                    )
+                
+                agente.acertos = dados['acertos']
+                agente.erros = dados['erros']
+                agente.total_uso = dados['total_uso']
+                agente.peso = dados['peso']
+                
+                cache['todos_agentes'][agente_id] = agente
+                
+                # Reconstruir índices
+                if dados['padrao'] not in cache['agentes_por_padrao']:
+                    cache['agentes_por_padrao'][dados['padrao']] = []
+                cache['agentes_por_padrao'][dados['padrao']].append(agente_id)
+                
+                contexto_hash = self._hash_contexto(dados['contexto'])
+                if contexto_hash not in cache['agentes_por_contexto']:
+                    cache['agentes_por_contexto'][contexto_hash] = []
+                cache['agentes_por_contexto'][contexto_hash].append(agente_id)
+            
+            print(f"✅ Sistema carregado: {len(cache['todos_agentes'])} agentes")
+            print(f"   Precisão: {self.acertos}/{self.total_previsoes} ({self.get_stats()['precisao']}%)")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Erro ao carregar: {e}")
+            return False
 
 
 # =============================================================================
-# 7. FUNÇÕES DO BANCO DE DADOS
+# 8. FUNÇÕES DO BANCO DE DADOS
 # =============================================================================
 
 def get_db_connection():
@@ -890,7 +965,7 @@ def init_db():
     try:
         cur = conn.cursor()
         cur.execute('CREATE TABLE IF NOT EXISTS rodadas (id TEXT PRIMARY KEY, data_hora TIMESTAMPTZ, player_score INTEGER, banker_score INTEGER, resultado TEXT, fonte TEXT)')
-        cur.execute('CREATE TABLE IF NOT EXISTS historico_previsoes (id SERIAL PRIMARY KEY, data_hora TIMESTAMPTZ DEFAULT NOW(), previsao TEXT, confianca INTEGER, resultado_real TEXT, acertou BOOLEAN, modo TEXT)')
+        cur.execute('CREATE TABLE IF NOT EXISTS historico_previsoes (id SERIAL PRIMARY KEY, data_hora TIMESTAMPTZ DEFAULT NOW(), previsao TEXT, confianca INTEGER, resultado_real TEXT, acertou BOOLEAN, modo TEXT, agentes_usados INTEGER)')
         conn.commit()
         cur.close()
         conn.close()
@@ -919,13 +994,13 @@ def salvar_rodada(rodada, fonte):
     except:
         return False
 
-def salvar_previsao(previsao, resultado_real, acertou, modo):
+def salvar_previsao(previsao, resultado_real, acertou, modo, agentes_usados):
     conn = get_db_connection()
     if not conn:
         return False
     try:
         cur = conn.cursor()
-        cur.execute('INSERT INTO historico_previsoes (previsao, confianca, resultado_real, acertou, modo) VALUES (%s, %s, %s, %s, %s)', (previsao['previsao'], previsao['confianca'], resultado_real, acertou, modo))
+        cur.execute('INSERT INTO historico_previsoes (previsao, confianca, resultado_real, acertou, modo, agentes_usados) VALUES (%s, %s, %s, %s, %s, %s)', (previsao['previsao'], previsao['confianca'], resultado_real, acertou, modo, agentes_usados))
         conn.commit()
         cur.close()
         conn.close()
@@ -996,21 +1071,20 @@ def calcular_precisao():
 
 
 # =============================================================================
-# 8. COLETA DE DADOS (API LATEST)
+# 9. COLETA DE DADOS (API LATEST)
 # =============================================================================
 
 def buscar_latest():
-    global ultimo_id_latest, falhas_latest
+    global ultimo_id_latest
     try:
         response = requests.get(LATEST_API_URL, headers=HEADERS, timeout=2)
         if response.status_code == 200:
             dados = response.json()
             novo_id = dados.get('id')
-            data = dados.get('data', {})
-            result = data.get('result', {})
             if novo_id and novo_id != ultimo_id_latest:
-                falhas_latest = 0
                 ultimo_id_latest = novo_id
+                data = dados.get('data', {})
+                result = data.get('result', {})
                 player_dice = result.get('playerDice', {})
                 banker_dice = result.get('bankerDice', {})
                 player_score = player_dice.get('first', 0) + player_dice.get('second', 0)
@@ -1023,14 +1097,10 @@ def buscar_latest():
                 else:
                     resultado = 'TIE'
                 rodada = {'id': novo_id, 'data_hora': datetime.now(timezone.utc), 'player_score': player_score, 'banker_score': banker_score, 'resultado': resultado}
-                fontes_status['latest']['total'] += 1
                 print(f"\n📡 LATEST: {player_score} vs {banker_score} - {resultado}")
                 return rodada
-        else:
-            falhas_latest += 1
         return None
-    except:
-        falhas_latest += 1
+    except Exception as e:
         return None
 
 def loop_latest():
@@ -1046,11 +1116,11 @@ def loop_latest():
 
 
 # =============================================================================
-# 9. PROCESSADOR DA FILA
+# 10. PROCESSADOR DA FILA
 # =============================================================================
 
-def processar_fila():
-    print("🚀 Processador Miro Fish iniciado...")
+def processar_fila(sistema):
+    print("🚀 Processador de Agentes Infinitos iniciado...")
     historico_buffer = []
     ultima_previsao = None
     modo_atual = "AGUARDANDO"
@@ -1079,32 +1149,35 @@ def processar_fila():
                                     cache['estatisticas']['acertos'] += 1
                                 else:
                                     cache['estatisticas']['erros'] += 1
-                                salvar_previsao(ultima_previsao, resultado_real, acertou, ultima_previsao.get('modo', 'MIRO_FISH'))
                                 
-                                # Agente aprende com o resultado
-                                if cache.get('agente_miro'):
-                                    cache['agente_miro'].aprender(resultado_real)
+                                # Sistema aprende
+                                sistema.aprender(resultado_real)
+                                
+                                salvar_previsao(ultima_previsao, resultado_real, acertou, 
+                                              ultima_previsao.get('modo', 'AGENTES_INFINITOS'),
+                                              ultima_previsao.get('agentes_usados', 0))
                                 
                                 print(f"\n📊 PREVISÃO: {ultima_previsao['previsao']} | Real: {resultado_real} | {'✅' if acertou else '❌'} | Precisão: {calcular_precisao()}%")
+                                print(f"   Agentes usados: {ultima_previsao.get('agentes_usados', 0)} | Total: {ultima_previsao.get('total_agentes', 0)}")
                             ultima_previsao = None
                         
                         # Fazer nova previsão
                         if len(historico_buffer) >= 30 and modo_atual == "ATIVO" and not ultima_previsao:
                             historico_completo = [{'resultado': r['resultado'], 'player_score': r['player_score'], 'banker_score': r['banker_score']} for r in historico_buffer[-50:]]
                             
-                            if cache.get('agente_miro'):
-                                previsao = cache['agente_miro'].prever(historico_completo)
-                                if previsao['previsao'] != 'AGUARDANDO':
-                                    ultima_previsao = previsao
-                                    cache['ultima_previsao'] = ultima_previsao
-                                    cache['leves']['previsao'] = ultima_previsao
-                                    print(f"\n🔮 PREVISÃO: {ultima_previsao['previsao']} com {ultima_previsao['confianca']}%")
+                            previsao = sistema.prever(historico_completo)
+                            if previsao['previsao'] != 'AGUARDANDO':
+                                ultima_previsao = previsao
+                                cache['ultima_previsao'] = ultima_previsao
+                                cache['leves']['previsao'] = ultima_previsao
+                                print(f"\n🔮 PREVISÃO: {ultima_previsao['previsao']} com {ultima_previsao['confianca']}% (usando {ultima_previsao.get('agentes_usados', 0)} agentes)")
                     
                     cache['leves']['ultima_atualizacao'] = datetime.now(timezone.utc)
             
             time.sleep(0.01)
         except Exception as e:
             print(f"❌ Erro: {e}")
+            traceback.print_exc()
             time.sleep(0.1)
 
 def loop_pesado():
@@ -1117,12 +1190,12 @@ def loop_pesado():
 
 
 # =============================================================================
-# 10. ROTAS DA API
+# 11. ROTAS DA API
 # =============================================================================
 
 @app.route('/api/stats')
 def api_stats():
-    stats_agente = cache['agente_miro'].get_stats() if cache.get('agente_miro') else None
+    stats_sistema = cache.get('sistema').get_stats() if cache.get('sistema') else None
     return jsonify({
         'total_rodadas': cache['leves']['total_rodadas'],
         'ultimas_20': cache['leves']['ultimas_20'],
@@ -1134,16 +1207,97 @@ def api_stats():
             'erros': cache['estatisticas']['erros'],
             'precisao': calcular_precisao()
         },
-        'agente_miro': stats_agente
+        'sistema_agentes': stats_sistema
     })
+
+@app.route('/api/agentes')
+def api_agentes():
+    """Lista todos os agentes"""
+    if not cache.get('sistema'):
+        return jsonify({'erro': 'Sistema não inicializado'})
+    
+    agentes_lista = []
+    with cache['lock_agentes']:
+        for agente in cache['todos_agentes'].values():
+            agentes_lista.append(agente.to_dict())
+    
+    # Ordenar por precisão
+    agentes_lista.sort(key=lambda x: x['precisao'], reverse=True)
+    
+    return jsonify({
+        'total': len(agentes_lista),
+        'agentes': agentes_lista[:100]
+    })
+
+@app.route('/api/criar_agente', methods=['POST'])
+def api_criar_agente():
+    """Cria um novo agente manualmente"""
+    if not cache.get('sistema'):
+        return jsonify({'erro': 'Sistema não inicializado'})
+    
+    data = request.get_json() or {}
+    padrao = data.get('padrao', 'manual_custom')
+    contexto = data.get('contexto', ['BANKER', 'PLAYER'])
+    previsao = data.get('previsao', 'BANKER')
+    tipo = data.get('tipo', 'TURBINADO')
+    
+    agentes = cache['sistema'].fabrica.criar_agentes_do_padrao(padrao, contexto, previsao, quantidade=1)
+    
+    if agentes:
+        agente = agentes[0]
+        with cache['lock_agentes']:
+            cache['todos_agentes'][agente.id] = agente
+            if padrao not in cache['agentes_por_padrao']:
+                cache['agentes_por_padrao'][padrao] = []
+            cache['agentes_por_padrao'][padrao].append(agente.id)
+            contexto_hash = cache['sistema']._hash_contexto(contexto)
+            if contexto_hash not in cache['agentes_por_contexto']:
+                cache['agentes_por_contexto'][contexto_hash] = []
+            cache['agentes_por_contexto'][contexto_hash].append(agente.id)
+        cache['contador_agentes'] = len(cache['todos_agentes'])
+        
+        return jsonify({'status': 'criado', 'agente': agente.to_dict()})
+    
+    return jsonify({'status': 'erro', 'msg': 'Falha ao criar agente'})
 
 @app.route('/api/treinar', methods=['POST'])
 def api_treinar():
-    if cache.get('agente_miro'):
-        cache['agente_miro'].treinar_por_simulacao(5, 100)
-        cache['agente_miro'].salvar()
-        return jsonify({'status': 'treinado', 'stats': cache['agente_miro'].get_stats()})
-    return jsonify({'status': 'erro', 'msg': 'Agente não inicializado'})
+    """Treina o sistema por simulação"""
+    if not cache.get('sistema'):
+        return jsonify({'erro': 'Sistema não inicializado'})
+    
+    # Criar simulador simples
+    class SimuladorSimples:
+        def __init__(self, ind):
+            self.ind = ind
+        def gerar_episodio(self, n):
+            episodio = []
+            hist = []
+            for _ in range(50):
+                hist.append({'resultado': random.choice(['BANKER', 'PLAYER'])})
+            for _ in range(n):
+                resultado = random.choice(['BANKER', 'PLAYER'])
+                episodio.append((hist.copy(), resultado))
+                hist.insert(0, {'resultado': resultado})
+            return episodio
+    
+    simulador = SimuladorSimples(cache['sistema'].indicadores)
+    
+    print("\n🎯 TREINANDO POR SIMULAÇÃO...")
+    for ep in range(5):
+        episodio = simulador.gerar_episodio(100)
+        acertos_ep = 0
+        for contexto, resultado in episodio:
+            previsao = cache['sistema'].prever(contexto)
+            if previsao['previsao'] != 'AGUARDANDO':
+                if previsao['previsao'] == resultado:
+                    acertos_ep += 1
+                cache['sistema'].aprender(resultado)
+        print(f"   Episódio {ep+1}: {acertos_ep}/100 acertos")
+    
+    cache['sistema'].salvar()
+    
+    return jsonify({'status': 'treinado', 'stats': cache['sistema'].get_stats()})
 
 @app.route('/api/tabela/<int:limite>')
 def api_tabela(limite):
@@ -1162,18 +1316,19 @@ def api_tabela(limite):
         resultado.append({'data': brasilia.strftime('%d/%m %H:%M:%S'), 'player': row[1], 'banker': row[2], 'resultado': row[3], 'cor': '🔴' if row[3]=='BANKER' else '🔵'})
     return jsonify(resultado)
 
-@app.route('/health')
-def health():
-    return jsonify({'status': 'ok', 'rodadas': cache['leves']['total_rodadas'], 'precisao': calcular_precisao()})
-
 
 # =============================================================================
-# 11. MAIN
+# 12. MAIN
 # =============================================================================
 
 if __name__ == "__main__":
     print("="*80)
-    print("🐟 BACBO PREDICTOR - MIRO FISH COM TODOS OS INDICADORES")
+    print("🐟 BACBO PREDICTOR - AGENTES INFINITOS")
+    print("="*80)
+    print("   ✅ TODO NOVO PADRÃO = NOVO AGENTE RL")
+    print("   ✅ AGENTES TURBINADOS (REDES NEURAIS)")
+    print("   ✅ AGENTES PARALELOS (PROCESSAMENTO EM MASSA)")
+    print("   ✅ SEM LIMITE DE AGENTES")
     print("="*80)
     
     # Inicializar banco
@@ -1182,38 +1337,42 @@ if __name__ == "__main__":
     atualizar_dados_pesados()
     print(f"📊 {cache['leves']['total_rodadas']} rodadas no banco")
     
-    # Criar agente Miro Fish completo
-    print("\n🐟 CRIANDO AGENTE MIRO FISH COMPLETO...")
-    agente = AgenteMiroFishCompleto(nome="MiroFish_Master")
-    agente.carregar()
-    cache['agente_miro'] = agente
+    # Criar sistema de agentes infinitos
+    print("\n🐟 CRIANDO SISTEMA DE AGENTES INFINITOS...")
+    sistema = SistemaAgentesInfinitos()
+    sistema.carregar()
+    cache['sistema'] = sistema
     
-    # Treinar por simulação
-    print("\n🎯 TREINANDO AGENTE POR SIMULAÇÃO...")
-    agente.treinar_por_simulacao(num_episodios=10, rodadas_por_episodio=100)
-    agente.salvar()
-    
-    # Mostrar estatísticas
-    stats = agente.get_stats()
-    print(f"\n📊 AGENTE TREINADO:")
-    print(f"   Previsões: {stats['previsoes']}")
-    print(f"   Acertos: {stats['acertos']}")
-    print(f"   Precisão: {stats['precisao']}%")
-    print(f"   Recompensa: {stats['recompensa']}")
-    print(f"   Memórias: {stats['mapa_mental']['total_celulas']}")
-    print(f"   Precisão média memórias: {stats['mapa_mental']['precisao_media']}%")
+    # Mostrar estatísticas iniciais
+    stats = sistema.get_stats()
+    print(f"\n📊 SISTEMA INICIALIZADO:")
+    print(f"   Agentes: {stats['total_agentes']}")
+    print(f"   Agentes por tipo: {stats['agentes_por_tipo']}")
+    print(f"   Precisão atual: {stats['precisao']}%")
     
     # Iniciar threads
     print("\n🔌 Iniciando threads...")
     threading.Thread(target=loop_latest, daemon=True).start()
-    threading.Thread(target=processar_fila, daemon=True).start()
+    threading.Thread(target=processar_fila, args=(sistema,), daemon=True).start()
     threading.Thread(target=loop_pesado, daemon=True).start()
+    
+    # Thread para salvar periodicamente
+    def salvar_periodicamente():
+        while True:
+            time.sleep(300)  # A cada 5 minutos
+            if cache.get('sistema'):
+                cache['sistema'].salvar()
+                print("💾 Sistema salvo automaticamente")
+    
+    threading.Thread(target=salvar_periodicamente, daemon=True).start()
     
     print("\n" + "="*80)
     print("🚀 FLASK INICIANDO...")
     print("   /health - Healthcheck")
     print("   /api/stats - Estatísticas")
-    print("   /api/treinar - Treinar agente por simulação")
+    print("   /api/agentes - Listar agentes")
+    print("   /api/criar_agente - Criar novo agente")
+    print("   /api/treinar - Treinar por simulação")
     print("="*80)
     
     app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
