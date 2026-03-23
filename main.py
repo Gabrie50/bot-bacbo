@@ -106,6 +106,7 @@ LATEST_API_URL = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo/
 WS_URL = "wss://api-cs.casino.org/svc-evolution-game-events/ws/bacbo"
 API_URL = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo"
 
+
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     'Accept': 'application/json',
