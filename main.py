@@ -1,10 +1,5 @@
 # =============================================================================
-# main.py - BACBO PREDICTOR - AGENTES INFINITOS (VERSÃO FINAL CORRIGIDA)
-# =============================================================================
-# TODO NOVO PADRÃO = NOVO AGENTE RL
-# AGENTES TURBINADOS COM REDES NEURAIS
-# AGENTES PARALELOS TRABALHANDO EM MASSA
-# SEM LIMITE DE AGENTES - MAPA MENTAL EXPANSÍVEL
+# main.py - BACBO PREDICTOR - AGENTES INFINITOS (VERSÃO COMPLETA CORRIGIDA)
 # =============================================================================
 
 import os
@@ -70,7 +65,6 @@ try:
     print(f"✅ PyTorch disponível - Device: {DEVICE}")
 except ImportError as e:
     print(f"⚠️ PyTorch não disponível: {e}")
-    print("   Os agentes turbinados usarão modo fallback")
     
     # Classes dummy para evitar NameError
     class nn:
@@ -109,26 +103,6 @@ except ImportError as e:
 # =============================================================================
 app = Flask(__name__)
 CORS(app)
-
-# =============================================================================
-# 🏥 HEALTHCHECK
-# =============================================================================
-@app.route('/health', methods=['GET'])
-def health_urgente():
-    total_agentes = len(cache.get('todos_agentes', {}))
-    return jsonify({
-        'status': 'ok',
-        'mensagem': 'Sistema de Agentes Infinitos',
-        'timestamp': time.time(),
-        'versao': 'Agentes_Infinitos_v2.0',
-        'total_agentes': total_agentes,
-        'pytorch_disponivel': TORCH_AVAILABLE,
-        'device': DEVICE
-    })
-
-@app.route('/', methods=['GET'])
-def home_rapida():
-    return render_template('index.html')
 
 # =============================================================================
 # CONFIGURAÇÕES DO BANCO
@@ -214,7 +188,6 @@ if TORCH_AVAILABLE:
             return F.softmax(x, dim=1)
 else:
     class RedeNeuralAgente:
-        """Classe dummy para quando PyTorch não está disponível"""
         def __init__(self, *args, **kwargs):
             pass
         def to(self, *args):
@@ -228,71 +201,38 @@ else:
 
 
 # =============================================================================
-# 2. INDICADORES BASE (TODOS OS QUE VOCÊ DESCOBRIU)
+# 2. INDICADORES BASE
 # =============================================================================
 
 class IndicadoresBase:
-    """TODOS os indicadores que você descobriu no arquivo JSON"""
     def __init__(self):
-        # Limites de Streak
         self.LIMITE_STREAK_PLAYER = 5
         self.LIMITE_STREAK_BANKER = 4
         self.REVERSAO_APOS_3 = 0.80
-        
-        # Probabilidades de TIE
         self.PROB_TIE_VIBRADOR = 0.208
         self.PROB_TIE_POS_TIE = 0.311
-        
-        # Delta
         self.LIMITE_CORRECAO_INICIO = 15
         self.LIMITE_CORRECAO_GARANTIDA = 20
-        
-        # Empate 6 → PLAYER
         self.TIE_6_PROXIMO_PLAYER = 1.0
-        
-        # Duplo TIE → 7:2
         self.DUPLO_TIE_BANKER_PCT = 0.77
-        
-        # Vibração
         self.VIBRACAO_DIFERENCA_1 = 0.30
-        
-        # Alternância
         self.ALTERNANCIA_PCT = 0.60
         self.REPETICAO_PCT = 0.40
-        
-        # Scores comuns
         self.SCORES_COMUNS = [6, 7, 8]
-        
         print("✅ Indicadores Base carregados")
-        self._mostrar_resumo()
-    
-    def _mostrar_resumo(self):
-        print("="*60)
-        print("📊 INDICADORES DESCOBERTOS:")
-        print(f"   Streak max: PLAYER={self.LIMITE_STREAK_PLAYER} BANKER={self.LIMITE_STREAK_BANKER}")
-        print(f"   Reversão após 3: {self.REVERSAO_APOS_3*100:.0f}%")
-        print(f"   Delta correção: ±{self.LIMITE_CORRECAO_INICIO} a ±{self.LIMITE_CORRECAO_GARANTIDA}")
-        print(f"   Empate 6 → PLAYER: {self.TIE_6_PROXIMO_PLAYER*100:.0f}%")
-        print(f"   Duplo TIE → BANKER: {self.DUPLO_TIE_BANKER_PCT*100:.0f}%")
-        print(f"   Vibração dif=1: {self.VIBRACAO_DIFERENCA_1*100:.0f}% vira TIE")
-        print(f"   Alternância: {self.ALTERNANCIA_PCT*100:.0f}% | Repetição: {self.REPETICAO_PCT*100:.0f}%")
-        print("="*60)
 
 
 # =============================================================================
-# 3. AGENTE BASE (Todos os agentes herdam desta classe)
+# 3. AGENTE BASE
 # =============================================================================
 
 class AgenteBase:
-    """Classe base para todos os agentes"""
-    
     def __init__(self, agente_id: str, nome: str, padrao: str, contexto: List[str], previsao: str):
         self.id = agente_id
         self.nome = nome
         self.padrao = padrao
         self.contexto = contexto.copy()
         self.previsao = previsao
-        
         self.acertos = 0
         self.erros = 0
         self.total_uso = 0
@@ -301,7 +241,6 @@ class AgenteBase:
         self.criado_em = datetime.now()
         self.ultimo_uso = datetime.now()
         self.tipo = "NORMAL"
-        
         self.model = None
         self.optimizer = None
         self.device = DEVICE if TORCH_AVAILABLE else 'cpu'
@@ -330,41 +269,17 @@ class AgenteBase:
                 features.extend([0, 0, 1])
             features.append(r.get('player_score', 0) / 12)
             features.append(r.get('banker_score', 0) / 12)
-        
         while len(features) < 150:
             features.append(0)
-        
         return np.array(features, dtype=np.float32)
     
     def prever(self, historico: List[dict]) -> Tuple[Optional[str], float]:
         self.total_uso += 1
         self.ultimo_uso = datetime.now()
-        
         contexto_atual = [r.get('resultado') for r in historico[:10] if r.get('resultado') != 'TIE'][:5]
-        
         if contexto_atual != self.contexto[:len(contexto_atual)]:
             return None, 0
-        
         confianca = self.peso_atual * self.confianca_base
-        
-        if self.model and TORCH_AVAILABLE:
-            try:
-                features = self.extrair_features(historico)
-                features_tensor = torch.FloatTensor(features).unsqueeze(0).to(self.device)
-                
-                with torch.no_grad():
-                    output = self.model(features_tensor).cpu().numpy()[0]
-                    acao = np.argmax(output)
-                    previsao_nn = 'BANKER' if acao == 0 else 'PLAYER'
-                    confianca_nn = output[acao]
-                    
-                    if previsao_nn == self.previsao:
-                        confianca = (confianca + confianca_nn) / 2
-                    else:
-                        confianca = max(confianca, confianca_nn) * 0.8
-            except Exception:
-                pass
-        
         return self.previsao, min(0.95, confianca)
     
     def aprender(self, resultado_real: str, acertou: bool):
@@ -395,7 +310,7 @@ class AgenteBase:
 
 
 # =============================================================================
-# 4. AGENTE TURBINADO (Com Rede Neural PyTorch)
+# 4. AGENTE TURBINADO
 # =============================================================================
 
 class AgenteTurbinado(AgenteBase):
@@ -404,10 +319,8 @@ class AgenteTurbinado(AgenteBase):
         self.tipo = "TURBINADO"
         self.learning_rate = 0.001
         self.memoria = deque(maxlen=5000)
-        
         if TORCH_AVAILABLE:
             self._criar_rede_neural()
-        
         print(f"🤖 Agente TURBINADO criado: {nome}")
     
     def _criar_rede_neural(self):
@@ -426,7 +339,7 @@ class AgenteTurbinado(AgenteBase):
 
 
 # =============================================================================
-# 5. AGENTE PARALELO (Para processamento em massa)
+# 5. AGENTE PARALELO
 # =============================================================================
 
 class AgenteParalelo(AgenteBase):
@@ -462,17 +375,14 @@ class FabricaAgentes:
     def criar_agente(self, padrao: str, contexto: List[str], previsao: str, tipo: str = None) -> AgenteBase:
         if tipo is None:
             tipo = random.choice(self.tipos_disponiveis)
-        
         agente_id = self.gerar_id()
         nome = f"Agente_{padrao[:20]}_{self.total_criados + 1}"
-        
         if tipo == 'TURBINADO':
             agente = AgenteTurbinado(agente_id, nome, padrao, contexto, previsao)
         elif tipo == 'PARALELO':
             agente = AgenteParalelo(agente_id, nome, padrao, contexto, previsao)
         else:
             agente = AgenteBase(agente_id, nome, padrao, contexto, previsao)
-        
         self.total_criados += 1
         self.padroes_criados.add(padrao)
         return agente
@@ -510,16 +420,13 @@ class SistemaAgentesInfinitos:
         self.ultima_previsao = None
         self.ultimo_contexto = []
         self.ultimos_agentes = []
-        
         self._criar_agentes_iniciais()
-        
         print("\n" + "="*70)
         print("🐟 SISTEMA DE AGENTES INFINITOS INICIALIZADO")
         print("="*70)
         print(f"   PyTorch disponível: {TORCH_AVAILABLE}")
         print(f"   Device: {DEVICE}")
         print(f"   Agentes iniciais: {cache['contador_agentes']}")
-        print(f"   Tipos: NORMAL, TURBINADO, PARALELO")
         print("="*70)
     
     def _hash_contexto(self, contexto: List[str]) -> str:
@@ -537,37 +444,30 @@ class SistemaAgentesInfinitos:
             ('repeticao_banker', ['BANKER', 'BANKER'], 'BANKER'),
             ('repeticao_player', ['PLAYER', 'PLAYER'], 'PLAYER')
         ]
-        
         for padrao, contexto, previsao in padroes_iniciais:
             agentes = self.fabrica.criar_agentes_padrao(padrao, contexto, previsao, 2)
             for agente in agentes:
                 with cache['lock_agentes']:
                     cache['todos_agentes'][agente.id] = agente
-                    
                     if padrao not in cache['agentes_por_padrao']:
                         cache['agentes_por_padrao'][padrao] = []
                     cache['agentes_por_padrao'][padrao].append(agente.id)
-                    
                     ch = self._hash_contexto(contexto)
                     if ch not in cache['agentes_por_contexto']:
                         cache['agentes_por_contexto'][ch] = []
                     cache['agentes_por_contexto'][ch].append(agente.id)
-        
         cache['contador_agentes'] = len(cache['todos_agentes'])
     
     def _coletar_previsoes(self, historico: List[dict]) -> List[Tuple[str, float, str, str]]:
         contexto_atual = [r.get('resultado') for r in historico[:10] if r.get('resultado') != 'TIE'][:5]
         ch = self._hash_contexto(contexto_atual)
-        
         agentes_ids = set()
         if ch in cache['agentes_por_contexto']:
             agentes_ids.update(cache['agentes_por_contexto'][ch])
-        
         for i in range(len(contexto_atual), 0, -1):
             sub_ch = self._hash_contexto(contexto_atual[:i])
             if sub_ch in cache['agentes_por_contexto']:
                 agentes_ids.update(cache['agentes_por_contexto'][sub_ch])
-        
         previsoes = []
         with cache['lock_agentes']:
             for agente_id in agentes_ids:
@@ -576,24 +476,19 @@ class SistemaAgentesInfinitos:
                     previsao, confianca = agente.prever(historico)
                     if previsao:
                         previsoes.append((previsao, confianca, agente_id, agente.padrao))
-        
         return previsoes
     
     def _detectar_novo_padrao(self, historico: List[dict], acertou: bool) -> Optional[Tuple[str, List[str], str]]:
         if len(historico) < 10 or not acertou:
             return None
-        
         contexto_atual = [r.get('resultado') for r in historico[:10] if r.get('resultado') != 'TIE'][:5]
         ch = self._hash_contexto(contexto_atual)
-        
         if ch in cache['agentes_por_contexto']:
             return None
-        
         if len(contexto_atual) >= 2:
             padrao_nome = f"novo_{'_'.join(contexto_atual[:3])}"
             previsao = historico[0].get('resultado') if historico else 'BANKER'
             return (padrao_nome, contexto_atual, previsao)
-        
         return None
     
     def _criar_agentes_novo_padrao(self, padrao: str, contexto: List[str], previsao: str):
@@ -601,22 +496,17 @@ class SistemaAgentesInfinitos:
         print(f"   Padrão: {padrao}")
         print(f"   Contexto: {contexto}")
         print(f"   Previsão: {previsao}")
-        
         novos_agentes = self.fabrica.criar_agentes_padrao(padrao, contexto, previsao, 3)
-        
         with cache['lock_agentes']:
             for agente in novos_agentes:
                 cache['todos_agentes'][agente.id] = agente
-                
                 if padrao not in cache['agentes_por_padrao']:
                     cache['agentes_por_padrao'][padrao] = []
                 cache['agentes_por_padrao'][padrao].append(agente.id)
-                
                 ch = self._hash_contexto(contexto)
                 if ch not in cache['agentes_por_contexto']:
                     cache['agentes_por_contexto'][ch] = []
                 cache['agentes_por_contexto'][ch].append(agente.id)
-        
         cache['contador_agentes'] = len(cache['todos_agentes'])
         print(f"   ✅ {len(novos_agentes)} novos agentes criados!")
         print(f"   📊 Total de agentes: {cache['contador_agentes']}")
@@ -624,11 +514,9 @@ class SistemaAgentesInfinitos:
     def prever(self, historico: List[dict]) -> dict:
         if len(historico) < 30:
             return {'previsao': 'AGUARDANDO', 'confianca': 0, 'modo': 'INICIALIZACAO'}
-        
         self.ultimo_contexto = historico[:20]
         previsoes = self._coletar_previsoes(historico)
         self.ultimos_agentes = [p[2] for p in previsoes]
-        
         if not previsoes:
             ultimos = [r['resultado'] for r in historico[:20] if r.get('resultado') != 'TIE']
             if ultimos:
@@ -639,27 +527,15 @@ class SistemaAgentesInfinitos:
             else:
                 previsao = random.choice(['BANKER', 'PLAYER'])
                 confianca = 50
-            
             self.ultima_previsao = previsao
-            return {
-                'previsao': previsao,
-                'simbolo': '🔴' if previsao == 'BANKER' else '🔵',
-                'confianca': confianca,
-                'modo': 'FALLBACK',
-                'agentes_usados': 0,
-                'total_agentes': cache['contador_agentes']
-            }
-        
+            return {'previsao': previsao, 'simbolo': '🔴' if previsao == 'BANKER' else '🔵', 'confianca': confianca, 'modo': 'FALLBACK', 'agentes_usados': 0, 'total_agentes': cache['contador_agentes']}
         votos = {'BANKER': 0, 'PLAYER': 0}
         for previsao, confianca, agente_id, padrao in previsoes:
             votos[previsao] += confianca
-        
         previsao_final = max(votos, key=votos.get)
         total_votos = sum(votos.values())
         confianca_final = (votos[previsao_final] / total_votos) * 100 if total_votos > 0 else 50
-        
         self.ultima_previsao = previsao_final
-        
         return {
             'previsao': previsao_final,
             'simbolo': '🔴' if previsao_final == 'BANKER' else '🔵',
@@ -673,31 +549,24 @@ class SistemaAgentesInfinitos:
     def aprender(self, resultado_real: str):
         if not self.ultima_previsao:
             return
-        
         acertou = (self.ultima_previsao == resultado_real)
-        
         self.total_previsoes += 1
         if acertou:
             self.acertos += 1
         else:
             self.erros += 1
-        
         cache['estatisticas']['total_previsoes'] = self.total_previsoes
         cache['estatisticas']['acertos'] = self.acertos
         cache['estatisticas']['erros'] = self.erros
-        
         print(f"\n📚 APRENDENDO: {self.ultima_previsao} vs {resultado_real} → {'✅' if acertou else '❌'}")
-        
         for agente_id in self.ultimos_agentes:
             with cache['lock_agentes']:
                 if agente_id in cache['todos_agentes']:
                     cache['todos_agentes'][agente_id].aprender(resultado_real, acertou)
-        
         if acertou:
             novo_padrao = self._detectar_novo_padrao(self.ultimo_contexto, acertou)
             if novo_padrao:
                 self._criar_agentes_novo_padrao(*novo_padrao)
-        
         if self.total_previsoes % 100 == 0:
             self._limpar_agentes_fracos()
     
@@ -707,25 +576,20 @@ class SistemaAgentesInfinitos:
             for agente_id, agente in cache['todos_agentes'].items():
                 if agente.total_uso > 50 and agente.precisao < 0.4:
                     remover.append(agente_id)
-            
             for agente_id in remover:
                 del cache['todos_agentes'][agente_id]
-            
             if remover:
                 print(f"🧹 Removidos {len(remover)} agentes fracos")
                 cache['contador_agentes'] = len(cache['todos_agentes'])
     
     def get_stats(self) -> dict:
         precisao = (self.acertos / self.total_previsoes * 100) if self.total_previsoes > 0 else 0
-        
         tipos_count = {'NORMAL': 0, 'TURBINADO': 0, 'PARALELO': 0}
         melhores = []
-        
         with cache['lock_agentes']:
             for agente in cache['todos_agentes'].values():
                 tipo = getattr(agente, 'tipo', 'NORMAL')
                 tipos_count[tipo] = tipos_count.get(tipo, 0) + 1
-                
                 if agente.total_uso > 10:
                     melhores.append({
                         'id': agente.id[:8],
@@ -737,9 +601,7 @@ class SistemaAgentesInfinitos:
                         'acertos': agente.acertos,
                         'erros': agente.erros
                     })
-        
         melhores.sort(key=lambda x: x['precisao'], reverse=True)
-        
         return {
             'total_previsoes': self.total_previsoes,
             'acertos': self.acertos,
@@ -760,7 +622,6 @@ class SistemaAgentesInfinitos:
                 'contador_agentes': cache['contador_agentes'],
                 'fabrica_total': self.fabrica.total_criados
             }
-            
             try:
                 with open(arquivo, 'wb') as f:
                     pickle.dump(estado, f)
@@ -774,55 +635,37 @@ class SistemaAgentesInfinitos:
         if not os.path.exists(arquivo):
             print(f"📂 Nenhum arquivo encontrado: {arquivo}")
             return False
-        
         try:
             with open(arquivo, 'rb') as f:
                 estado = pickle.load(f)
-            
             self.total_previsoes = estado.get('total_previsoes', 0)
             self.acertos = estado.get('acertos', 0)
             self.erros = estado.get('erros', 0)
             cache['contador_agentes'] = estado.get('contador_agentes', 0)
             self.fabrica.total_criados = estado.get('fabrica_total', 0)
-            
             agentes_dict = estado.get('agentes', {})
             for agente_id, dados in agentes_dict.items():
                 tipo = dados.get('tipo', 'NORMAL')
                 if tipo == 'TURBINADO':
-                    agente = AgenteTurbinado(
-                        agente_id, dados['nome'], dados['padrao'],
-                        dados['contexto'], dados['previsao']
-                    )
+                    agente = AgenteTurbinado(agente_id, dados['nome'], dados['padrao'], dados['contexto'], dados['previsao'])
                 elif tipo == 'PARALELO':
-                    agente = AgenteParalelo(
-                        agente_id, dados['nome'], dados['padrao'],
-                        dados['contexto'], dados['previsao']
-                    )
+                    agente = AgenteParalelo(agente_id, dados['nome'], dados['padrao'], dados['contexto'], dados['previsao'])
                 else:
-                    agente = AgenteBase(
-                        agente_id, dados['nome'], dados['padrao'],
-                        dados['contexto'], dados['previsao']
-                    )
-                
+                    agente = AgenteBase(agente_id, dados['nome'], dados['padrao'], dados['contexto'], dados['previsao'])
                 agente.acertos = dados['acertos']
                 agente.erros = dados['erros']
                 agente.total_uso = dados['total_uso']
                 agente.peso = dados['peso']
-                
                 cache['todos_agentes'][agente_id] = agente
-                
                 if dados['padrao'] not in cache['agentes_por_padrao']:
                     cache['agentes_por_padrao'][dados['padrao']] = []
                 cache['agentes_por_padrao'][dados['padrao']].append(agente_id)
-                
                 ch = self._hash_contexto(dados['contexto'])
                 if ch not in cache['agentes_por_contexto']:
                     cache['agentes_por_contexto'][ch] = []
                 cache['agentes_por_contexto'][ch].append(agente_id)
-            
             print(f"✅ Sistema carregado: {len(cache['todos_agentes'])} agentes")
             return True
-            
         except Exception as e:
             print(f"❌ Erro ao carregar: {e}")
             return False
@@ -834,10 +677,7 @@ class SistemaAgentesInfinitos:
 
 def get_db_connection():
     try:
-        conn = pg8000.connect(
-            user=DB_USER, password=DB_PASSWORD, host=DB_HOST, port=DB_PORT,
-            database=DB_NAME, ssl_context=SSL_CONTEXT, timeout=30
-        )
+        conn = pg8000.connect(user=DB_USER, password=DB_PASSWORD, host=DB_HOST, port=DB_PORT, database=DB_NAME, ssl_context=SSL_CONTEXT, timeout=30)
         conn.autocommit = False
         return conn
     except Exception as e:
@@ -867,8 +707,7 @@ def salvar_rodada(rodada, fonte):
         return False
     try:
         cur = conn.cursor()
-        cur.execute('INSERT INTO rodadas (id, data_hora, player_score, banker_score, resultado, fonte) VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (id) DO NOTHING',
-                   (rodada['id'], rodada['data_hora'], rodada['player_score'], rodada['banker_score'], rodada['resultado'], fonte))
+        cur.execute('INSERT INTO rodadas (id, data_hora, player_score, banker_score, resultado, fonte) VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (id) DO NOTHING', (rodada['id'], rodada['data_hora'], rodada['player_score'], rodada['banker_score'], rodada['resultado'], fonte))
         if cur.rowcount > 0:
             conn.commit()
             cur.close()
@@ -894,13 +733,7 @@ def get_ultimas_20():
         resultado = []
         for row in rows:
             brasilia = row[0].astimezone(timezone(timedelta(hours=-3)))
-            resultado.append({
-                'hora': brasilia.strftime('%H:%M:%S'),
-                'resultado': row[3],
-                'cor': '🔴' if row[3]=='BANKER' else '🔵',
-                'player': row[1],
-                'banker': row[2]
-            })
+            resultado.append({'hora': brasilia.strftime('%H:%M:%S'), 'resultado': row[3], 'cor': '🔴' if row[3]=='BANKER' else '🔵', 'player': row[1], 'banker': row[2]})
         return resultado
     except:
         return []
@@ -941,10 +774,7 @@ def contar_periodo(horas):
         return 0
 
 def atualizar_dados_pesados():
-    cache['pesados']['periodos'] = {
-        '1h': contar_periodo(1), '6h': contar_periodo(6), '12h': contar_periodo(12),
-        '24h': contar_periodo(24), '48h': contar_periodo(48), '72h': contar_periodo(72)
-    }
+    cache['pesados']['periodos'] = {'1h': contar_periodo(1), '6h': contar_periodo(6), '12h': contar_periodo(12), '24h': contar_periodo(24), '48h': contar_periodo(48), '72h': contar_periodo(72)}
     cache['pesados']['ultima_atualizacao'] = datetime.now(timezone.utc)
 
 
@@ -974,13 +804,7 @@ def buscar_latest():
                     resultado = 'BANKER'
                 else:
                     resultado = 'TIE'
-                rodada = {
-                    'id': novo_id,
-                    'data_hora': datetime.now(timezone.utc),
-                    'player_score': player_score,
-                    'banker_score': banker_score,
-                    'resultado': resultado
-                }
+                rodada = {'id': novo_id, 'data_hora': datetime.now(timezone.utc), 'player_score': player_score, 'banker_score': banker_score, 'resultado': resultado}
                 print(f"\n📡 LATEST: {player_score} vs {banker_score} - {resultado}")
                 return rodada
         return None
@@ -1032,14 +856,12 @@ def processar_fila(sistema):
                                     cache['estatisticas']['acertos'] += 1
                                 else:
                                     cache['estatisticas']['erros'] += 1
-                                
                                 sistema.aprender(resultado_real)
                                 print(f"\n📊 PREVISÃO: {ultima_previsao['previsao']} | Real: {resultado_real} | {'✅' if acertou else '❌'}")
                             ultima_previsao = None
                         
                         if len(historico_buffer) >= 30 and modo_atual == "ATIVO" and not ultima_previsao:
                             historico_completo = [{'resultado': r['resultado'], 'player_score': r['player_score'], 'banker_score': r['banker_score']} for r in historico_buffer[-50:]]
-                            
                             previsao = sistema.prever(historico_completo)
                             if previsao['previsao'] != 'AGUARDANDO':
                                 ultima_previsao = previsao
@@ -1068,6 +890,28 @@ def loop_pesado():
 # 11. ROTAS DA API
 # =============================================================================
 
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/health', methods=['GET'])
+def health_urgente():
+    total_agentes = len(cache.get('todos_agentes', {}))
+    agentes_ativos = 0
+    for a in cache.get('todos_agentes', {}).values():
+        if hasattr(a, 'peso') and a.peso > 0.5:
+            agentes_ativos += 1
+    return jsonify({
+        'status': 'ok',
+        'mensagem': 'Sistema de Agentes Infinitos',
+        'timestamp': time.time(),
+        'versao': 'Agentes_Infinitos_v2.0',
+        'total_agentes': total_agentes,
+        'agentes_ativos': agentes_ativos,
+        'pytorch_disponivel': TORCH_AVAILABLE,
+        'device': DEVICE
+    })
+
 @app.route('/api/stats')
 def api_stats():
     stats_sistema = cache['sistema'].get_stats() if cache.get('sistema') else None
@@ -1084,14 +928,11 @@ def api_stats():
 def api_agentes():
     if not cache.get('sistema'):
         return jsonify({'erro': 'Sistema não inicializado'})
-    
     agentes_lista = []
     with cache['lock_agentes']:
         for agente in cache['todos_agentes'].values():
             agentes_lista.append(agente.to_dict())
-    
     agentes_lista.sort(key=lambda x: x['precisao'], reverse=True)
-    
     return jsonify({
         'total': len(agentes_lista),
         'agentes': agentes_lista[:100]
@@ -1111,13 +952,7 @@ def api_tabela(limite):
     resultado = []
     for row in rows:
         brasilia = row[0].astimezone(timezone(timedelta(hours=-3)))
-        resultado.append({
-            'data': brasilia.strftime('%d/%m %H:%M:%S'),
-            'player': row[1],
-            'banker': row[2],
-            'resultado': row[3],
-            'cor': '🔴' if row[3]=='BANKER' else '🔵'
-        })
+        resultado.append({'data': brasilia.strftime('%d/%m %H:%M:%S'), 'player': row[1], 'banker': row[2], 'resultado': row[3], 'cor': '🔴' if row[3]=='BANKER' else '🔵'})
     return jsonify(resultado)
 
 
@@ -1135,32 +970,27 @@ if __name__ == "__main__":
     print("   ✅ SEM LIMITE DE AGENTES")
     print("="*80)
     
-    # Inicializar banco
     init_db()
     atualizar_dados_leves()
     atualizar_dados_pesados()
     print(f"📊 {cache['leves']['total_rodadas']} rodadas no banco")
     
-    # Criar sistema de agentes infinitos
     print("\n🐟 CRIANDO SISTEMA DE AGENTES INFINITOS...")
     sistema = SistemaAgentesInfinitos()
     sistema.carregar()
     cache['sistema'] = sistema
     
-    # Mostrar estatísticas iniciais
     stats = sistema.get_stats()
     print(f"\n📊 SISTEMA INICIALIZADO:")
     print(f"   Agentes: {stats['total_agentes']}")
     print(f"   Agentes por tipo: {stats['agentes_por_tipo']}")
     print(f"   PyTorch: {'✅ Disponível' if TORCH_AVAILABLE else '❌ Modo fallback'}")
     
-    # Iniciar threads
     print("\n🔌 Iniciando threads...")
     threading.Thread(target=loop_latest, daemon=True).start()
     threading.Thread(target=processar_fila, args=(sistema,), daemon=True).start()
     threading.Thread(target=loop_pesado, daemon=True).start()
     
-    # Thread para salvar periodicamente
     def salvar_periodicamente():
         while True:
             time.sleep(300)
