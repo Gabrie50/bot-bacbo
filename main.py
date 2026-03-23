@@ -76,7 +76,7 @@ def home_rapida():
 # =============================================================================
 # CONFIGURAÇÕES DO BANCO
 # =============================================================================
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://neondb_owner:npg_YfkiR2n3SQzs@ep-shy-unit-adoc8wwh-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require")
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://neondb_owner:npg_uHONl9tJ1gDF@ep-patient-rice-amoqsdum-pooler.c-5.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require")
 
 parsed = urllib.parse.urlparse(DATABASE_URL)
 DB_USER = parsed.username
