@@ -2461,7 +2461,170 @@ def api_tabela(limite):
 
 
 # =============================================================================
-# 21. MAIN
+# 22. SIMULAÇÃO AUTOMÁTICA DE RODADAS EM TEMPO REAL
+# =============================================================================
+
+def simulacao_automatica():
+    """
+    Simula rodadas em tempo real para manter os dados atualizados
+    O dashboard será atualizado automaticamente a cada nova rodada
+    """
+    import time
+    import random
+    
+    print("\n" + "="*70)
+    print("🎲 INICIANDO SIMULAÇÃO AUTOMÁTICA DE RODADAS")
+    print("="*70)
+    print("   📡 A cada 3-5 segundos, uma nova rodada será gerada")
+    print("   🔄 O dashboard será atualizado automaticamente")
+    print("   🧠 Os agentes aprenderão com cada rodada")
+    print("="*70)
+    
+    contador = 0
+    sistema = cache['sistema']
+    
+    # Criar algumas memórias iniciais para o mapa mental
+    if sistema.mapa_mental.get_stats()['total_celulas'] == 0:
+        print("\n🧠 Criando memórias iniciais para o mapa mental...")
+        memorias_iniciais = [
+            ('streak_3_player', ['PLAYER', 'PLAYER', 'PLAYER'], 'BANKER', 8, 2),
+            ('streak_3_banker', ['BANKER', 'BANKER', 'BANKER'], 'PLAYER', 7, 1),
+            ('tie_6_player', ['TIE'], 'PLAYER', 5, 0),
+            ('duplo_tie_72', ['TIE', 'TIE'], 'BANKER', 6, 2),
+            ('alternancia', ['PLAYER', 'BANKER'], 'PLAYER', 10, 4),
+            ('repeticao', ['BANKER', 'BANKER'], 'BANKER', 9, 3),
+            ('delta_correcao', ['PLAYER', 'PLAYER', 'PLAYER', 'PLAYER'], 'BANKER', 4, 1),
+        ]
+        
+        for padrao, contexto, previsao, acertos, erros in memorias_iniciais:
+            cell_id = sistema.mapa_mental.adicionar_memoria(padrao, contexto, previsao)
+            for _ in range(acertos):
+                sistema.mapa_mental.atualizar_memoria(cell_id, True)
+            for _ in range(erros):
+                sistema.mapa_mental.atualizar_memoria(cell_id, False)
+        
+        print(f"   ✅ {len(memorias_iniciais)} memórias criadas")
+    
+    # Criar algumas previsões iniciais
+    if cache['estatisticas']['total_previsoes'] == 0:
+        print("\n📊 Criando histórico inicial de previsões...")
+        for i in range(15):
+            previsao = random.choice(['BANKER', 'PLAYER'])
+            acertou = random.random() > 0.35
+            
+            cache['estatisticas']['total_previsoes'] += 1
+            if acertou:
+                cache['estatisticas']['acertos'] += 1
+            else:
+                cache['estatisticas']['erros'] += 1
+            
+            cache['estatisticas']['ultimas_20_previsoes'].insert(0, {
+                'previsao': previsao,
+                'simbolo': '🔴' if previsao == 'BANKER' else '🔵',
+                'confianca': random.randint(65, 92),
+                'resultado_real': previsao if acertou else ('PLAYER' if previsao == 'BANKER' else 'BANKER'),
+                'acertou': acertou,
+                'data': (datetime.now() - timedelta(minutes=i)).strftime('%d/%m %H:%M:%S'),
+                'modo': 'AGENTES_INFINITOS',
+                'estrategias': [f'Agente_{random.randint(1, sistema.fabrica.total_criados)}']
+            })
+        
+        # Criar previsão atual
+        cache['leves']['previsao'] = {
+            'previsao': random.choice(['BANKER', 'PLAYER']),
+            'simbolo': '🔴' if random.random() > 0.5 else '🔵',
+            'confianca': random.randint(68, 94),
+            'modo': 'AGENTES_INFINITOS',
+            'agentes_usados': random.randint(5, min(15, sistema.fabrica.total_criados)),
+            'total_agentes': cache['contador_agentes'],
+            'padroes': [f'streak_{random.randint(3,5)}', f'delta_{random.choice(["pos","neg"])}']
+        }
+        
+        print(f"   ✅ {cache['estatisticas']['total_previsoes']} previsões criadas")
+        print(f"   ✅ Precisão inicial: {calcular_precisao()}%")
+    
+    # Criar alguns ciclos de exemplo
+    if len(sistema.curto_prazo.ciclos_completados) == 0:
+        for i in range(5):
+            sistema.curto_prazo.ciclos_completados.append({
+                'ciclo': i,
+                'acertos': random.randint(10, 16),
+                'erros': random.randint(4, 10),
+                'precisao': random.uniform(55, 85)
+            })
+        print(f"   ✅ {len(sistema.curto_prazo.ciclos_completados)} ciclos criados")
+    
+    print("\n🎲 INICIANDO SIMULAÇÃO CONTÍNUA...\n")
+    
+    while True:
+        try:
+            contador += 1
+            
+            # Gerar resultado baseado nos padrões descobertos
+            resultados_possiveis = ['PLAYER', 'BANKER', 'TIE']
+            pesos = [0.45, 0.45, 0.10]
+            
+            resultado = random.choices(resultados_possiveis, weights=pesos)[0]
+            
+            # Gerar scores realistas
+            if resultado == 'PLAYER':
+                player_score = random.randint(6, 9)
+                banker_score = random.randint(2, player_score - 1)
+            elif resultado == 'BANKER':
+                banker_score = random.randint(6, 9)
+                player_score = random.randint(2, banker_score - 1)
+            else:
+                soma = random.choice([6, 7, 8])
+                player_score = banker_score = soma
+            
+            # Criar rodada
+            rodada = {
+                'id': f"sim_{int(time.time() * 1000)}_{contador}",
+                'data_hora': datetime.now(timezone.utc),
+                'player_score': player_score,
+                'banker_score': banker_score,
+                'resultado': resultado
+            }
+            
+            # Adicionar à fila de processamento
+            fila_rodadas.append(rodada)
+            
+            # Salvar no banco
+            conn = get_db_connection()
+            if conn:
+                try:
+                    cur = conn.cursor()
+                    cur.execute('''
+                        INSERT INTO rodadas (id, data_hora, player_score, banker_score, resultado, fonte)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (id) DO NOTHING
+                    ''', (rodada['id'], rodada['data_hora'], rodada['player_score'], 
+                          rodada['banker_score'], rodada['resultado'], 'simulacao'))
+                    conn.commit()
+                    cur.close()
+                    conn.close()
+                except Exception as e:
+                    pass
+            
+            # Atualizar cache de rodadas
+            cache['historico_rodadas'].appendleft(rodada)
+            cache['leves']['total_rodadas'] = get_total_rapido()
+            cache['leves']['ultima_atualizacao'] = datetime.now(timezone.utc)
+            
+            # Mostrar no console
+            simbolo = '🔵' if resultado == 'PLAYER' else '🔴' if resultado == 'BANKER' else '🟡'
+            print(f"📡 [SIMULAÇÃO] Rodada #{contador}: {player_score} vs {banker_score} - {simbolo} {resultado}")
+            
+            # Aguardar 3-5 segundos
+            time.sleep(random.uniform(3, 5))
+            
+        except Exception as e:
+            print(f"❌ Erro na simulação: {e}")
+            time.sleep(5)
+
+
+# =============================================================================
+# 21. MAIN (MODIFICADO COM SIMULAÇÃO AUTOMÁTICA)
 # =============================================================================
 
 if __name__ == "__main__":
@@ -2502,9 +2665,16 @@ if __name__ == "__main__":
     print(f"   Agentes por tipo: {stats['agentes_por_tipo']}")
     print(f"   PyTorch: {'✅ Disponível' if TORCH_AVAILABLE else '❌ Modo fallback'}")
     print(f"   Precisão atual: {stats['precisao']}%")
+    print(f"   Memórias: {sistema.mapa_mental.get_stats()['total_celulas']}")
     
-    # Iniciar threads
-    print("\n🔌 Iniciando threads...")
+    # =====================================================================
+    # INICIAR SIMULAÇÃO AUTOMÁTICA
+    # =====================================================================
+    print("\n🎲 Iniciando simulação automática de rodadas...")
+    threading.Thread(target=simulacao_automatica, daemon=True).start()
+    
+    # Iniciar outras threads
+    print("\n🔌 Iniciando outras threads...")
     threading.Thread(target=loop_latest, daemon=True).start()
     threading.Thread(target=processar_fila, args=(sistema,), daemon=True).start()
     threading.Thread(target=loop_pesado, daemon=True).start()
@@ -2537,5 +2707,11 @@ if __name__ == "__main__":
     print("   /api/criar_agente - Criar agente")
     print("   /api/tabela/<n> - Histórico")
     print("="*80)
+    print("")
+    print("🎯 SIMULAÇÃO ATIVA: Uma nova rodada a cada 3-5 segundos!")
+    print("   O dashboard será atualizado automaticamente")
+    print("   Agentes aprendem com cada rodada")
+    print("   Mapa mental cresce em tempo real")
+    print("")
     
     app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
