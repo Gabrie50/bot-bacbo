@@ -506,6 +506,17 @@
             color: #fff;
         }
 
+        .btn-refresh {
+            background: linear-gradient(135deg, #4d4dff, #9370db);
+            border: none;
+            color: white;
+        }
+
+        .btn-refresh:hover {
+            transform: scale(1.02);
+            box-shadow: 0 0 15px rgba(77, 77, 255, 0.5);
+        }
+
         /* Distribuição */
         .distribuicao-grid {
             display: grid;
@@ -549,6 +560,7 @@
             padding: 10px;
             background: #1e2227;
             border-radius: 8px;
+            transition: opacity 0.2s ease;
         }
 
         .numero-item {
@@ -562,11 +574,21 @@
             align-items: center;
             gap: 4px;
             cursor: pointer;
+            transition: all 0.2s ease;
         }
 
         .numero-item:hover {
             transform: scale(1.02);
             border-color: #4d4dff;
+        }
+
+        .numero-item.novo {
+            animation: highlightNew 0.5s ease;
+        }
+
+        @keyframes highlightNew {
+            0% { background: #4d4dff; transform: scale(1.05); }
+            100% { background: #0a0c0f; transform: scale(1); }
         }
 
         .numero-player { border-left: 3px solid #4d4dff; }
@@ -673,6 +695,15 @@
             text-align: center;
             padding: 40px;
             color: #8a8f99;
+        }
+
+        .spin {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
         }
 
         ::-webkit-scrollbar {
@@ -821,10 +852,13 @@
                 </div>
 
                 <div class="limite-buttons">
-                    <button class="limite-btn active" onclick="carregarTabelaCache(50)">50</button>
-                    <button class="limite-btn" onclick="carregarTabelaCache(250)">250</button>
-                    <button class="limite-btn" onclick="carregarTabelaCache(500)">500</button>
-                    <button class="limite-btn" onclick="carregarTabelaCache(1000)">1K</button>
+                    <button class="limite-btn active" onclick="carregarTabelaCache(50, true)">50</button>
+                    <button class="limite-btn" onclick="carregarTabelaCache(250, true)">250</button>
+                    <button class="limite-btn" onclick="carregarTabelaCache(500, true)">500</button>
+                    <button class="limite-btn" onclick="carregarTabelaCache(1000, true)">1K</button>
+                    <button class="limite-btn btn-refresh" onclick="recarregarForcado()">
+                        <i class="bi bi-arrow-clockwise"></i> RECARREGAR
+                    </button>
                 </div>
 
                 <div class="card">
@@ -839,20 +873,25 @@
     // Configurações
     const CONFIG = {
         INTERVALO_ATUALIZACAO: 3000,
-        INTERVALO_CACHE: 60000,
-        LIMITE_PADRAO: 50
+        INTERVALO_CACHE: 15000, // Reduzido de 60s para 15s
+        LIMITE_PADRAO: 50,
+        VERIFICACAO_NOVAS_RODADAS: 2000 // Verificar novas rodadas a cada 2s
     };
 
+    // Variáveis globais
     let evolucaoChart, saudeChart, acertosErrosChart, forcaChart;
     let dadosCompletos = [];
     let filtroAtual = null;
     let limiteAtual = CONFIG.LIMITE_PADRAO;
     let ordemTabela = { coluna: 'precisao', direcao: 'desc' };
     let dadosAgentes = [];
-    let cacheTabela = { dados: null, timestamp: 0, limite: 50 };
+    let cacheTabela = { dados: null, timestamp: 0, limite: 50, versao: 0 };
     let ultimaAtualizacao = 0;
     let ultimasMemorias = [];
     let ultimoUpdateMemorias = 0;
+    let ultimoTotalRodadas = 0;
+    let versaoDados = 0;
+    let isRefreshing = false;
 
     // Funções auxiliares
     function removerDuplicatas(rodadas) {
@@ -911,6 +950,44 @@
         });
     }
 
+    // Verificar se há novas rodadas
+    async function verificarNovasRodadas() {
+        try {
+            const response = await fetch('/api/stats');
+            const data = await response.json();
+            const totalAtual = data.total_rodadas || 0;
+            
+            if (totalAtual > ultimoTotalRodadas && ultimoTotalRodadas > 0) {
+                console.log(`🔄 Novas rodadas detectadas! ${ultimoTotalRodadas} -> ${totalAtual}`);
+                ultimoTotalRodadas = totalAtual;
+                versaoDados++;
+                
+                // Invalidar cache de tabela
+                cacheTabela = { dados: null, timestamp: 0, limite: limiteAtual, versao: versaoDados };
+                
+                // Recarregar dados
+                await carregarTabelaCache(limiteAtual, true);
+                
+                // Efeito visual de atualização
+                const grid = document.getElementById('numerosGrid');
+                grid.style.animation = 'none';
+                grid.offsetHeight;
+                grid.style.animation = 'fadeIn 0.3s ease';
+                
+                return true;
+            }
+            
+            if (ultimoTotalRodadas === 0 && totalAtual > 0) {
+                ultimoTotalRodadas = totalAtual;
+            }
+            
+            return false;
+        } catch(e) {
+            console.error('Erro ao verificar novas rodadas:', e);
+            return false;
+        }
+    }
+
     // Mapa Mental - AO VIVO
     async function carregarMapaMental() {
         try {
@@ -918,7 +995,7 @@
             const data = await response.json();
             
             const mapaMental = data.mapa_mental || { total_celulas: 0, precisao_media: 0 };
-            const memorias = data.memoria_erros || [];
+            const memorias = data.memorias || data.melhores_agentes || [];
             
             document.getElementById('totalMemorias').textContent = mapaMental.total_celulas || 0;
             document.getElementById('totalMemoriasCard').textContent = `${mapaMental.total_celulas || 0} memórias`;
@@ -1042,7 +1119,7 @@
         }
         let dados = data;
         if (filtroAtual) dados = data.filter(r => r.resultado?.toLowerCase() === filtroAtual);
-        document.getElementById('numerosGrid').innerHTML = dados.slice(0, 100).map(r => `
+        document.getElementById('numerosGrid').innerHTML = dados.slice(0, 100).map((r, idx) => `
             <div class="numero-item ${r.resultado === 'PLAYER' ? 'numero-player' : r.resultado === 'BANKER' ? 'numero-banker' : 'numero-tie'}">
                 <div>${r.player} vs ${r.banker}</div>
                 <div>${r.data || ''}</div>
@@ -1051,44 +1128,97 @@
         `).join('');
     }
 
-    async function carregarTabelaCache(limite) {
+    async function carregarTabelaCache(limite, forceRefresh = false) {
         limiteAtual = limite;
         document.querySelectorAll('.limite-btn').forEach(btn => {
             btn.classList.remove('active');
-            if (btn.textContent == limite || (btn.textContent.includes('K') && limite == parseInt(btn.textContent) * 1000)) btn.classList.add('active');
+            if (btn.textContent == limite || (btn.textContent.includes('K') && limite == parseInt(btn.textContent) * 1000)) {
+                btn.classList.add('active');
+            }
         });
-        if (cacheTabela.dados && cacheTabela.limite === limite && Date.now() - cacheTabela.timestamp < CONFIG.INTERVALO_CACHE) {
+        
+        // Se forceRefresh for true, ignora cache
+        if (!forceRefresh && cacheTabela.dados && cacheTabela.limite === limite && 
+            Date.now() - cacheTabela.timestamp < CONFIG.INTERVALO_CACHE) {
             dadosCompletos = cacheTabela.dados;
             exibirHistorico(dadosCompletos);
             return;
         }
+        
         try {
             const res = await fetch(`/api/tabela/${limite}`);
             const dados = await res.json();
             dadosCompletos = dados;
-            cacheTabela = { dados: dadosCompletos, timestamp: Date.now(), limite };
+            cacheTabela = { dados: dadosCompletos, timestamp: Date.now(), limite, versao: versaoDados };
+            
             const player = dadosCompletos.filter(r => r.resultado === 'PLAYER').length;
             const banker = dadosCompletos.filter(r => r.resultado === 'BANKER').length;
             const tie = dadosCompletos.filter(r => r.resultado === 'TIE').length;
             const total = dadosCompletos.length;
+            
             document.getElementById('tabelaCount').textContent = total;
             document.getElementById('playerNumero').textContent = player;
             document.getElementById('bankerNumero').textContent = banker;
             document.getElementById('tieNumero').textContent = tie;
+            
             if (total > 0) {
                 document.getElementById('playerPercent').textContent = ((player/total)*100).toFixed(1)+'%';
                 document.getElementById('bankerPercent').textContent = ((banker/total)*100).toFixed(1)+'%';
                 document.getElementById('tiePercent').textContent = ((tie/total)*100).toFixed(1)+'%';
             }
+            
             exibirHistorico(dadosCompletos);
-        } catch(e) { console.error(e); }
+            
+        } catch(e) { 
+            console.error('Erro ao carregar tabela:', e);
+        }
+    }
+
+    // Recarga forçada manual
+    async function recarregarForcado() {
+        if (isRefreshing) return;
+        isRefreshing = true;
+        
+        const btn = document.querySelector('.btn-refresh');
+        const originalHTML = btn.innerHTML;
+        btn.innerHTML = '<i class="bi bi-arrow-repeat spin"></i> ATUALIZANDO...';
+        btn.disabled = true;
+        
+        try {
+            // Forçar recarga completa
+            cacheTabela = { dados: null, timestamp: 0, limite: limiteAtual, versao: 0 };
+            versaoDados++;
+            await carregarTabelaCache(limiteAtual, true);
+            await atualizarTudo();
+            
+            // Feedback visual
+            btn.innerHTML = '<i class="bi bi-check-lg"></i> ATUALIZADO!';
+            setTimeout(() => {
+                btn.innerHTML = originalHTML;
+                btn.disabled = false;
+                isRefreshing = false;
+            }, 2000);
+            
+        } catch(e) {
+            console.error('Erro na recarga:', e);
+            btn.innerHTML = '<i class="bi bi-exclamation-triangle"></i> ERRO';
+            setTimeout(() => {
+                btn.innerHTML = originalHTML;
+                btn.disabled = false;
+                isRefreshing = false;
+            }, 2000);
+        }
     }
 
     async function atualizarTudo() {
         const agora = Date.now();
         if (agora - ultimaAtualizacao < 1900) return;
+        
         try {
-            // Carregar mapa mental primeiro (prioridade)
+            // Verificar novas rodadas primeiro
+            await verificarNovasRodadas();
+            
+            // Carregar mapa mental
             await carregarMapaMental();
             
             const [statsRes, aprendizadoRes] = await Promise.allSettled([
@@ -1098,12 +1228,18 @@
             
             if (statsRes.status === 'fulfilled' && statsRes.value) {
                 const s = statsRes.value;
-                if (s.total_rodadas) document.getElementById('totalRodadasIA').textContent = s.total_rodadas;
+                if (s.total_rodadas) {
+                    document.getElementById('totalRodadasIA').textContent = s.total_rodadas;
+                    if (s.total_rodadas > ultimoTotalRodadas) {
+                        ultimoTotalRodadas = s.total_rodadas;
+                    }
+                }
                 if (s.estatisticas) {
                     document.getElementById('totalPrevisoesIA').textContent = s.estatisticas.total_previsoes || 0;
                     document.getElementById('acertosIA').textContent = s.estatisticas.acertos || 0;
                     document.getElementById('errosIA').textContent = s.estatisticas.erros || 0;
                     if (acertosErrosChart) acertosErrosChart.data.datasets[0].data = [s.estatisticas.acertos || 0, s.estatisticas.erros || 0];
+                    if (acertosErrosChart) acertosErrosChart.update();
                 }
                 if (s.previsao) {
                     document.getElementById('proximaCorSimbolo').textContent = s.previsao.simbolo || '⚪';
@@ -1134,25 +1270,36 @@
                     document.getElementById('precisaoCicloAtual').textContent = (a.curto_prazo.precisao_ciclo_atual || 0) + '%';
                     document.getElementById('melhorCiclo').textContent = (a.curto_prazo.melhor_ciclo?.precisao || 0) + '%';
                     document.getElementById('cicloAtual').textContent = `Ciclo ${a.curto_prazo.ciclo_atual || 0}/${a.curto_prazo.rodada_no_ciclo || 0}`;
-                    if (a.ultimos_ciclos?.length) {
-                        document.getElementById('ciclosGrid').innerHTML = a.ultimos_ciclos.slice(0, 10).map(c => `
-                            <div class="ciclo-item ${c.precisao >= 80 ? 'alta-precisao' : ''}">
-                                <div class="ciclo-numero">Ciclo ${c.ciclo}</div>
-                                <div class="ciclo-precisao">${c.precisao}%</div>
-                                <div>${c.acertos}/${c.acertos + c.erros}</div>
-                            </div>
-                        `).join('');
-                    }
+                }
+                
+                if (a.ultimos_ciclos?.length) {
+                    document.getElementById('ciclosGrid').innerHTML = a.ultimos_ciclos.slice(0, 10).map(c => `
+                        <div class="ciclo-item ${c.precisao >= 80 ? 'alta-precisao' : ''}">
+                            <div class="ciclo-numero">Ciclo ${c.ciclo}</div>
+                            <div class="ciclo-precisao">${c.precisao}%</div>
+                            <div>${c.acertos}/${c.acertos + c.erros}</div>
+                        </div>
+                    `).join('');
+                } else if (a.curto_prazo?.ultimos_ciclos) {
+                    document.getElementById('ciclosGrid').innerHTML = a.curto_prazo.ultimos_ciclos.slice(0, 10).map(c => `
+                        <div class="ciclo-item ${c.precisao >= 80 ? 'alta-precisao' : ''}">
+                            <div class="ciclo-numero">Ciclo ${c.ciclo}</div>
+                            <div class="ciclo-precisao">${c.precisao}%</div>
+                            <div>${c.acertos}/${c.acertos + c.erros}</div>
+                        </div>
+                    `).join('');
                 }
             }
             ultimaAtualizacao = agora;
-        } catch(e) { console.error('Erro na atualização:', e); }
+        } catch(e) { 
+            console.error('Erro na atualização:', e);
+        }
     }
 
     // Inicialização
     document.addEventListener('DOMContentLoaded', () => {
         criarGraficos();
-        carregarTabelaCache(50);
+        carregarTabelaCache(50, true);
         atualizarRelogio();
         setInterval(atualizarRelogio, 1000);
         setInterval(atualizarTudo, CONFIG.INTERVALO_ATUALIZACAO);
@@ -1162,6 +1309,7 @@
     window.carregarTabelaCache = carregarTabelaCache;
     window.setFiltro = setFiltro;
     window.ordenarTabela = ordenarTabela;
+    window.recarregarForcado = recarregarForcado;
     </script>
 </body>
 </html>
