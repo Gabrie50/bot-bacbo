@@ -26,7 +26,6 @@
             margin: 0 auto;
         }
 
-        /* Header */
         .header {
             display: flex;
             justify-content: space-between;
@@ -61,6 +60,15 @@
             gap: 8px;
         }
 
+        .deepseek-badge {
+            background: linear-gradient(135deg, #0066cc, #003366);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 30px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
         .ia-dot {
             width: 10px;
             height: 10px;
@@ -73,15 +81,6 @@
             0% { opacity: 1; transform: scale(1); }
             50% { opacity: 0.5; transform: scale(1.2); }
             100% { opacity: 1; transform: scale(1); }
-        }
-
-        .deepseek-badge {
-            background: linear-gradient(135deg, #0066cc, #003366);
-            color: white;
-            padding: 8px 16px;
-            border-radius: 30px;
-            font-size: 14px;
-            font-weight: 600;
         }
 
         .geracao-badge {
@@ -100,7 +99,6 @@
             font-family: 'Courier New', monospace;
         }
 
-        /* Card de Previsão IA */
         .previsao-card {
             background: linear-gradient(145deg, #1a1e24 0%, #15181c 100%);
             border: 1px solid #4d4dff40;
@@ -136,11 +134,6 @@
             color: #fff;
         }
 
-        .previsao-titulo i {
-            color: #4d4dff;
-            margin-right: 10px;
-        }
-
         .modo-badge {
             padding: 8px 16px;
             border-radius: 30px;
@@ -152,12 +145,6 @@
             background: #ff006620;
             color: #ff66cc;
             border: 1px solid #ff66cc;
-        }
-
-        .modo-agentes {
-            background: #00ff8820;
-            color: #00ff88;
-            border: 1px solid #00ff88;
         }
 
         .previsao-grid {
@@ -204,71 +191,6 @@
             border-left: 3px solid #ff66cc;
         }
 
-        .previsao-analise p {
-            margin: 5px 0;
-            font-size: 13px;
-            color: #b0b0b0;
-        }
-
-        .agentes-list {
-            margin-top: 20px;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            align-items: center;
-        }
-
-        .agente-tag {
-            background: #1e2227;
-            border: 1px solid #2a2f35;
-            border-radius: 20px;
-            padding: 5px 15px;
-            font-size: 12px;
-            color: #8a8f99;
-            transition: all 0.3s ease;
-        }
-
-        .agente-tag:hover {
-            border-color: #4d4dff;
-            transform: translateY(-2px);
-        }
-
-        /* Stats Grid */
-        .stats-ia-grid {
-            display: grid;
-            grid-template-columns: repeat(12, 1fr);
-            gap: 15px;
-            margin-bottom: 25px;
-        }
-
-        .stats-ia-card {
-            background: #15181c;
-            border: 1px solid #2a2f35;
-            border-radius: 12px;
-            padding: 15px;
-            text-align: center;
-            transition: all 0.3s ease;
-            cursor: pointer;
-        }
-
-        .stats-ia-card:hover {
-            transform: translateY(-2px);
-            border-color: #4d4dff;
-        }
-
-        .stats-ia-valor {
-            font-size: 24px;
-            font-weight: 700;
-            color: #4d4dff;
-        }
-
-        .stats-ia-label {
-            color: #8a8f99;
-            font-size: 11px;
-            margin-top: 5px;
-        }
-
-        /* Comparação de Previsões */
         .comparacao-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -306,23 +228,83 @@
             font-size: 48px;
         }
 
-        .acertou {
-            color: #00ff88;
-            font-weight: bold;
+        .stats-ia-grid {
+            display: grid;
+            grid-template-columns: repeat(10, 1fr);
+            gap: 15px;
+            margin-bottom: 25px;
         }
 
-        .errou {
-            color: #ff4d4d;
-            font-weight: bold;
+        .stats-ia-card {
+            background: #15181c;
+            border: 1px solid #2a2f35;
+            border-radius: 12px;
+            padding: 15px;
+            text-align: center;
+            transition: all 0.3s ease;
+            cursor: pointer;
         }
 
-        /* Mapa Mental */
+        .stats-ia-card:hover {
+            transform: translateY(-2px);
+            border-color: #4d4dff;
+        }
+
+        .stats-ia-valor {
+            font-size: 24px;
+            font-weight: 700;
+            color: #4d4dff;
+        }
+
+        .stats-ia-label {
+            color: #8a8f99;
+            font-size: 11px;
+            margin-top: 5px;
+        }
+
+        .stats-ia-acerto { color: #00ff88; }
+        .stats-ia-erro { color: #ff4d4d; }
+        .stats-ia-geracao { color: #ffaa00; }
+
+        .agentes-table {
+            width: 100%;
+            background: #15181c;
+            border: 1px solid #2a2f35;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .agentes-table th {
+            background: #1e2227;
+            color: #8a8f99;
+            font-weight: 500;
+            font-size: 12px;
+            padding: 12px;
+            text-align: center;
+            cursor: pointer;
+        }
+
+        .agentes-table td {
+            padding: 10px;
+            text-align: center;
+            border-bottom: 1px solid #2a2f35;
+        }
+
+        .agente-nome {
+            font-weight: 600;
+            color: #fff;
+        }
+
+        .forca-alta { color: #00ff88; font-weight: 600; }
+        .forca-media { color: #ffaa00; font-weight: 600; }
+        .forca-baixa { color: #ff4d4d; font-weight: 600; }
+
         .mapa-mental-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
             gap: 15px;
             margin-top: 15px;
-            max-height: 550px;
+            max-height: 500px;
             overflow-y: auto;
             padding: 10px;
         }
@@ -333,8 +315,6 @@
             border-radius: 16px;
             padding: 16px;
             transition: all 0.3s ease;
-            cursor: pointer;
-            animation: fadeIn 0.3s ease;
         }
 
         .memoria-card:hover {
@@ -368,7 +348,6 @@
             border-top: 1px solid #2a2f35;
         }
 
-        /* Botões */
         .limite-buttons {
             display: flex;
             flex-wrap: wrap;
@@ -408,7 +387,6 @@
             box-shadow: 0 0 15px rgba(255, 0, 102, 0.5);
         }
 
-        /* Grid de números */
         .numeros-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
@@ -450,6 +428,70 @@
             border-radius: 8px;
         }
 
+        .ciclo-item {
+            padding: 12px;
+            background: #0a0c0f;
+            border: 1px solid #2a2f35;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .ciclo-item.alta-precisao {
+            border-left: 3px solid #00ff88;
+            background: rgba(0, 255, 136, 0.05);
+        }
+
+        .distribuicao-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .distribuicao-card {
+            background: #15181c;
+            padding: 15px;
+            text-align: center;
+            border-radius: 12px;
+            border: 1px solid #2a2f35;
+            cursor: pointer;
+        }
+
+        .distribuicao-numero {
+            font-size: 48px;
+            font-weight: 700;
+        }
+
+        .player-color { color: #4d4dff; }
+        .banker-color { color: #ff4d4d; }
+        .tie-color { color: #ffaa00; }
+
+        .card {
+            background: #15181c;
+            border: 1px solid #2a2f35;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 25px;
+        }
+
+        .card-title {
+            color: #8a8f99;
+            font-size: 14px;
+            text-transform: uppercase;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .info-badge {
+            background: #2a2f35;
+            color: #8a8f99;
+            padding: 2px 10px;
+            border-radius: 20px;
+            font-size: 10px;
+        }
+
         .loading {
             text-align: center;
             padding: 40px;
@@ -465,26 +507,17 @@
             to { transform: rotate(360deg); }
         }
 
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
+        .row {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
         }
 
-        ::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
-        }
-        ::-webkit-scrollbar-track {
-            background: rgba(42, 47, 53, 0.5);
-            border-radius: 10px;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #4d4dff;
-            border-radius: 10px;
-        }
+        .col-5 { flex: 5; min-width: 350px; }
+        .col-7 { flex: 7; min-width: 450px; }
 
         @media (max-width: 1200px) {
-            .stats-ia-grid { grid-template-columns: repeat(6, 1fr); }
+            .stats-ia-grid { grid-template-columns: repeat(5, 1fr); }
             .comparacao-grid { grid-template-columns: 1fr; }
         }
     </style>
@@ -510,7 +543,7 @@
             </div>
         </div>
 
-        <!-- Card de Previsão IA + Agentes -->
+        <!-- Card de Previsão -->
         <div class="previsao-card">
             <div class="previsao-header">
                 <div class="previsao-titulo"><i class="bi bi-brain"></i> DECISÃO INTEGRADA (IA DeepSeek + RL Agentes)</div>
@@ -525,7 +558,9 @@
             <div class="previsao-analise" id="analiseIA">
                 <p>🤖 Aguardando análise da IA...</p>
             </div>
-            <div class="agentes-list" id="agentesAtivos"><span class="agente-tag">🧠 Nenhum agente ativo</span></div>
+            <div class="agentes-list" id="agentesAtivos" style="margin-top: 20px; display: flex; flex-wrap: wrap; gap: 10px;">
+                <span class="agente-tag">🧠 Nenhum agente ativo</span>
+            </div>
         </div>
 
         <!-- Comparação de Previsões -->
@@ -560,18 +595,16 @@
             <div class="stats-ia-card"><div class="stats-ia-valor stats-ia-erro" id="errosRL">0</div><div class="stats-ia-label">ERROS RL</div></div>
             <div class="stats-ia-card"><div class="stats-ia-valor" id="precisaoIA">0%</div><div class="stats-ia-label">PRECISÃO IA</div></div>
             <div class="stats-ia-card"><div class="stats-ia-valor" id="precisaoRL">0%</div><div class="stats-ia-label">PRECISÃO RL</div></div>
-            <div class="stats-ia-card"><div class="stats-ia-valor stats-ia-manipulacao" id="manipulacoesIA">0</div><div class="stats-ia-label">MANIPULAÇÕES</div></div>
-            <div class="stats-ia-card"><div class="stats-ia-valor" id="acertosVotacao">0</div><div class="stats-ia-label">VOTAÇÃO ACERTOS</div></div>
+            <div class="stats-ia-card"><div class="stats-ia-valor" id="manipulacoesIA">0</div><div class="stats-ia-label">MANIPULAÇÕES</div></div>
             <div class="stats-ia-card"><div class="stats-ia-valor stats-ia-ciclo" id="precisaoCicloAtual">0%</div><div class="stats-ia-label">CICLO ATUAL</div></div>
-            <div class="stats-ia-card"><div class="stats-ia-valor" id="padroesDescobertos">0</div><div class="stats-ia-label">PADRÕES</div></div>
         </div>
 
         <!-- Tabela de Agentes -->
-        <div class="card" style="background: #15181c; border-radius: 12px; padding: 20px; margin-bottom: 25px;">
-            <div class="card-title" style="color: #8a8f99;"><i class="bi bi-people"></i> AGENTES ATIVOS <span class="info-badge" id="agentesAtivosCount">0 ativos</span></div>
-            <table class="agentes-table" style="width: 100%; background: #15181c;">
+        <div class="card">
+            <div class="card-title"><i class="bi bi-people"></i> AGENTES ATIVOS <span class="info-badge" id="agentesAtivosCount">0 ativos</span></div>
+            <table class="agentes-table">
                 <thead>
-                    <tr style="background: #1e2227;">
+                    <tr>
                         <th onclick="ordenarTabela('nome')">Agente</th>
                         <th onclick="ordenarTabela('acertos')">Acertos</th>
                         <th onclick="ordenarTabela('erros')">Erros</th>
@@ -584,24 +617,36 @@
         </div>
 
         <!-- Mapa Mental -->
-        <div class="card" style="background: #15181c; border-radius: 12px; padding: 20px; margin-bottom: 25px;">
-            <div class="card-title"><i class="bi bi-diagram-3"></i> MAPA MENTAL - APRENDIZADO DA IA</div>
+        <div class="card">
+            <div class="card-title"><i class="bi bi-diagram-3"></i> MAPA MENTAL - MELHORES AGENTES</div>
             <div class="mapa-mental-grid" id="mapaMentalGrid"><div class="loading">Carregando memórias...</div></div>
         </div>
 
         <!-- Histórico -->
-        <div class="row" style="display: flex; gap: 20px;">
-            <div class="col-5" style="flex: 5;">
-                <div class="card" style="background: #15181c; border-radius: 12px; padding: 20px;">
+        <div class="row">
+            <div class="col-5">
+                <div class="card">
                     <div class="card-title"><i class="bi bi-arrow-repeat"></i> CICLOS DE 20 RODADAS</div>
                     <div class="ciclos-grid" id="ciclosGrid"><div class="loading">Carregando ciclos...</div></div>
                 </div>
             </div>
-            <div class="col-7" style="flex: 7;">
-                <div class="distribuicao-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 20px;">
-                    <div class="distribuicao-card" style="background: #15181c; padding: 15px; text-align: center; border-radius: 12px;"><div class="distribuicao-numero player-color" id="playerNumero">-</div><div>PLAYER</div><div id="playerPercent">-</div></div>
-                    <div class="distribuicao-card" style="background: #15181c; padding: 15px; text-align: center; border-radius: 12px;"><div class="distribuicao-numero tie-color" id="tieNumero">-</div><div>TIE</div><div id="tiePercent">-</div></div>
-                    <div class="distribuicao-card" style="background: #15181c; padding: 15px; text-align: center; border-radius: 12px;"><div class="distribuicao-numero banker-color" id="bankerNumero">-</div><div>BANKER</div><div id="bankerPercent">-</div></div>
+            <div class="col-7">
+                <div class="distribuicao-grid">
+                    <div class="distribuicao-card" onclick="setFiltro('player')">
+                        <div class="distribuicao-numero player-color" id="playerNumero">-</div>
+                        <div>PLAYER</div>
+                        <div id="playerPercent">-</div>
+                    </div>
+                    <div class="distribuicao-card" onclick="setFiltro('tie')">
+                        <div class="distribuicao-numero tie-color" id="tieNumero">-</div>
+                        <div>TIE</div>
+                        <div id="tiePercent">-</div>
+                    </div>
+                    <div class="distribuicao-card" onclick="setFiltro('banker')">
+                        <div class="distribuicao-numero banker-color" id="bankerNumero">-</div>
+                        <div>BANKER</div>
+                        <div id="bankerPercent">-</div>
+                    </div>
                 </div>
                 <div class="limite-buttons">
                     <button class="limite-btn active" onclick="carregarHistorico(50)">50</button>
@@ -609,8 +654,8 @@
                     <button class="limite-btn" onclick="carregarHistorico(500)">500</button>
                     <button class="limite-btn btn-ia" onclick="analisarComIA()"><i class="bi bi-stars"></i> ANALISAR COM IA</button>
                 </div>
-                <div class="card" style="background: #15181c; border-radius: 12px; padding: 20px;">
-                    <div class="card-title"><i class="bi bi-table"></i> HISTÓRICO <span id="tabelaCount">0</span> rodadas</div>
+                <div class="card">
+                    <div class="card-title"><i class="bi bi-table"></i> HISTÓRICO <span id="tabelaCount">0</span> rodadas <span class="info-badge" id="filtroAtivo">todas</span></div>
                     <div class="numeros-grid" id="numerosGrid"><div class="loading">Carregando...</div></div>
                 </div>
             </div>
@@ -620,101 +665,19 @@
     <script>
     // Configuração da API DeepSeek
     const DEEPSEEK_API_KEY = "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";
-    const DEEPSEEK_MODEL = "deepseek/deepseek-r1:free";
     
-    // Configurações
-    const CONFIG = {
-        INTERVALO_ATUALIZACAO: 3000,
-        LIMITE_PADRAO: 50
-    };
-
     // Variáveis globais
     let dadosCompletos = [];
-    let limiteAtual = CONFIG.LIMITE_PADRAO;
+    let limiteAtual = 50;
     let dadosAgentes = [];
+    let filtroAtual = null;
     let ultimaPrevisaoIA = null;
     let ultimaPrevisaoRL = null;
     let acertosIA = 0, errosIA = 0;
     let acertosRL = 0, errosRL = 0;
-    let acertosVotacao = 0;
     let ultimoResultadoReal = null;
     let ordemTabela = { coluna: 'precisao', direcao: 'desc' };
-
-    // Função para chamar a API DeepSeek
-    async function consultarDeepSeek(historico) {
-        try {
-            const ultimasRodadas = historico.slice(0, 30);
-            const contexto = ultimasRodadas.map(r => `${r.player} vs ${r.banker} = ${r.resultado}`).join('\n');
-            
-            const prompt = `Você é um especialista em análise de padrões do jogo Bac Bo. Analise o histórico abaixo e faça uma previsão para a PRÓXIMA RODADA.
-
-REGRA DO JOGO:
-- PLAYER: soma de 2 dados (1-6 cada) maior que BANKER
-- BANKER: soma de 2 dados maior que PLAYER  
-- TIE: empate nas somas
-
-HISTÓRICO RECENTE:
-${contexto}
-
-ANÁLISE ESTATÍSTICA:
-- Streak atual: ${calcularStreak(historico)}
-- Distribuição: PLAYER=${contarResultado(historico, 'PLAYER')}, BANKER=${contarResultado(historico, 'BANKER')}, TIE=${contarResultado(historico, 'TIE')}
-- Delta (P-B): ${calcularDelta(historico)}
-
-Responda APENAS com JSON no formato:
-{
-    "previsao": "PLAYER/BANKER/TIE",
-    "confianca": 0-100,
-    "justificativa": "análise detalhada em português",
-    "padroes_detectados": ["padrão1", "padrão2"]
-}`;
-
-            const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${DEEPSEEK_API_KEY}`,
-                    'Content-Type': 'application/json',
-                    'HTTP-Referer': 'https://bacbo-ai.local',
-                    'X-Title': 'BacBo AI Predictor'
-                },
-                body: JSON.stringify({
-                    model: DEEPSEEK_MODEL,
-                    messages: [
-                        {
-                            role: 'system',
-                            content: 'Você é um especialista em análise de probabilidade e padrões do jogo Bac Bo. Use teoria estatística, análise de streak, reversão de média e padrões de distribuição para fazer previsões precisas.'
-                        },
-                        {
-                            role: 'user',
-                            content: prompt
-                        }
-                    ],
-                    temperature: 0.3,
-                    max_tokens: 500
-                })
-            });
-
-            const data = await response.json();
-            let conteudo = data.choices[0].message.content;
-            
-            // Extrair JSON da resposta
-            const jsonMatch = conteudo.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-                const resultado = JSON.parse(jsonMatch[0]);
-                return {
-                    previsao: resultado.previsao,
-                    confianca: resultado.confianca,
-                    justificativa: resultado.justificativa,
-                    padroes: resultado.padroes_detectados || []
-                };
-            }
-            
-            return null;
-        } catch (error) {
-            console.error('Erro na consulta DeepSeek:', error);
-            return null;
-        }
-    }
+    let intervaloAtualizacao;
 
     // Funções de análise estatística
     function calcularStreak(historico) {
@@ -747,7 +710,9 @@ Responda APENAS com JSON no formato:
 
     // Previsão RL Agentes (baseada em padrões estatísticos)
     function previsaoRLAgentes(historico) {
-        if (historico.length < 10) return { previsao: 'AGUARDANDO', confianca: 0, justificativa: 'Dados insuficientes' };
+        if (!historico || historico.length < 5) { 
+            return { previsao: 'AGUARDANDO', confianca: 0, justificativa: 'Aguardando dados suficientes...' };
+        }
         
         const streak = calcularStreak(historico);
         const delta = calcularDelta(historico);
@@ -757,16 +722,16 @@ Responda APENAS com JSON no formato:
         let confianca = 50;
         let justificativa = [];
         
-        // Padrão 1: Streak reversal
+        // Padrão 1: Streak reversal (reversão após streak)
         if (streak >= 3 && ultimos5[0]) {
             previsao = ultimos5[0] === 'PLAYER' ? 'BANKER' : 'PLAYER';
             confianca = 70 + (streak - 2) * 5;
             justificativa.push(`Streak de ${streak} → reversão esperada`);
         }
-        // Padrão 2: Delta correction
-        else if (Math.abs(delta) >= 15) {
+        // Padrão 2: Delta correction (correção estatística)
+        else if (Math.abs(delta) >= 10) {
             previsao = delta > 0 ? 'BANKER' : 'PLAYER';
-            confianca = 85;
+            confianca = 75 + Math.min(15, Math.abs(delta));
             justificativa.push(`Delta de ${delta} → correção estatística`);
         }
         // Padrão 3: Empate 6 → PLAYER
@@ -785,111 +750,216 @@ Responda APENAS com JSON no formato:
         else {
             const playerCount = contarResultado(historico.slice(0, 20), 'PLAYER');
             const bankerCount = contarResultado(historico.slice(0, 20), 'BANKER');
-            previsao = playerCount > bankerCount ? 'PLAYER' : 'BANKER';
-            confianca = 55 + Math.abs(playerCount - bankerCount);
-            justificativa.push(`Tendência de ${previsao} nos últimos 20`);
+            const tieCount = contarResultado(historico.slice(0, 20), 'TIE');
+            
+            if (tieCount > 3 && Math.abs(playerCount - bankerCount) < 3) {
+                previsao = 'TIE';
+                confianca = 55;
+                justificativa.push(`Alta frequência de empates → possível TIE`);
+            } else {
+                previsao = playerCount > bankerCount ? 'PLAYER' : 'BANKER';
+                confianca = 55 + Math.abs(playerCount - bankerCount);
+                justificativa.push(`Tendência de ${previsao} nos últimos 20`);
+            }
         }
         
-        confianca = Math.min(95, confianca);
+        confianca = Math.min(95, Math.max(50, confianca));
         
         return {
             previsao: previsao,
-            confianca: confianca,
+            confianca: Math.round(confianca),
             justificativa: justificativa.join('; ')
         };
     }
 
-    // Votação final entre IA e RL
-    function votacaoFinal(previsaoIA, previsaoRL) {
-        if (!previsaoIA || previsaoIA.previsao === 'AGUARDANDO') return previsaoRL;
-        if (!previsaoRL || previsaoRL.previsao === 'AGUARDANDO') return previsaoIA;
+    // Função para chamar a API DeepSeek
+    async function consultarDeepSeek(historico) {
+        if (!historico || historico.length < 10) return null;
         
-        const pesoIA = previsaoIA.confianca / 100;
-        const pesoRL = previsaoRL.confianca / 100;
+        try {
+            const ultimasRodadas = historico.slice(0, 30);
+            const contexto = ultimasRodadas.map(r => `${r.player} vs ${r.banker} = ${r.resultado}`).join('\n');
+            const streak = calcularStreak(historico);
+            const playerCount = contarResultado(historico, 'PLAYER');
+            const bankerCount = contarResultado(historico, 'BANKER');
+            const tieCount = contarResultado(historico, 'TIE');
+            const delta = playerCount - bankerCount;
+            
+            const prompt = `Analise o histórico do jogo Bac Bo e faça uma previsão para a PRÓXIMA RODADA.
+
+REGRAS:
+- PLAYER: soma de 2 dados > BANKER
+- BANKER: soma de 2 dados > PLAYER
+- TIE: empate
+
+HISTÓRICO (mais recentes primeiro):
+${contexto}
+
+ESTATÍSTICAS:
+- Streak atual: ${streak}
+- PLAYER: ${playerCount}, BANKER: ${bankerCount}, TIE: ${tieCount}
+- Delta (P-B): ${delta}
+
+Responda APENAS com JSON:
+{"previsao": "PLAYER/BANKER/TIE", "confianca": 0-100, "justificativa": "análise em português"}`;
+
+            const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${DEEPSEEK_API_KEY}`,
+                    'Content-Type': 'application/json',
+                    'HTTP-Referer': 'https://bacbo-ai.local',
+                    'X-Title': 'BacBo AI Predictor'
+                },
+                body: JSON.stringify({
+                    model: "deepseek/deepseek-r1:free",
+                    messages: [{ role: "user", content: prompt }],
+                    temperature: 0.3,
+                    max_tokens: 300
+                })
+            });
+
+            if (!response.ok) {
+                console.error('API erro:', response.status);
+                return null;
+            }
+
+            const data = await response.json();
+            let conteudo = data.choices[0].message.content;
+            
+            const jsonMatch = conteudo.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                return JSON.parse(jsonMatch[0]);
+            }
+            return null;
+        } catch (error) {
+            console.error('Erro DeepSeek:', error);
+            return null;
+        }
+    }
+
+    // Votação final
+    function votacaoFinal(previsaoIA, previsaoRL) {
+        if (!previsaoIA || previsaoIA.previsao === 'AGUARDANDO') {
+            return previsaoRL;
+        }
+        if (!previsaoRL || previsaoRL.previsao === 'AGUARDANDO') {
+            return previsaoIA;
+        }
         
         if (previsaoIA.previsao === previsaoRL.previsao) {
-            const confiancaFinal = (previsaoIA.confianca + previsaoRL.confianca) / 2;
+            const confiancaFinal = Math.round((previsaoIA.confianca + previsaoRL.confianca) / 2);
             return {
                 previsao: previsaoIA.previsao,
                 confianca: confiancaFinal,
-                justificativa: `Consenso entre IA e RL: ${previsaoIA.justificativa} | ${previsaoRL.justificativa}`
+                justificativa: `Consenso: ${previsaoIA.justificativa}`
             };
         }
         
-        // Escolher o de maior confiança
         if (previsaoIA.confianca > previsaoRL.confianca) {
             return {
                 previsao: previsaoIA.previsao,
                 confianca: previsaoIA.confianca,
-                justificativa: `IA venceu votação (${previsaoIA.confianca}% > ${previsaoRL.confianca}%): ${previsaoIA.justificativa}`
+                justificativa: `IA (${previsaoIA.confianca}%): ${previsaoIA.justificativa}`
             };
         } else {
             return {
                 previsao: previsaoRL.previsao,
                 confianca: previsaoRL.confianca,
-                justificativa: `RL venceu votação (${previsaoRL.confianca}% > ${previsaoIA.confianca}%): ${previsaoRL.justificativa}`
+                justificativa: `RL (${previsaoRL.confianca}%): ${previsaoRL.justificativa}`
             };
         }
     }
 
-    // Atualizar UI com previsões
-    function atualizarPrevisoesUI(previsaoIA, previsaoRL, previsaoFinal) {
-        // IA
-        document.getElementById('iaSimbolo').textContent = previsaoIA?.previsao === 'PLAYER' ? '🔵' : previsaoIA?.previsao === 'BANKER' ? '🔴' : '⚪';
-        document.getElementById('iaTexto').textContent = previsaoIA?.previsao || 'Aguardando...';
-        document.getElementById('iaConfianca').textContent = `${previsaoIA?.confianca || 0}%`;
-        document.getElementById('iaJustificativa').innerHTML = previsaoIA?.justificativa || '';
+    // Fazer previsão
+    async function fazerPrevisao() {
+        if (!dadosCompletos || dadosCompletos.length < 5) return;
         
+        // Previsão RL
+        ultimaPrevisaoRL = previsaoRLAgentes(dadosCompletos);
+        
+        // Previsão IA (assíncrona)
+        consultarDeepSeek(dadosCompletos).then(resultado => {
+            if (resultado) {
+                ultimaPrevisaoIA = resultado;
+                atualizarUI();
+            }
+        }).catch(e => console.error('Erro IA:', e));
+        
+        // Atualizar UI com RL primeiro
+        atualizarUI();
+    }
+    
+    function atualizarUI() {
         // RL
-        document.getElementById('rlSimbolo').textContent = previsaoRL?.previsao === 'PLAYER' ? '🔵' : previsaoRL?.previsao === 'BANKER' ? '🔴' : '⚪';
-        document.getElementById('rlTexto').textContent = previsaoRL?.previsao || 'Aguardando...';
-        document.getElementById('rlConfianca').textContent = `${previsaoRL?.confianca || 0}%`;
-        document.getElementById('rlJustificativa').innerHTML = previsaoRL?.justificativa || '';
+        if (ultimaPrevisaoRL) {
+            document.getElementById('rlSimbolo').textContent = ultimaPrevisaoRL.previsao === 'PLAYER' ? '🔵' : ultimaPrevisaoRL.previsao === 'BANKER' ? '🔴' : '🟡';
+            document.getElementById('rlTexto').textContent = ultimaPrevisaoRL.previsao || 'Aguardando...';
+            document.getElementById('rlConfianca').textContent = `${ultimaPrevisaoRL.confianca || 0}%`;
+            document.getElementById('rlJustificativa').innerHTML = ultimaPrevisaoRL.justificativa || '';
+        }
         
-        // Final
-        document.getElementById('proximaCorSimbolo').textContent = previsaoFinal?.previsao === 'PLAYER' ? '🔵' : previsaoFinal?.previsao === 'BANKER' ? '🔴' : '⚪';
-        document.getElementById('proximaCorTexto').textContent = previsaoFinal?.previsao || 'AGUARDANDO';
-        document.getElementById('confianca').textContent = `${Math.round(previsaoFinal?.confianca || 0)}%`;
-        document.getElementById('analiseIA').innerHTML = `<p>🤖 ${previsaoFinal?.justificativa || 'Aguardando análise...'}</p>`;
+        // IA
+        if (ultimaPrevisaoIA) {
+            document.getElementById('iaSimbolo').textContent = ultimaPrevisaoIA.previsao === 'PLAYER' ? '🔵' : ultimaPrevisaoIA.previsao === 'BANKER' ? '🔴' : '🟡';
+            document.getElementById('iaTexto').textContent = ultimaPrevisaoIA.previsao || 'Aguardando...';
+            document.getElementById('iaConfianca').textContent = `${ultimaPrevisaoIA.confianca || 0}%`;
+            document.getElementById('iaJustificativa').innerHTML = ultimaPrevisaoIA.justificativa || '';
+        }
+        
+        // Votação final
+        const final = votacaoFinal(ultimaPrevisaoIA, ultimaPrevisaoRL);
+        document.getElementById('proximaCorSimbolo').textContent = final.previsao === 'PLAYER' ? '🔵' : final.previsao === 'BANKER' ? '🔴' : '🟡';
+        document.getElementById('proximaCorTexto').textContent = final.previsao || 'AGUARDANDO';
+        document.getElementById('confianca').textContent = `${final.confianca || 0}%`;
+        document.getElementById('analiseIA').innerHTML = `<p>🤖 ${final.justificativa || 'Aguardando análise...'}</p>`;
     }
 
-    // Registrar resultado e aprender
-    async function registrarResultado(resultadoReal) {
-        if (!resultadoReal) return;
+    // Registrar resultado
+    function registrarResultado(resultadoReal) {
+        if (!resultadoReal || resultadoReal === ultimoResultadoReal) return;
         
-        // Verificar acertos da IA
         if (ultimaPrevisaoIA && ultimaPrevisaoIA.previsao === resultadoReal) {
             acertosIA++;
         } else if (ultimaPrevisaoIA && ultimaPrevisaoIA.previsao !== 'AGUARDANDO') {
             errosIA++;
         }
         
-        // Verificar acertos do RL
         if (ultimaPrevisaoRL && ultimaPrevisaoRL.previsao === resultadoReal) {
             acertosRL++;
         } else if (ultimaPrevisaoRL && ultimaPrevisaoRL.previsao !== 'AGUARDANDO') {
             errosRL++;
         }
         
-        // Atualizar estatísticas
+        const totalIA = acertosIA + errosIA;
+        const totalRL = acertosRL + errosRL;
+        
         document.getElementById('acertosIA').textContent = acertosIA;
         document.getElementById('errosIA').textContent = errosIA;
         document.getElementById('acertosRL').textContent = acertosRL;
         document.getElementById('errosRL').textContent = errosRL;
-        
-        const totalIA = acertosIA + errosIA;
-        const totalRL = acertosRL + errosRL;
         document.getElementById('precisaoIA').textContent = totalIA > 0 ? Math.round((acertosIA / totalIA) * 100) + '%' : '0%';
         document.getElementById('precisaoRL').textContent = totalRL > 0 ? Math.round((acertosRL / totalRL) * 100) + '%' : '0%';
         
         ultimoResultadoReal = resultadoReal;
+        
+        // Fazer nova previsão após resultado
+        setTimeout(() => fazerPrevisao(), 1000);
     }
 
-    // Carregar histórico
+    // Carregar histórico da API
     async function carregarHistorico(limite) {
         limiteAtual = limite;
+        document.querySelectorAll('.limite-btn').forEach(btn => {
+            btn.classList.remove('active');
+            if (btn.textContent == limite || (btn.textContent.includes('K') && limite == parseInt(btn.textContent) * 1000)) {
+                btn.classList.add('active');
+            }
+        });
+        
         try {
             const res = await fetch(`/api/tabela/${limite}`);
+            if (!res.ok) throw new Error('Erro ao carregar histórico');
             const dados = await res.json();
             dadosCompletos = dados;
             
@@ -909,7 +979,12 @@ Responda APENAS com JSON no formato:
                 document.getElementById('tiePercent').textContent = ((tie/total)*100).toFixed(1)+'%';
             }
             
-            document.getElementById('numerosGrid').innerHTML = dados.slice(0, 100).map(r => `
+            let dadosExibir = dados;
+            if (filtroAtual) {
+                dadosExibir = dados.filter(r => r.resultado?.toLowerCase() === filtroAtual);
+            }
+            
+            document.getElementById('numerosGrid').innerHTML = dadosExibir.slice(0, 100).map(r => `
                 <div class="numero-item ${r.resultado === 'PLAYER' ? 'numero-player' : r.resultado === 'BANKER' ? 'numero-banker' : 'numero-tie'}">
                     <div>${r.player} vs ${r.banker}</div>
                     <div>${r.data || ''}</div>
@@ -917,52 +992,87 @@ Responda APENAS com JSON no formato:
                 </div>
             `).join('');
             
-            // Se houver novo resultado, registrar
             if (dados.length > 0 && dados[0].resultado !== ultimoResultadoReal) {
-                await registrarResultado(dados[0].resultado);
-                // Fazer nova previsão
-                await fazerPrevisao();
+                registrarResultado(dados[0].resultado);
             }
             
-        } catch(e) { console.error(e); }
-    }
-
-    // Fazer previsão com IA e RL
-    async function fazerPrevisao() {
-        if (dadosCompletos.length < 10) return;
-        
-        // Previsão RL
-        ultimaPrevisaoRL = previsaoRLAgentes(dadosCompletos);
-        
-        // Previsão IA
-        try {
-            ultimaPrevisaoIA = await consultarDeepSeek(dadosCompletos);
-        } catch(e) {
-            console.error('Erro na IA:', e);
-            ultimaPrevisaoIA = null;
+            fazerPrevisao();
+            
+        } catch(e) { 
+            console.error('Erro ao carregar histórico:', e);
+            document.getElementById('numerosGrid').innerHTML = '<div class="loading">Erro ao carregar dados. Verifique se o servidor está rodando.</div>';
         }
-        
-        // Votação final
-        const previsaoFinal = votacaoFinal(ultimaPrevisaoIA, ultimaPrevisaoRL);
-        
-        // Atualizar UI
-        atualizarPrevisoesUI(ultimaPrevisaoIA, ultimaPrevisaoRL, previsaoFinal);
     }
 
-    // Análise manual com IA
-    async function analisarComIA() {
-        const btn = event.currentTarget;
-        const originalHTML = btn.innerHTML;
-        btn.innerHTML = '<i class="bi bi-stars spin"></i> ANALISANDO...';
-        btn.disabled = true;
-        
-        await fazerPrevisao();
-        
-        btn.innerHTML = '<i class="bi bi-check-lg"></i> ANALISADO!';
-        setTimeout(() => {
-            btn.innerHTML = originalHTML;
-            btn.disabled = false;
-        }, 2000);
+    // Carregar stats da API
+    async function carregarStats() {
+        try {
+            const res = await fetch('/api/stats');
+            if (!res.ok) throw new Error('Erro ao carregar stats');
+            const data = await res.json();
+            
+            document.getElementById('totalRodadasIA').textContent = data.total_rodadas || 0;
+            document.getElementById('manipulacoesIA').textContent = data.estatisticas?.total_previsoes || 0;
+            document.getElementById('totalPadroes').textContent = data.padroes_descobertos?.length || 0;
+            document.getElementById('precisaoCicloAtual').textContent = '0%';
+            
+            if (data.previsao) {
+                document.getElementById('agentesUsados').textContent = data.previsao.agentes_usados || 0;
+                document.getElementById('totalAgentesDisplay').textContent = data.previsao.total_agentes || 0;
+            }
+        } catch(e) {
+            console.error('Erro stats:', e);
+        }
+    }
+
+    // Carregar agentes da API
+    async function carregarAgentes() {
+        try {
+            const res = await fetch('/api/aprendizado');
+            if (!res.ok) throw new Error('Erro ao carregar agentes');
+            const data = await res.json();
+            
+            document.getElementById('geracaoAtual').textContent = `Geração ${data.geracao || 0}`;
+            document.getElementById('geracaoNumero').textContent = data.geracao || 0;
+            
+            if (data.melhores_agentes && data.melhores_agentes.length > 0) {
+                dadosAgentes = data.melhores_agentes;
+                ordenarTabela('precisao');
+                
+                document.getElementById('agentesAtivosCount').textContent = `${dadosAgentes.length} ativos`;
+                document.getElementById('totalAgentesDisplay').textContent = dadosAgentes.length;
+                
+                // Mapa mental
+                document.getElementById('mapaMentalGrid').innerHTML = dadosAgentes.slice(0, 12).map(m => `
+                    <div class="memoria-card">
+                        <div class="memoria-padrao">🧠 ${m.padrao || 'Padrão'}</div>
+                        <div class="memoria-previsao ${m.previsao === 'BANKER' ? 'banker' : 'player'}">
+                            ${m.previsao === 'BANKER' ? '🔴 BANKER' : '🔵 PLAYER'}
+                        </div>
+                        <div class="memoria-stats">
+                            <span>✅ ${m.acertos} acertos</span>
+                            <span>❌ ${m.erros} erros</span>
+                            <span class="memoria-precisao">${m.precisao}%</span>
+                        </div>
+                    </div>
+                `).join('');
+            } else {
+                document.getElementById('mapaMentalGrid').innerHTML = '<div class="loading">Nenhum agente disponível ainda...</div>';
+            }
+            
+            if (data.ultimos_ciclos && data.ultimos_ciclos.length > 0) {
+                document.getElementById('ciclosGrid').innerHTML = data.ultimos_ciclos.slice(0, 10).map(c => `
+                    <div class="ciclo-item ${c.precisao >= 80 ? 'alta-precisao' : ''}">
+                        <div class="ciclo-numero">Ciclo ${c.ciclo}</div>
+                        <div class="ciclo-precisao">${c.precisao}%</div>
+                        <div>${c.acertos}/${c.acertos + c.erros}</div>
+                    </div>
+                `).join('');
+            }
+        } catch(e) {
+            console.error('Erro agentes:', e);
+            document.getElementById('mapaMentalGrid').innerHTML = '<div class="loading">Erro ao carregar agentes</div>';
+        }
     }
 
     // Ordenar tabela
@@ -974,10 +1084,16 @@ Responda APENAS com JSON no formato:
             ordemTabela.direcao = 'desc';
         }
         
+        if (!dadosAgentes || dadosAgentes.length === 0) return;
+        
         let lista = [...dadosAgentes];
         lista.sort((a, b) => {
-            let va = ordemTabela.coluna === 'precisao' ? (a.precisao || 0) : ordemTabela.coluna === 'acertos' ? (a.acertos || 0) : (a.nome || '');
-            let vb = ordemTabela.coluna === 'precisao' ? (b.precisao || 0) : ordemTabela.coluna === 'acertos' ? (b.acertos || 0) : (b.nome || '');
+            let va = ordemTabela.coluna === 'precisao' ? (a.precisao || 0) : 
+                     ordemTabela.coluna === 'acertos' ? (a.acertos || 0) : 
+                     ordemTabela.coluna === 'erros' ? (a.erros || 0) : (a.nome || '');
+            let vb = ordemTabela.coluna === 'precisao' ? (b.precisao || 0) : 
+                     ordemTabela.coluna === 'acertos' ? (b.acertos || 0) : 
+                     ordemTabela.coluna === 'erros' ? (b.erros || 0) : (b.nome || '');
             if (typeof va === 'string') return ordemTabela.direcao === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
             return ordemTabela.direcao === 'asc' ? va - vb : vb - va;
         });
@@ -993,89 +1109,67 @@ Responda APENAS com JSON no formato:
         `).join('');
     }
 
-    // Atualizar tudo
-    async function atualizarTudo() {
-        try {
-            const [statsRes, aprendizadoRes] = await Promise.allSettled([
-                fetch('/api/stats').then(r => r.json()).catch(() => null),
-                fetch('/api/aprendizado').then(r => r.json()).catch(() => null)
-            ]);
-            
-            if (statsRes.status === 'fulfilled' && statsRes.value) {
-                const s = statsRes.value;
-                document.getElementById('totalRodadasIA').textContent = s.total_rodadas || 0;
-                document.getElementById('manipulacoesIA').textContent = s.estatisticas?.total_previsoes || 0;
-                document.getElementById('padroesDescobertos').textContent = s.padroes_descobertos?.length || 0;
-                
-                if (s.previsao) {
-                    document.getElementById('totalAgentesDisplay').textContent = s.previsao.total_agentes || 0;
-                    document.getElementById('agentesUsados').textContent = s.previsao.agentes_usados || 0;
-                }
+    function setFiltro(tipo) {
+        filtroAtual = filtroAtual === tipo ? null : tipo;
+        document.getElementById('filtroAtivo').textContent = filtroAtual ? `apenas ${filtroAtual}` : 'todas';
+        
+        if (dadosCompletos.length > 0) {
+            let dados = dadosCompletos;
+            if (filtroAtual) {
+                dados = dadosCompletos.filter(r => r.resultado?.toLowerCase() === filtroAtual);
             }
-            
-            if (aprendizadoRes.status === 'fulfilled' && aprendizadoRes.value) {
-                const a = aprendizadoRes.value;
-                document.getElementById('geracaoAtual').textContent = `Geração ${a.geracao || 0}`;
-                document.getElementById('geracaoNumero').textContent = a.geracao || 0;
-                document.getElementById('precisaoCicloAtual').textContent = `${a.curto_prazo?.precisao_ciclo_atual || 0}%`;
-                document.getElementById('agentesAtivosCount').textContent = `${a.agentes?.length || 0} ativos`;
-                document.getElementById('totalAgentesDisplay').textContent = a.agentes?.length || 0;
-                
-                if (a.agentes) {
-                    dadosAgentes = a.agentes;
-                    ordenarTabela('precisao');
-                }
-                
-                if (a.melhores_agentes?.length) {
-                    document.getElementById('mapaMentalGrid').innerHTML = a.melhores_agentes.slice(0, 12).map(m => `
-                        <div class="memoria-card">
-                            <div class="memoria-padrao">🧠 ${m.padrao || 'Padrão'}</div>
-                            <div class="memoria-previsao ${m.previsao === 'BANKER' ? 'banker' : 'player'}">
-                                ${m.previsao === 'BANKER' ? '🔴 BANKER' : '🔵 PLAYER'}
-                            </div>
-                            <div class="memoria-stats">
-                                <span>✅ ${m.acertos} acertos</span>
-                                <span>❌ ${m.erros} erros</span>
-                                <span class="memoria-precisao">${m.precisao}%</span>
-                            </div>
-                        </div>
-                    `).join('');
-                }
-                
-                if (a.ultimos_ciclos?.length) {
-                    document.getElementById('ciclosGrid').innerHTML = a.ultimos_ciclos.slice(0, 10).map(c => `
-                        <div class="ciclo-item ${c.precisao >= 80 ? 'alta-precisao' : ''}">
-                            <div class="ciclo-numero">Ciclo ${c.ciclo}</div>
-                            <div class="ciclo-precisao">${c.precisao}%</div>
-                            <div>${c.acertos}/${c.acertos + c.erros}</div>
-                        </div>
-                    `).join('');
-                }
-            }
-            
-            // Atualizar relógio
-            const agora = new Date();
-            const brasilia = new Date(agora.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
-            document.getElementById('updateTime').textContent = `${brasilia.getHours().toString().padStart(2,'0')}:${brasilia.getMinutes().toString().padStart(2,'0')}:${brasilia.getSeconds().toString().padStart(2,'0')}`;
-            
-        } catch(e) { console.error('Erro:', e); }
+            document.getElementById('numerosGrid').innerHTML = dados.slice(0, 100).map(r => `
+                <div class="numero-item ${r.resultado === 'PLAYER' ? 'numero-player' : r.resultado === 'BANKER' ? 'numero-banker' : 'numero-tie'}">
+                    <div>${r.player} vs ${r.banker}</div>
+                    <div>${r.data || ''}</div>
+                    <div>${r.resultado === 'PLAYER' ? '🔵' : r.resultado === 'BANKER' ? '🔴' : '🟡'}</div>
+                </div>
+            `).join('');
+        }
+    }
+
+    async function analisarComIA() {
+        const btn = event.currentTarget;
+        const originalHTML = btn.innerHTML;
+        btn.innerHTML = '<i class="bi bi-stars spin"></i> ANALISANDO...';
+        btn.disabled = true;
+        
+        await fazerPrevisao();
+        
+        btn.innerHTML = '<i class="bi bi-check-lg"></i> ANALISADO!';
+        setTimeout(() => {
+            btn.innerHTML = originalHTML;
+            btn.disabled = false;
+        }, 2000);
+    }
+
+    function atualizarRelogio() {
+        const agora = new Date();
+        const brasilia = new Date(agora.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+        document.getElementById('updateTime').textContent = `${brasilia.getHours().toString().padStart(2,'0')}:${brasilia.getMinutes().toString().padStart(2,'0')}:${brasilia.getSeconds().toString().padStart(2,'0')}`;
     }
 
     // Inicialização
     document.addEventListener('DOMContentLoaded', () => {
         carregarHistorico(50);
-        setInterval(atualizarTudo, CONFIG.INTERVALO_ATUALIZACAO);
+        carregarStats();
+        carregarAgentes();
+        atualizarRelogio();
+        
+        setInterval(atualizarRelogio, 1000);
         setInterval(() => {
+            carregarStats();
+            carregarAgentes();
             if (dadosCompletos.length > 0) {
                 fazerPrevisao();
             }
-        }, 10000);
-        setTimeout(() => fazerPrevisao(), 3000);
+        }, 5000);
     });
 
     window.carregarHistorico = carregarHistorico;
     window.ordenarTabela = ordenarTabela;
     window.analisarComIA = analisarComIA;
+    window.setFiltro = setFiltro;
     </script>
 </body>
 </html>
