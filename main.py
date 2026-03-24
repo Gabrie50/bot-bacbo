@@ -1,11 +1,5 @@
 # =============================================================================
-# main.py - BACBO PREDICTOR - AGENTES INFINITOS (VERSÃO COMPLETA COM TIPMINER)
-# =============================================================================
-# TODO NOVO PADRÃO = NOVO AGENTE RL
-# AGENTES TURBINADOS COM REDES NEURAIS
-# AGENTES PARALELOS TRABALHANDO EM MASSA
-# SEM LIMITE DE AGENTES - MAPA MENTAL EXPANSÍVEL
-# FONTE PRINCIPAL: TIPMINER API
+# main.py - BACBO PREDICTOR - AGENTES INFINITOS (VERSÃO COMPLETA CORRIGIDA)
 # =============================================================================
 
 import os
@@ -71,7 +65,7 @@ try:
     import torch.nn.functional as F
     TORCH_AVAILABLE = True
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    DEVICE_STR = str(DEVICE)
+    DEVICE_STR = str(DEVICE)  # Guardar como string para JSON
     print(f"✅ PyTorch disponível - Device: {DEVICE}")
 except ImportError as e:
     print(f"⚠️ PyTorch não disponível: {e}")
@@ -108,25 +102,19 @@ SSL_CONTEXT.verify_mode = ssl.CERT_NONE
 # =============================================================================
 # CONFIGURAÇÕES DAS FONTES
 # =============================================================================
-# API do TipMiner (nova - funcionando)
-TIPMINER_NOTIFICATIONS_URL = "https://api.tipminer.com/v1/accounts/fetch-notifications/019c0157-06d1-77dd-a26b-28e6c6077d75"
-TIPMINER_HOURLY_URL = "https://api.tipminer.com/api/v3/types-per-hour/bac_bo/0194b472-2bbd-729d-89ae-cd32c921c7f8"
-
-# APIs antigas (fallback)
 LATEST_API_URL = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo/latest"
-HISTORY_API_URL = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo"
 WS_URL = "wss://api-cs.casino.org/svc-evolution-game-events/ws/bacbo"
+API_URL = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo"
+
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     'Accept': 'application/json',
     'Cache-Control': 'no-cache',
-    'Pragma': 'no-cache',
-    'Referer': 'https://www.casino.org/',
-    'Origin': 'https://www.casino.org'
+    'Pragma': 'no-cache'
 }
 
-INTERVALO_BUSCA = 2  # segundos
+INTERVALO_LATEST = 0.3
 INTERVALO_WS_FALLBACK = 3
 INTERVALO_NORMAL_FALLBACK = 10
 PORT = int(os.environ.get("PORT", 5000))
@@ -193,7 +181,7 @@ cache = {
     'memoria_erros': None,
     'votacao': None,
     'simulador': None,
-    'historico_rodadas': deque(maxlen=500)
+    'historico_rodadas': deque(maxlen=500)  # Adicionado
 }
 
 
@@ -1362,7 +1350,6 @@ class SistemaAgentesInfinitos:
         print(f"   Device: {DEVICE}")
         print(f"   Agentes iniciais: {cache['contador_agentes']}")
         print(f"   Tipos: NORMAL, TURBINADO, PARALELO")
-        print(f"   Fonte Principal: TipMiner API")
         print("="*70)
     
     def _hash_contexto(self, contexto: List[str]) -> str:
@@ -2047,91 +2034,26 @@ def calcular_precisao():
 
 
 # =============================================================================
-# 18. COLETA DE DADOS (API TIPMINER + FALLBACK)
+# 18. COLETA DE DADOS (API LATEST)
 # =============================================================================
 
 def buscar_latest():
-    """Busca dados da TipMiner API (nova fonte)"""
     global ultimo_id_latest, falhas_latest, fonte_ativa
-    
     try:
-        # Tentar TipMiner primeiro
-        response = requests.get(TIPMINER_NOTIFICATIONS_URL, headers=HEADERS, timeout=5)
-        
+        response = requests.get(LATEST_API_URL, headers=HEADERS, timeout=2)
         if response.status_code == 200:
             dados = response.json()
-            
-            # Extrair dados do formato TipMiner
-            if 'data' in dados and isinstance(dados['data'], list):
-                for item in dados['data']:
-                    novo_id = item.get('id') or item.get('notification_id')
-                    
-                    if novo_id and str(novo_id) != str(ultimo_id_latest):
-                        if fonte_ativa == 'latest':
-                            falhas_latest = 0
-                        ultimo_id_latest = novo_id
-                        
-                        # Extrair resultado
-                        resultado_raw = item.get('result') or item.get('outcome') or item.get('winner', '')
-                        if 'player' in resultado_raw.lower():
-                            resultado = 'PLAYER'
-                        elif 'banker' in resultado_raw.lower():
-                            resultado = 'BANKER'
-                        else:
-                            resultado = 'TIE'
-                        
-                        # Scores
-                        player_score = item.get('player_score') or item.get('playerScore') or 0
-                        banker_score = item.get('banker_score') or item.get('bankerScore') or 0
-                        
-                        # Converter para int
-                        try:
-                            player_score = int(player_score) if player_score else random.randint(5, 9)
-                            banker_score = int(banker_score) if banker_score else random.randint(2, 7)
-                        except:
-                            player_score = random.randint(5, 9)
-                            banker_score = random.randint(2, 7)
-                        
-                        rodada = {
-                            'id': str(novo_id),
-                            'data_hora': datetime.now(timezone.utc),
-                            'player_score': player_score,
-                            'banker_score': banker_score,
-                            'resultado': resultado,
-                            'fonte': 'tipminer'
-                        }
-                        
-                        fontes_status['latest']['total'] += 1
-                        print(f"\n📡 TIPMINER: {player_score} vs {banker_score} - {resultado}")
-                        return rodada
-        
-        # Fallback para API antiga
-        response = requests.get(LATEST_API_URL, headers=HEADERS, timeout=3)
-        if response.status_code == 200:
-            dados = response.json()
-            if 'data' in dados:
-                data_obj = dados['data']
-            else:
-                data_obj = dados
-            
-            novo_id = data_obj.get('id')
-            if novo_id and str(novo_id) != str(ultimo_id_latest):
+            novo_id = dados.get('id')
+            data = dados.get('data', {})
+            result = data.get('result', {})
+            if novo_id and novo_id != ultimo_id_latest:
                 if fonte_ativa == 'latest':
                     falhas_latest = 0
                 ultimo_id_latest = novo_id
-                
-                result = data_obj.get('result', {})
                 player_dice = result.get('playerDice', {})
                 banker_dice = result.get('bankerDice', {})
-                
-                player_score = player_dice.get('score', 0)
-                if not player_score:
-                    player_score = player_dice.get('first', 0) + player_dice.get('second', 0)
-                
-                banker_score = banker_dice.get('score', 0)
-                if not banker_score:
-                    banker_score = banker_dice.get('first', 0) + banker_dice.get('second', 0)
-                
+                player_score = player_dice.get('first', 0) + player_dice.get('second', 0)
+                banker_score = banker_dice.get('first', 0) + banker_dice.get('second', 0)
                 outcome = result.get('outcome', '')
                 if outcome == 'PlayerWon':
                     resultado = 'PLAYER'
@@ -2139,117 +2061,38 @@ def buscar_latest():
                     resultado = 'BANKER'
                 else:
                     resultado = 'TIE'
-                
                 rodada = {
-                    'id': str(novo_id),
+                    'id': novo_id,
                     'data_hora': datetime.now(timezone.utc),
                     'player_score': player_score,
                     'banker_score': banker_score,
-                    'resultado': resultado,
-                    'fonte': 'casino_org'
+                    'resultado': resultado
                 }
-                
                 fontes_status['latest']['total'] += 1
-                print(f"\n📡 CASINO.ORG: {player_score} vs {banker_score} - {resultado}")
+                print(f"\n📡 LATEST: {player_score} vs {banker_score} - {resultado}")
                 return rodada
-        
-        # Se chegou aqui, falhou
-        if fonte_ativa == 'latest':
-            falhas_latest += 1
-            fontes_status['latest']['falhas'] += 1
-        return None
-        
+        else:
+            if fonte_ativa == 'latest':
+                falhas_latest += 1
+                fontes_status['latest']['falhas'] += 1
+            return None
     except Exception as e:
         if fonte_ativa == 'latest':
             falhas_latest += 1
             fontes_status['latest']['falhas'] += 1
-        print(f"⚠️ Erro ao buscar dados: {e}")
         return None
 
 def loop_latest():
-    """Loop de coleta com múltiplas fontes"""
-    print("📡 Coletor MULTI-FONTE iniciado")
-    print(f"   TipMiner: {TIPMINER_NOTIFICATIONS_URL}")
-    print(f"   Casino.org: {LATEST_API_URL}")
-    print(f"   Intervalo: {INTERVALO_BUSCA}s")
-    
-    tentativas_falhas = 0
-    
+    print("📡 Coletor LATEST iniciado")
     while True:
         try:
             rodada = buscar_latest()
-            
             if rodada:
-                tentativas_falhas = 0
                 fila_rodadas.append(rodada)
-                cache['historico_rodadas'].appendleft(rodada)
-                
-                # Manter apenas últimas 500
-                if len(cache['historico_rodadas']) > 500:
-                    cache['historico_rodadas'].pop()
-            else:
-                tentativas_falhas += 1
-                if tentativas_falhas % 10 == 0:
-                    print(f"⚠️ {tentativas_falhas} falhas consecutivas")
-                
-                # Se muitas falhas, usar simulação
-                if tentativas_falhas >= 30:
-                    # Gerar rodada simulada baseada nos indicadores
-                    indicadores = IndicadoresBase()
-                    
-                    # Pegar últimas rodadas para contexto
-                    ultimas = list(cache['historico_rodadas'])[:50]
-                    
-                    if len(ultimas) >= 10:
-                        streak = 0
-                        ultimo_res = None
-                        for r in ultimas[:10]:
-                            if r['resultado'] != 'TIE':
-                                if ultimo_res is None:
-                                    streak = 1
-                                    ultimo_res = r['resultado']
-                                elif r['resultado'] == ultimo_res:
-                                    streak += 1
-                                else:
-                                    break
-                        
-                        if streak >= 3:
-                            resultado = 'BANKER' if ultimo_res == 'PLAYER' else 'PLAYER'
-                        else:
-                            resultado = random.choices(['BANKER', 'PLAYER', 'TIE'], weights=[44, 44, 12])[0]
-                    else:
-                        resultado = random.choices(['BANKER', 'PLAYER', 'TIE'], weights=[44, 44, 12])[0]
-                    
-                    # Gerar scores
-                    if resultado == 'PLAYER':
-                        player_score = random.randint(5, 9)
-                        banker_score = random.randint(2, player_score - 1)
-                    elif resultado == 'BANKER':
-                        banker_score = random.randint(5, 9)
-                        player_score = random.randint(2, banker_score - 1)
-                    else:
-                        player_score = banker_score = random.choice([6, 7, 8])
-                    
-                    rodada_sim = {
-                        'id': f"SIM_{int(time.time() * 1000)}",
-                        'data_hora': datetime.now(timezone.utc),
-                        'player_score': player_score,
-                        'banker_score': banker_score,
-                        'resultado': resultado,
-                        'fonte': 'simulacao'
-                    }
-                    
-                    fila_rodadas.append(rodada_sim)
-                    cache['historico_rodadas'].appendleft(rodada_sim)
-                    print(f"🎲 [SIM] {resultado}: {player_score} vs {banker_score}")
-                    tentativas_falhas = 0
-            
-            time.sleep(INTERVALO_BUSCA)
-            
+            time.sleep(INTERVALO_LATEST)
         except Exception as e:
-            print(f"❌ Erro no loop: {e}")
-            traceback.print_exc()
-            time.sleep(INTERVALO_BUSCA)
+            print(f"❌ Erro no loop LATEST: {e}")
+            time.sleep(INTERVALO_LATEST)
 
 
 # =============================================================================
@@ -2273,9 +2116,9 @@ def processar_fila(sistema):
                 fila_rodadas.clear()
                 
                 for rodada in batch:
-                    if salvar_rodada(rodada, rodada.get('fonte', 'principal')):
+                    if salvar_rodada(rodada, 'principal'):
                         historico_buffer.append(rodada)
-                        cache['historico_rodadas'].append(rodada)
+                        cache['historico_rodadas'].append(rodada)  # Adicionado ao cache
                         cache['ultimo_resultado_real'] = rodada['resultado']
                         
                         # Verificar previsão anterior
@@ -2349,14 +2192,12 @@ def health_urgente():
         'status': 'ok',
         'mensagem': 'Sistema de Agentes Infinitos',
         'timestamp': time.time(),
-        'versao': 'Agentes_Infinitos_v2.0_TipMiner',
+        'versao': 'Agentes_Infinitos_v2.0',
         'total_agentes': total_agentes,
         'agentes_ativos': agentes_ativos,
         'pytorch_disponivel': TORCH_AVAILABLE,
-        'device': DEVICE_STR,
-        'precisao': calcular_precisao(),
-        'fonte_ativa': fonte_ativa,
-        'total_rodadas': len(cache['historico_rodadas'])
+        'device': DEVICE_STR,  # Usar a string em vez do objeto
+        'precisao': calcular_precisao()
     })
 
 @app.route('/api/stats')
@@ -2592,8 +2433,7 @@ def api_neuro_status():
         'saude_media': 85.0,
         'evolucao_ativa': True,
         'pytorch': TORCH_AVAILABLE,
-        'device': DEVICE_STR,
-        'fonte': fonte_ativa
+        'device': DEVICE_STR
     })
 
 @app.route('/api/tabela/<int:limite>')
@@ -2619,18 +2459,6 @@ def api_tabela(limite):
         })
     return jsonify(resultado)
 
-@app.route('/api/fonte-status')
-def api_fonte_status():
-    """Status da fonte de dados atual"""
-    return jsonify({
-        'fonte_ativa': fonte_ativa,
-        'ultimo_id': ultimo_id_latest,
-        'total_rodadas_cache': len(cache['historico_rodadas']),
-        'fontes': fontes_status,
-        'tipminer_url': TIPMINER_NOTIFICATIONS_URL,
-        'casino_org_url': LATEST_API_URL
-    })
-
 
 # =============================================================================
 # 21. MAIN
@@ -2638,7 +2466,7 @@ def api_fonte_status():
 
 if __name__ == "__main__":
     print("="*80)
-    print("🐟 BACBO PREDICTOR - AGENTES INFINITOS (VERSÃO TIPMINER)")
+    print("🐟 BACBO PREDICTOR - AGENTES INFINITOS (VERSÃO COMPLETA)")
     print("="*80)
     print("   ✅ TODO NOVO PADRÃO = NOVO AGENTE RL")
     print("   ✅ AGENTES TURBINADOS (REDES NEURAIS)")
@@ -2652,7 +2480,6 @@ if __name__ == "__main__":
     print("   ✅ SISTEMA CURTO PRAZO")
     print("   ✅ ESTRATÉGIA DE SURTO")
     print("   ✅ ULTRA PRECISÃO")
-    print("   ✅ FONTE PRINCIPAL: TIPMINER API")
     print("="*80)
     
     # Inicializar banco
@@ -2675,7 +2502,6 @@ if __name__ == "__main__":
     print(f"   Agentes por tipo: {stats['agentes_por_tipo']}")
     print(f"   PyTorch: {'✅ Disponível' if TORCH_AVAILABLE else '❌ Modo fallback'}")
     print(f"   Precisão atual: {stats['precisao']}%")
-    print(f"   Fonte Ativa: {fonte_ativa}")
     
     # Iniciar threads
     print("\n🔌 Iniciando threads...")
@@ -2710,7 +2536,6 @@ if __name__ == "__main__":
     print("   /api/treinar - Treinar por simulação")
     print("   /api/criar_agente - Criar agente")
     print("   /api/tabela/<n> - Histórico")
-    print("   /api/fonte-status - Status da fonte")
     print("="*80)
     
     app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
