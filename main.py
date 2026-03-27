@@ -2156,20 +2156,24 @@ class SistemaRLCompleto:
         self.melhor_precisao = 0
         self.manipulacoes_detectadas = 0
         
-        # Criar 1000 agentes (800 normais + 200 turbinados)
-        for i in range(650):
+        # Criar 800 agentes (600 normais + 200 turbinados)
+        print("🔄 Inicializando 800 agentes (600 normais + 200 turbinados)...")
+        
+        # 600 agentes normais (índices 0-599)
+        for i in range(600):
             nome = f"RL_Agente_{i+1}"
             random.seed(i * 42)
             np.random.seed(i * 42)
             self.agentes[nome] = AgenteRLPuro(nome, i)
         
-        for i in range(650, 900):
+        # 200 agentes turbinados (índices 600-799)
+        for i in range(600, 800):
             nome = f"RL_Turbinado_{i+1}"
             random.seed(i * 42)
             np.random.seed(i * 42)
             self.agentes[nome] = AgenteRLElitizado(nome, i)
             
-        print(f"✅ 800 agentes normais + 200 agentes turbinados inicializados")
+        print(f"✅ 600 agentes normais + 200 agentes turbinados inicializados (total: {len(self.agentes)})")
         
         if TORCH_AVAILABLE:
             self._criar_meta_agente()
@@ -2321,8 +2325,8 @@ class SistemaRLCompleto:
                     'tipo': self._classificar_padrao(agente)
                 }
                 
-                if not any(p['agente'] == padrao['agente'] for p in cache['padroes_descobertos']):
-                    cache['padroes_descobertos'].append(padrao)
+                if not any(p['agente'] == padrao['agente'] for p in self.padroes_descobertos):
+                    self.padroes_descobertos.append(padrao)
                     print(f"\n🎯 RL DESCOBRIU NOVO PADRÃO: {padrao['agente']} - {padrao['precisao']}%")
     
     def _classificar_padrao(self, agente_stats):
@@ -2377,6 +2381,7 @@ class SistemaRLCompleto:
                 'geracao': self.geracao,
                 'melhor_precisao': self.melhor_precisao,
                 'manipulacoes_detectadas': self.manipulacoes_detectadas,
+                'padroes_descobertos': self.padroes_descobertos,
                 'agentes': {nome: agente.para_dict() for nome, agente in self.agentes.items()}
             }
             
@@ -2408,6 +2413,7 @@ class SistemaRLCompleto:
             self.geracao = estado.get('geracao', 0)
             self.melhor_precisao = estado.get('melhor_precisao', 0)
             self.manipulacoes_detectadas = estado.get('manipulacoes_detectadas', 0)
+            self.padroes_descobertos = estado.get('padroes_descobertos', [])
             
             for nome, dados in estado.get('agentes', {}).items():
                 if nome in self.agentes:
