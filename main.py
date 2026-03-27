@@ -2157,13 +2157,13 @@ class SistemaRLCompleto:
         self.manipulacoes_detectadas = 0
         
         # Criar 1000 agentes (800 normais + 200 turbinados)
-        for i in range(720):
+        for i in range(650):
             nome = f"RL_Agente_{i+1}"
             random.seed(i * 42)
             np.random.seed(i * 42)
             self.agentes[nome] = AgenteRLPuro(nome, i)
         
-        for i in range(720, 900):
+        for i in range(650, 900):
             nome = f"RL_Turbinado_{i+1}"
             random.seed(i * 42)
             np.random.seed(i * 42)
