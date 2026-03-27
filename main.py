@@ -2155,29 +2155,21 @@ class SistemaRLCompleto:
         self.geracao = 0
         self.melhor_precisao = 0
         self.manipulacoes_detectadas = 0
-        self.ultima_previsao = None
-        self.ultima_confianca = 0
-        self.ultimos_votos = []
-        self.stats_cache = {}
         
-        # Criar 800 agentes (600 normais + 200 turbinados)
-        print("🔄 Inicializando 800 agentes (600 normais + 200 turbinados)...")
-        
-        # 600 agentes normais (índices 0-599)
-        for i in range(600):
+        # Criar 1000 agentes (800 normais + 200 turbinados)
+        for i in range(720):
             nome = f"RL_Agente_{i+1}"
             random.seed(i * 42)
             np.random.seed(i * 42)
             self.agentes[nome] = AgenteRLPuro(nome, i)
         
-        # 200 agentes turbinados (índices 600-799)
-        for i in range(600, 800):
+        for i in range(720, 900):
             nome = f"RL_Turbinado_{i+1}"
             random.seed(i * 42)
             np.random.seed(i * 42)
             self.agentes[nome] = AgenteRLElitizado(nome, i)
             
-        print(f"✅ 600 agentes normais + 200 agentes turbinados inicializados (total: {len(self.agentes)})")
+        print(f"✅ 800 agentes normais + 200 agentes turbinados inicializados")
         
         if TORCH_AVAILABLE:
             self._criar_meta_agente()
@@ -2193,48 +2185,40 @@ class SistemaRLCompleto:
             self.meta_agente = None
     
     def processar_rodada(self, historico, resultado_real=None):
-        """Processa uma rodada e retorna a previsão do sistema"""
         if len(historico) < 30:
             return None
             
         votos = {'BANKER': 0, 'PLAYER': 0}
         votos_detalhados = []
         
-        # Coletar votos de todos os agentes
         for nome, agente in self.agentes.items():
-            try:
-                acao, confianca = agente.agir(historico[:-1])
-                previsao = 'BANKER' if acao == 0 else 'PLAYER'
-                
-                peso_voto = agente.peso * confianca
-                
-                # Agentes turbinados têm peso maior
-                if hasattr(agente, 'tipo') and agente.tipo == 'TURBINADO':
-                    peso_voto *= 1.2
-                
-                # Bônus por especialidade
-                if hasattr(agente, 'especialidade') and agente.especialidade:
-                    if agente.especialidade in str(historico[-5:]):
-                        peso_voto *= 1.5
-                    elif 'manipulacao' in agente.especialidade and self.manipulacoes_detectadas > 0:
-                        peso_voto *= 1.3
-                
-                votos[previsao] += peso_voto
-                
-                votos_detalhados.append({
-                    'agente': nome,
-                    'previsao': previsao,
-                    'peso': round(agente.peso, 2),
-                    'confianca': round(confianca * 100, 1),
-                    'peso_total': round(peso_voto, 2),
-                    'especialidade': getattr(agente, 'especialidade', 'Nenhuma'),
-                    'tipo': 'TURBINADO' if hasattr(agente, 'tipo') else 'NORMAL'
-                })
-            except Exception as e:
-                print(f"⚠️ Erro no agente {nome}: {e}")
-                continue
+            acao, confianca = agente.agir(historico[:-1])
+            previsao = 'BANKER' if acao == 0 else 'PLAYER'
+            
+            peso_voto = agente.peso * confianca
+            
+            # Agentes turbinados têm peso maior naturalmente
+            if hasattr(agente, 'tipo') and agente.tipo == 'TURBINADO':
+                peso_voto *= 1.2
+            
+            if agente.especialidade:
+                if agente.especialidade in str(historico[-5:]):
+                    peso_voto *= 1.5
+                elif 'manipulacao' in agente.especialidade and self.manipulacoes_detectadas > 0:
+                    peso_voto *= 1.3
+            
+            votos[previsao] += peso_voto
+            
+            votos_detalhados.append({
+                'agente': nome,
+                'previsao': previsao,
+                'peso': round(agente.peso, 2),
+                'confianca': round(confianca * 100, 1),
+                'peso_total': round(peso_voto, 2),
+                'especialidade': agente.especialidade,
+                'tipo': 'TURBINADO' if hasattr(agente, 'tipo') else 'NORMAL'
+            })
         
-        # Decisão final
         previsao_final = max(votos, key=votos.get)
         total_votos = sum(votos.values())
         
@@ -2248,18 +2232,12 @@ class SistemaRLCompleto:
         
         divergencia = abs(votos['BANKER'] - votos['PLAYER']) / total_votos if total_votos > 0 else 0
         
-        # Meta-agente em caso de empate
         if divergencia < 0.2 and self.meta_agente is not None:
             meta_previsao = self._consultar_meta_agente(historico, votos_detalhados)
             if meta_previsao:
                 previsao_final = meta_previsao
                 confianca_final = 60
                 print(f"🎯 Meta-agente ativado! Decisão: {previsao_final}")
-        
-        # Armazenar no histórico global
-        self.ultima_previsao = previsao_final
-        self.ultima_confianca = confianca_final
-        self.ultimos_votos = votos_detalhados[:10]  # Guarda top 10 votos
         
         self.historico_global.append({
             'previsao': previsao_final,
@@ -2268,10 +2246,6 @@ class SistemaRLCompleto:
             'timestamp': datetime.now(),
             'divergencia': divergencia
         })
-        
-        # Se temos resultado real, aprende
-        if resultado_real:
-            self.aprender_com_resultado(historico, resultado_real)
         
         return {
             'previsao': previsao_final,
@@ -2284,7 +2258,7 @@ class SistemaRLCompleto:
     def _consultar_meta_agente(self, historico, votos):
         try:
             features = []
-            for voto in sorted(votos, key=lambda x: x['agente'])[:20]:  # Limita a 20 agentes
+            for voto in sorted(votos, key=lambda x: x['agente']):
                 features.append(voto['peso'])
                 features.append(voto['confianca']/100)
             
@@ -2310,27 +2284,21 @@ class SistemaRLCompleto:
             return None
     
     def aprender_com_resultado(self, historico, resultado_real):
-        """Atualiza os agentes com o resultado real"""
+        # AGORA processa TIE normalmente (removido o bloco if resultado_real == 'TIE')
         acertos = 0
         for nome, agente in self.agentes.items():
-            try:
-                acao, _ = agente.agir(historico[:-1])
-                acertou = agente.aprender(historico, acao, resultado_real)
-                if acertou:
-                    acertos += 1
-            except Exception as e:
-                print(f"⚠️ Erro ao aprender com {nome}: {e}")
+            acao, _ = agente.agir(historico[:-1])
+            acertou = agente.aprender(historico, acao, resultado_real)
+            if acertou:
+                acertos += 1
                 
-        if len(self.historico_global) % 100 == 0 and len(self.historico_global) > 0:
+        if len(self.historico_global) % 100 == 0:
             self.geracao += 1
             self._avaliar_evolucao()
-        
-        # Limpar cache de stats
-        self.stats_cache = {}
     
     def _avaliar_evolucao(self):
         stats = self.get_stats()
-        precisao_media = stats.get('precisao_media', 0)
+        precisao_media = stats['precisao_media']
         
         if precisao_media > self.melhor_precisao:
             self.melhor_precisao = precisao_media
@@ -2339,83 +2307,59 @@ class SistemaRLCompleto:
     
     def _detectar_padroes(self):
         top_agentes = sorted(
-            [a.get_stats() for a in self.agentes.values() if hasattr(a, 'total_uso') and a.total_uso > 100],
-            key=lambda x: x.get('precisao', 0),
+            [a.get_stats() for a in self.agentes.values() if a.total_uso > 100],
+            key=lambda x: x['precisao'],
             reverse=True
         )[:3]
         
-        for agente_stats in top_agentes:
-            if agente_stats.get('precisao', 0) > 65:
+        for agente in top_agentes:
+            if agente['precisao'] > 65:
                 padrao = {
-                    'agente': agente_stats['nome'],
-                    'precisao': agente_stats['precisao'],
+                    'agente': agente['nome'],
+                    'precisao': agente['precisao'],
                     'descoberto_em': datetime.now().isoformat(),
-                    'tipo': self._classificar_padrao(agente_stats)
+                    'tipo': self._classificar_padrao(agente)
                 }
                 
-                if not any(p['agente'] == padrao['agente'] for p in self.padroes_descobertos):
-                    self.padroes_descobertos.append(padrao)
+                if not any(p['agente'] == padrao['agente'] for p in cache['padroes_descobertos']):
+                    cache['padroes_descobertos'].append(padrao)
                     print(f"\n🎯 RL DESCOBRIU NOVO PADRÃO: {padrao['agente']} - {padrao['precisao']}%")
     
     def _classificar_padrao(self, agente_stats):
-        precisao = agente_stats.get('precisao', 0)
-        if precisao > 75:
+        if agente_stats['precisao'] > 75:
             return "CONTRAGOLPE (75%+)"
-        elif precisao > 70:
+        elif agente_stats['precisao'] > 70:
             return "RESET CLUSTER (70-75%)"
-        elif precisao > 65:
+        elif agente_stats['precisao'] > 65:
             return "MOEDOR (65-70%)"
         else:
             return "Padrão em desenvolvimento"
     
     def get_stats(self):
-        """Retorna estatísticas do sistema"""
-        # Usar cache se disponível
-        if self.stats_cache:
-            return self.stats_cache
-            
         stats = {
             'geracao': self.geracao,
             'melhor_precisao': round(self.melhor_precisao, 1),
             'precisao_media': 0,
             'manipulacoes_detectadas': self.manipulacoes_detectadas,
-            'total_agentes': len(self.agentes),
-            'total_normais': 0,
-            'total_turbinados': 0,
-            'precisao_normais': 0,
-            'precisao_turbinados': 0,
-            'agentes': [],
-            'ultima_previsao': self.ultima_previsao,
-            'ultima_confianca': self.ultima_confianca,
-            'ultimos_votos': self.ultimos_votos
+            'agentes': []
         }
         
         total_precisao = 0
         count = 0
         turbinados_count = 0
         turbinados_precisao = 0
-        normais_count = 0
-        normais_precisao = 0
         
         for nome, agente in self.agentes.items():
-            try:
-                agente_stats = agente.get_stats()
-                agente_stats['tipo'] = 'TURBINADO' if hasattr(agente, 'tipo') else 'NORMAL'
-                stats['agentes'].append(agente_stats)
+            agente_stats = agente.get_stats()
+            stats['agentes'].append(agente_stats)
+            
+            if agente_stats['total'] > 0:
+                total_precisao += agente_stats['precisao']
+                count += 1
                 
-                if agente_stats.get('total', 0) > 0:
-                    total_precisao += agente_stats['precisao']
-                    count += 1
-                    
-                    if agente_stats['tipo'] == 'TURBINADO':
-                        turbinados_count += 1
-                        turbinados_precisao += agente_stats['precisao']
-                    else:
-                        normais_count += 1
-                        normais_precisao += agente_stats['precisao']
-            except Exception as e:
-                print(f"⚠️ Erro ao obter stats de {nome}: {e}")
-                continue
+                if agente_stats.get('tipo') == 'TURBINADO':
+                    turbinados_count += 1
+                    turbinados_precisao += agente_stats['precisao']
                 
         if count > 0:
             stats['precisao_media'] = round(total_precisao / count, 1)
@@ -2424,14 +2368,7 @@ class SistemaRLCompleto:
             stats['precisao_turbinados'] = round(turbinados_precisao / turbinados_count, 1)
             stats['total_turbinados'] = turbinados_count
             
-        if normais_count > 0:
-            stats['precisao_normais'] = round(normais_precisao / normais_count, 1)
-            stats['total_normais'] = normais_count
-            
-        stats['agentes'].sort(key=lambda x: x.get('precisao', 0), reverse=True)
-        
-        # Cache por 5 segundos
-        self.stats_cache = stats
+        stats['agentes'].sort(key=lambda x: x['precisao'], reverse=True)
         return stats
     
     def salvar_estado(self, arquivo='rl_estado.json'):
@@ -2440,15 +2377,11 @@ class SistemaRLCompleto:
                 'geracao': self.geracao,
                 'melhor_precisao': self.melhor_precisao,
                 'manipulacoes_detectadas': self.manipulacoes_detectadas,
-                'padroes_descobertos': self.padroes_descobertos,
-                'agentes': {}
+                'agentes': {nome: agente.para_dict() for nome, agente in self.agentes.items()}
             }
             
             for nome, agente in self.agentes.items():
-                estado['agentes'][nome] = agente.para_dict()
-                estado['agentes'][nome]['tipo'] = 'TURBINADO' if hasattr(agente, 'tipo') else 'NORMAL'
-                
-                if hasattr(agente, 'model') and agente.model is not None:
+                if agente.model is not None:
                     pesos_path = f'pesos_{nome}.pt'
                     torch.save(agente.model.state_dict(), pesos_path)
                     estado['agentes'][nome]['pesos_file'] = pesos_path
@@ -2475,44 +2408,32 @@ class SistemaRLCompleto:
             self.geracao = estado.get('geracao', 0)
             self.melhor_precisao = estado.get('melhor_precisao', 0)
             self.manipulacoes_detectadas = estado.get('manipulacoes_detectadas', 0)
-            self.padroes_descobertos = estado.get('padroes_descobertos', [])
             
-            carregados = 0
             for nome, dados in estado.get('agentes', {}).items():
                 if nome in self.agentes:
-                    tipo_salvo = dados.get('tipo', 'NORMAL')
-                    tipo_atual = 'TURBINADO' if hasattr(self.agentes[nome], 'tipo') else 'NORMAL'
-                    
-                    # Se o tipo mudou, recriar o agente
-                    if tipo_salvo != tipo_atual:
-                        if tipo_salvo == 'TURBINADO':
-                            novo_agente = AgenteRLElitizado(nome, dados.get('id', 0))
-                        else:
-                            novo_agente = AgenteRLPuro(nome, dados.get('id', 0))
-                        
+                    # Manter o tipo original do agente (não converter turbinados em normais)
+                    if 'Turbinado' in nome and not isinstance(self.agentes[nome], AgenteRLElitizado):
+                        # Se era turbinado mas perdeu o tipo, recriar
+                        novo_agente = AgenteRLElitizado(nome, dados['id'])
                         for key, value in dados.items():
-                            if key not in ['pesos_file', 'tipo'] and hasattr(novo_agente, key):
+                            if hasattr(novo_agente, key):
                                 setattr(novo_agente, key, value)
-                        
                         self.agentes[nome] = novo_agente
+                    else:
+                        for key, value in dados.items():
+                            if hasattr(self.agentes[nome], key):
+                                setattr(self.agentes[nome], key, value)
                     
-                    # Carregar atributos
-                    for key, value in dados.items():
-                        if key not in ['pesos_file', 'tipo'] and hasattr(self.agentes[nome], key):
-                            setattr(self.agentes[nome], key, value)
-                    
-                    # Carregar pesos
                     pesos_file = dados.get('pesos_file')
-                    if pesos_file and Path(pesos_file).exists() and hasattr(self.agentes[nome], 'model'):
+                    if pesos_file and Path(pesos_file).exists():
                         try:
                             self.agentes[nome].model.load_state_dict(
                                 torch.load(pesos_file, map_location=DEVICE)
                             )
-                            if hasattr(self.agentes[nome], 'target_model'):
-                                self.agentes[nome].target_model.load_state_dict(
-                                    self.agentes[nome].model.state_dict()
-                                )
-                            carregados += 1
+                            self.agentes[nome].target_model.load_state_dict(
+                                self.agentes[nome].model.state_dict()
+                            )
+                            print(f"   ✅ Pesos carregados para {nome}")
                         except Exception as e:
                             print(f"   ⚠️ Erro ao carregar pesos de {nome}: {e}")
                     
