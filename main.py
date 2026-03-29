@@ -2163,7 +2163,7 @@ class SistemaRLCompleto:
             np.random.seed(i * 42)
             self.agentes[nome] = AgenteRLPuro(nome, i)
         
-        for i in range(720, 900):
+        for i in range(720, 700):
             nome = f"RL_Turbinado_{i+1}"
             random.seed(i * 42)
             np.random.seed(i * 42)
