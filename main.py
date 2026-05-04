@@ -2,6 +2,7 @@ import asyncio
 import json
 from datetime import datetime
 from playwright.async_api import async_playwright
+import os
 
 class BacBoCapturer:
     def __init__(self):
@@ -73,24 +74,55 @@ class BacBoCapturer:
                         with open("bacbo_results.json", "w") as f:
                             json.dump(self.results, f, indent=2)
                         
+                        # Salva também em CSV
+                        self.save_to_csv(result)
+                        
         except json.JSONDecodeError:
             pass
         except Exception as e:
             print(f"Erro: {e}")
     
+    def save_to_csv(self, result):
+        """Salva resultado em CSV"""
+        import csv
+        import os
+        
+        args = result['args']
+        file_exists = os.path.isfile('bacbo_results.csv')
+        
+        with open('bacbo_results.csv', 'a', newline='') as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow(['timestamp', 'round', 'dice1', 'dice2', 'dice3', 'dice4', 'player_total', 'banker_total', 'winner'])
+            
+            writer.writerow([
+                args['timestamp'],
+                args['round'],
+                args['dice'][0], args['dice'][1], args['dice'][2], args['dice'][3],
+                args['player_total'],
+                args['banker_total'],
+                args['winner']
+            ])
+    
     async def run(self):
         """Executa o capturador"""
         print("="*60)
         print("🎰 BAC BO - CAPTURADOR AUTOMÁTICO")
-        print("   (Igual ao do vídeo - com navegador real)")
+        print("   Igual ao do vídeo - com navegador real")
         print("="*60)
         
+        # Verifica se é modo headless
+        headless = os.environ.get('HEADLESS', 'false').lower() == 'true'
+        
         async with async_playwright() as p:
-            # Abre navegador REAL (não headless)
+            # Abre navegador REAL
             browser = await p.chromium.launch(
-                headless=False,  # False para ver o navegador
+                headless=headless,
                 args=[
-                    '--disable-blink-features=AutomationControlled'
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-dev-shm-usage',
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox'
                 ]
             )
             
@@ -107,8 +139,9 @@ class BacBoCapturer:
             print("\n🌐 Abrindo o site...")
             await page.goto("https://win1.casino/pt-br/game/evolution-gaming-bac-bo")
             
+            # Aguarda o iframe carregar
             print("\n⏳ Aguardando o jogo carregar...")
-            await page.wait_for_timeout(10000)
+            await page.wait_for_timeout(15000)
             
             print("\n✅ Jogo carregado! Aguardando resultados...")
             print("💡 O navegador vai ficar aberto capturando os resultados\n")
@@ -117,6 +150,10 @@ class BacBoCapturer:
             def on_websocket(ws):
                 print(f"\n🔌 WebSocket conectado!")
                 print(f"📡 URL: {ws.url[:100]}...")
+                
+                # Salva URL do WebSocket
+                with open("websocket_url.txt", "w") as f:
+                    f.write(ws.url)
                 
                 # Escuta mensagens
                 ws.on("framereceived", lambda frame: self.process_message(frame.payload))
